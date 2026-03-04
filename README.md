@@ -1,4 +1,4 @@
-# elpx-docx
+# eXeConvert
 
 Conversor estático en navegador para transformar proyectos `.elpx` de eXeLearning 4 en `.docx`.
 

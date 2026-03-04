@@ -3,7 +3,7 @@
   "configVersion": 0,
   "workspaces": {
     "": {
-      "name": "elpx-docx",
+      "name": "execonvert",
       "dependencies": {
         "docx": "^9.6.0",
         "fflate": "^0.8.2",

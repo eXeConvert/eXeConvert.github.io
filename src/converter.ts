@@ -1,4 +1,5 @@
 import {
+  AlignmentType,
   Document as DocxDocument,
   ExternalHyperlink,
   HeadingLevel,
@@ -40,6 +41,11 @@ export interface ConvertResult {
   pageCount: number;
 }
 
+export interface ElpxHtmlResult {
+  html: string;
+  pageCount: number;
+}
+
 interface ParsedProject {
   title: string;
   subtitle: string;
@@ -52,6 +58,7 @@ interface ParsedPage {
   parentId: string | null;
   title: string;
   order: number;
+  depth: number;
   contentHtml: string;
 }
 
@@ -115,10 +122,10 @@ export async function convertElpxToDocx(
   const assets = collectAssets(entries);
 
   onProgress?.({ phase: 'render', message: 'Generando HTML intermedio...' });
-  const html = buildHtmlDocument(project, assets);
+  const html = await buildHtmlDocument(project, assets, entries);
 
   onProgress?.({ phase: 'docx', message: 'Generando el documento .docx...' });
-  const blob = await buildCompatibleDocx(project, assets);
+  const blob = await buildCompatibleDocx(html);
 
   return {
     blob,
@@ -128,44 +135,33 @@ export async function convertElpxToDocx(
   };
 }
 
-async function buildCompatibleDocx(project: ParsedProject, assets: Map<string, AssetEntry>): Promise<Blob> {
-  const children: Array<Paragraph | Table> = [
-    new Paragraph({
-      text: project.title,
-      heading: HeadingLevel.TITLE,
-    }),
-  ];
+export async function convertElpxToHtml(
+  file: File,
+  onProgress?: (progress: ConvertProgress) => void,
+): Promise<ElpxHtmlResult> {
+  onProgress?.({ phase: 'read', message: 'Leyendo el archivo .elpx...' });
+  const input = new Uint8Array(await file.arrayBuffer());
+  const entries = unzipSync(input);
 
-  if (project.subtitle) {
-    children.push(
-      new Paragraph({
-        children: [new TextRun({ text: project.subtitle, italics: true })],
-        spacing: { after: 260 },
-      }),
-    );
-  }
+  onProgress?.({ phase: 'parse', message: 'Analizando content.xml...' });
+  const project = parseProject(entries);
+  const assets = collectAssets(entries);
 
-  for (const page of project.pages) {
-    const renderedContent = sanitizeHtmlFragment(page.contentHtml, assets);
-    children.push(
-      new Paragraph({
-        text: page.title,
-        heading: HeadingLevel.HEADING_1,
-        spacing: { before: 280, after: 180 },
-      }),
-    );
+  onProgress?.({ phase: 'render', message: 'Generando HTML intermedio...' });
+  const html = await buildHtmlDocument(project, assets, entries);
 
-    const blocks = convertHtmlToDocxBlocks(renderedContent);
-    if (blocks.length === 0) {
-      children.push(new Paragraph({ text: 'Sin contenido exportable.' }));
-      continue;
-    }
+  return {
+    html,
+    pageCount: project.pages.length,
+  };
+}
 
-    children.push(...blocks);
-  }
+async function buildCompatibleDocx(htmlDocument: string): Promise<Blob> {
+  const htmlDoc = new DOMParser().parseFromString(htmlDocument, 'text/html');
+  const children = convertContainerChildrenToDocxBlocks(htmlDoc.body);
 
-  if (project.pages.length === 0) {
-    children.push(new Paragraph({ text: 'El proyecto no contiene páginas exportables.' }));
+  if (children.length === 0) {
+    children.push(new Paragraph({ text: 'El proyecto no contiene contenido exportable.' }));
   }
 
   const sections: ISectionOptions[] = [{ children }];
@@ -235,20 +231,28 @@ function parsePageNode(node: Element): ParsedPage | null {
     parentId,
     title,
     order,
+    depth: 1,
     contentHtml: fragments.join('\n'),
   };
 }
 
-function buildHtmlDocument(project: ParsedProject, assets: Map<string, AssetEntry>): string {
+async function buildHtmlDocument(
+  project: ParsedProject,
+  assets: Map<string, AssetEntry>,
+  entries: Record<string, Uint8Array>,
+): Promise<string> {
+  const exportedPages = (await extractRenderedExportedPageFragments(entries)) || extractExportedPageFragments(entries);
   const sections = project.pages
-    .map(page => {
-      const content = sanitizeHtmlFragment(page.contentHtml, assets);
+    .map((page, index) => {
+      const sourceHtml = exportedPages?.[index] || page.contentHtml;
+      const content = sanitizeHtmlFragment(sourceHtml, assets, page.depth);
       if (!content.trim()) {
         return '';
       }
 
+      const pageHeadingTag = `h${clampHeadingLevel(page.depth)}`;
       return `<section class="page">
-<h2>${escapeHtml(page.title)}</h2>
+<${pageHeadingTag}>${escapeHtml(page.title)}</${pageHeadingTag}>
 ${content}
 </section>`;
     })
@@ -263,7 +267,12 @@ ${content}
   <style>
     body { font-family: Georgia, "Times New Roman", serif; color: #222; line-height: 1.45; }
     h1 { font-size: 24pt; margin: 0 0 10pt; }
-    h2 { font-size: 16pt; margin: 24pt 0 10pt; padding-bottom: 4pt; border-bottom: 1pt solid #d7d0c2; }
+    h1, h2, h3, h4, h5, h6 { margin: 24pt 0 10pt; padding-bottom: 4pt; border-bottom: 1pt solid #d7d0c2; }
+    h2 { font-size: 16pt; }
+    h3 { font-size: 14pt; }
+    h4 { font-size: 13pt; }
+    h5 { font-size: 12pt; }
+    h6 { font-size: 11pt; }
     p, li { font-size: 11pt; }
     img { max-width: 100%; height: auto; }
     table { border-collapse: collapse; width: 100%; margin: 10pt 0; }
@@ -279,6 +288,313 @@ ${content}
   ${sections || '<p>El proyecto no contiene contenido exportable.</p>'}
 </body>
 </html>`;
+}
+
+async function extractRenderedExportedPageFragments(entries: Record<string, Uint8Array>): Promise<string[] | null> {
+  if (!entries['index.html']) {
+    return null;
+  }
+
+  const orderedPaths = getExportedHtmlPagePaths(entries);
+  const fragments: string[] = [];
+
+  for (const path of orderedPaths) {
+    const entry = entries[path];
+    if (!entry) {
+      continue;
+    }
+
+    try {
+      const rendered = await renderExportedPageContent(path, decodeUtf8(entry), entries);
+      if (rendered.trim()) {
+        fragments.push(rendered);
+      }
+    } catch {
+      return null;
+    }
+  }
+
+  return fragments.length > 0 ? fragments : null;
+}
+
+function extractExportedPageFragments(entries: Record<string, Uint8Array>): string[] | null {
+  if (!entries['index.html']) {
+    return null;
+  }
+
+  const orderedPaths = getExportedHtmlPagePaths(entries);
+  const fragments: string[] = [];
+
+  for (const path of orderedPaths) {
+    const entry = entries[path];
+    if (!entry) {
+      continue;
+    }
+
+    const html = decodeUtf8(entry);
+    const fragment = extractExportedPageContent(html);
+    if (fragment.trim()) {
+      fragments.push(fragment);
+    }
+  }
+
+  return fragments.length > 0 ? fragments : null;
+}
+
+function getExportedHtmlPagePaths(entries: Record<string, Uint8Array>): string[] {
+  const ordered = new Set<string>();
+  ordered.add('index.html');
+
+  const indexHtml = decodeUtf8(entries['index.html']);
+  const indexDoc = new DOMParser().parseFromString(indexHtml, 'text/html');
+  for (const anchor of Array.from(indexDoc.querySelectorAll<HTMLAnchorElement>('#siteNav a[href]'))) {
+    const href = (anchor.getAttribute('href') || '').trim();
+    if (!href || href.startsWith('#') || /^(?:javascript:|https?:)/i.test(href)) {
+      continue;
+    }
+
+    const normalized = normalizeAssetPath(href);
+    if (entries[normalized]) {
+      ordered.add(normalized);
+    }
+  }
+
+  if (ordered.size === 1) {
+    for (const path of Object.keys(entries)
+      .filter(path => /^html\/.+\.html$/i.test(path))
+      .sort()) {
+      ordered.add(path);
+    }
+  }
+
+  return Array.from(ordered);
+}
+
+function extractExportedPageContent(html: string): string {
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  const main = doc.querySelector('main.page') || doc.querySelector('main') || doc.body;
+  const clone = main.cloneNode(true) as HTMLElement;
+
+  for (const removable of Array.from(
+    clone.querySelectorAll(
+      [
+        '#exe-client-search',
+        '#siteNav',
+        'nav',
+        'script',
+        '.box-head',
+        '.box-toggle',
+        '#nodeDecoration',
+        '#packageLicense',
+        '#made-with-eXe',
+        '.pagination',
+        '#topPagination',
+        '#bottomPagination',
+        '#nodeTitle',
+        '#nodeSubTitle',
+      ].join(', '),
+    ),
+  )) {
+    removable.remove();
+  }
+
+  const boxContents = Array.from(clone.querySelectorAll<HTMLElement>('article.box > .box-content'));
+  if (boxContents.length > 0) {
+    return boxContents.map(box => box.innerHTML.trim()).filter(Boolean).join('\n');
+  }
+
+  return clone.innerHTML.trim();
+}
+
+async function renderExportedPageContent(
+  pagePath: string,
+  html: string,
+  entries: Record<string, Uint8Array>,
+): Promise<string> {
+  const preparedHtml = inlineExportedPageResources(pagePath, html, entries);
+
+  return new Promise<string>((resolve, reject) => {
+    const iframe = document.createElement('iframe');
+    iframe.setAttribute('sandbox', 'allow-scripts allow-same-origin');
+    iframe.setAttribute('aria-hidden', 'true');
+    iframe.style.position = 'fixed';
+    iframe.style.left = '-10000px';
+    iframe.style.top = '0';
+    iframe.style.width = '1280px';
+    iframe.style.height = '900px';
+    iframe.style.opacity = '0';
+    document.body.appendChild(iframe);
+
+    let settled = false;
+
+    const cleanup = () => {
+      iframe.remove();
+    };
+
+    const fail = (error: Error) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      cleanup();
+      reject(error);
+    };
+
+    iframe.addEventListener(
+      'load',
+      () => {
+        window.setTimeout(() => {
+          try {
+            const doc = iframe.contentDocument;
+            if (!doc) {
+              fail(new Error('No se ha podido acceder al documento renderizado.'));
+              return;
+            }
+
+            freezeCanvasElements(doc);
+            const content = extractExportedPageContent(doc.documentElement.outerHTML);
+            if (settled) {
+              return;
+            }
+            settled = true;
+            cleanup();
+            resolve(content);
+          } catch (error) {
+            fail(error instanceof Error ? error : new Error(String(error)));
+          }
+        }, 700);
+      },
+      { once: true },
+    );
+
+    iframe.srcdoc = preparedHtml;
+
+    window.setTimeout(() => {
+      if (!settled) {
+        fail(new Error('Tiempo de espera agotado al renderizar la página exportada.'));
+      }
+    }, 4000);
+  });
+}
+
+function inlineExportedPageResources(pagePath: string, html: string, entries: Record<string, Uint8Array>): string {
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+
+  for (const script of Array.from(doc.querySelectorAll<HTMLScriptElement>('script[src]'))) {
+    const src = script.getAttribute('src') || '';
+    const resolved = resolveEntryPathFromDocument(pagePath, src);
+    if (!resolved || !entries[resolved]) {
+      continue;
+    }
+
+    const inline = doc.createElement('script');
+    inline.textContent = decodeUtf8(entries[resolved]);
+    script.replaceWith(inline);
+  }
+
+  for (const link of Array.from(doc.querySelectorAll<HTMLLinkElement>('link[rel="stylesheet"][href]'))) {
+    const href = link.getAttribute('href') || '';
+    const resolved = resolveEntryPathFromDocument(pagePath, href);
+    if (!resolved || !entries[resolved]) {
+      continue;
+    }
+
+    const style = doc.createElement('style');
+    style.textContent = inlineCssAsset(resolved, entries);
+    link.replaceWith(style);
+  }
+
+  for (const element of Array.from(doc.querySelectorAll<HTMLElement>('[src], [href], [poster]'))) {
+    for (const attributeName of ['src', 'href', 'poster']) {
+      const rawValue = element.getAttribute(attributeName);
+      if (!rawValue) {
+        continue;
+      }
+
+      const resolved = resolveEntryPathFromDocument(pagePath, rawValue);
+      if (!resolved || !entries[resolved]) {
+        continue;
+      }
+
+      element.setAttribute(attributeName, toDataUrl({
+        zipPath: resolved,
+        data: entries[resolved],
+        mime: getMimeType(resolved),
+      }));
+    }
+  }
+
+  return `<!doctype html>\n${doc.documentElement.outerHTML}`;
+}
+
+function inlineCssAsset(cssPath: string, entries: Record<string, Uint8Array>): string {
+  const css = decodeUtf8(entries[cssPath]);
+  const cssDir = dirnamePath(cssPath);
+
+  return css.replace(/url\((['"]?)([^'")]+)\1\)/gi, (full, _quote: string, rawUrl: string) => {
+    const resolved = resolveEntryPathFromDocument(cssDir, rawUrl);
+    if (!resolved || !entries[resolved]) {
+      return full;
+    }
+
+    const dataUrl = toDataUrl({
+      zipPath: resolved,
+      data: entries[resolved],
+      mime: getMimeType(resolved),
+    });
+    return `url("${dataUrl}")`;
+  });
+}
+
+function resolveEntryPathFromDocument(basePath: string, rawValue: string): string | null {
+  const cleaned = rawValue.trim();
+  if (!cleaned || cleaned.startsWith('data:') || cleaned.startsWith('#') || /^(?:javascript:|https?:)?\/\//i.test(cleaned)) {
+    return null;
+  }
+
+  const pathOnly = cleaned.replace(/[?#].*$/, '');
+  const segments = basePath.split('/').filter(Boolean);
+  if (segments.length > 0 && !basePath.endsWith('/')) {
+    segments.pop();
+  }
+
+  for (const segment of pathOnly.split('/')) {
+    if (!segment || segment === '.') {
+      continue;
+    }
+    if (segment === '..') {
+      segments.pop();
+      continue;
+    }
+    segments.push(segment);
+  }
+
+  return normalizeAssetPath(segments.join('/'));
+}
+
+function dirnamePath(value: string): string {
+  const normalized = normalizeAssetPath(value);
+  const lastSlash = normalized.lastIndexOf('/');
+  if (lastSlash === -1) {
+    return '';
+  }
+  return normalized.slice(0, lastSlash + 1);
+}
+
+function freezeCanvasElements(doc: Document): void {
+  for (const canvas of Array.from(doc.querySelectorAll('canvas'))) {
+    try {
+      const dataUrl = canvas.toDataURL('image/png');
+      const image = doc.createElement('img');
+      image.setAttribute('src', dataUrl);
+      image.setAttribute('width', String(canvas.width || canvas.clientWidth || 1));
+      image.setAttribute('height', String(canvas.height || canvas.clientHeight || 1));
+      image.setAttribute('alt', 'Contenido renderizado');
+      canvas.replaceWith(image);
+    } catch {
+      canvas.remove();
+    }
+  }
 }
 
 async function renderLatexInHtml(contentHtml: string): Promise<string> {
@@ -436,7 +752,7 @@ async function ensureMathJaxReady(): Promise<MathJaxApi> {
       },
     } as MathJaxGlobal;
 
-    const existing = document.querySelector<HTMLScriptElement>('script[data-mathjax-loader="elpx-docx"]');
+    const existing = document.querySelector<HTMLScriptElement>('script[data-mathjax-loader="execonvert"]');
     if (existing) {
       existing.addEventListener('error', () => reject(new Error('No se ha podido cargar MathJax.')), { once: true });
       return;
@@ -445,7 +761,7 @@ async function ensureMathJaxReady(): Promise<MathJaxApi> {
     const script = document.createElement('script');
     script.src = 'https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js';
     script.async = true;
-    script.dataset.mathjaxLoader = 'elpx-docx';
+    script.dataset.mathjaxLoader = 'execonvert';
     script.onerror = () => reject(new Error('No se ha podido cargar MathJax desde el CDN.'));
     document.head.appendChild(script);
   });
@@ -531,6 +847,29 @@ function convertHtmlToDocxBlocks(contentHtml: string): Array<Paragraph | Table> 
   return blocks;
 }
 
+function convertContainerChildrenToDocxBlocks(container: ParentNode): Array<Paragraph | Table> {
+  const blocks: Array<Paragraph | Table> = [];
+  let orderedListIndex = 1;
+
+  for (const node of Array.from(container.childNodes)) {
+    if (node instanceof HTMLElement && node.tagName.toLowerCase() === 'section') {
+      blocks.push(...convertContainerChildrenToDocxBlocks(node));
+      orderedListIndex = 1;
+      continue;
+    }
+
+    blocks.push(...convertBlockNode(node, { listDepth: 0, listType: null, orderedIndex: orderedListIndex }));
+
+    if (node instanceof HTMLOListElement) {
+      orderedListIndex += Array.from(node.children).filter(child => child.tagName === 'LI').length;
+    } else {
+      orderedListIndex = 1;
+    }
+  }
+
+  return blocks;
+}
+
 function convertBlockNode(
   node: Node,
   context: { listDepth: number; listType: 'ul' | 'ol' | null; orderedIndex: number },
@@ -545,6 +884,45 @@ function convertBlockNode(
   }
 
   const tag = node.tagName.toLowerCase();
+
+  if (tag === 'figure') {
+    return convertFigureBlock(node, context);
+  }
+
+  if (tag === 'dl') {
+    return convertDefinitionList(node);
+  }
+
+  if (tag === 'dt') {
+    const label = normalizeWhitespace(node.textContent || '');
+    if (!label) {
+      return [];
+    }
+
+    return [
+      new Paragraph({
+        children: [new TextRun({ text: label, bold: true })],
+        spacing: { before: 120, after: 80 },
+      }),
+    ];
+  }
+
+  if (isStructuralBlockContainer(tag)) {
+    const nestedBlocks: Array<Paragraph | Table> = [];
+    let orderedListIndex = 1;
+
+    for (const child of Array.from(node.childNodes)) {
+      nestedBlocks.push(...convertBlockNode(child, { listDepth: context.listDepth, listType: null, orderedIndex: orderedListIndex }));
+
+      if (child instanceof HTMLOListElement) {
+        orderedListIndex += Array.from(child.children).filter(grandChild => grandChild.tagName === 'LI').length;
+      } else {
+        orderedListIndex = 1;
+      }
+    }
+
+    return nestedBlocks;
+  }
 
   if (tag === 'table') {
     return [convertTable(node)];
@@ -572,8 +950,23 @@ function convertBlockNode(
 
   const heading = getHeadingLevel(tag);
   const paragraphChildren = inlineChildrenFromNode(node);
+  const alignment = getParagraphAlignment(node);
+
+  if (tag === 'hr') {
+    return [new Paragraph({ text: ' ' })];
+  }
 
   if (paragraphChildren.length === 0) {
+    if (tag === 'p' && containsExplicitLineBreak(node)) {
+      return [
+        new Paragraph({
+          text: '',
+          alignment,
+          spacing: { after: 120 },
+        }),
+      ];
+    }
+
     const text = normalizeWhitespace(node.textContent || '');
     if (!text) {
       return [];
@@ -581,17 +974,117 @@ function convertBlockNode(
     paragraphChildren.push(new TextRun(text));
   }
 
-  if (tag === 'hr') {
-    return [new Paragraph({ text: ' ' })];
-  }
-
   return [
     new Paragraph({
       heading,
+      alignment,
       children: paragraphChildren,
       spacing: { after: tag.startsWith('h') ? 180 : 120 },
     }),
   ];
+}
+
+function isStructuralBlockContainer(tag: string): boolean {
+  return ['div', 'article', 'main', 'header', 'footer', 'dd'].includes(tag);
+}
+
+function containsExplicitLineBreak(node: HTMLElement): boolean {
+  return node.querySelector('br') !== null;
+}
+
+function getParagraphAlignment(node: HTMLElement) {
+  const style = (node.getAttribute('style') || '').toLowerCase();
+  const alignMatch = style.match(/text-align\s*:\s*(left|right|center|justify)/i);
+  const align = alignMatch?.[1] || '';
+
+  if (align === 'center') {
+    return AlignmentType.CENTER;
+  }
+
+  if (align === 'right') {
+    return AlignmentType.RIGHT;
+  }
+
+  if (align === 'justify') {
+    return AlignmentType.JUSTIFIED;
+  }
+
+  if (align === 'left') {
+    return AlignmentType.LEFT;
+  }
+
+  return undefined;
+}
+
+function convertFigureBlock(
+  node: HTMLElement,
+  context: { listDepth: number; listType: 'ul' | 'ol' | null; orderedIndex: number },
+): Array<Paragraph | Table> {
+  const blocks: Array<Paragraph | Table> = [];
+
+  for (const child of Array.from(node.childNodes)) {
+    blocks.push(...convertBlockNode(child, context));
+  }
+
+  return blocks;
+}
+
+function convertDefinitionList(node: HTMLElement): Array<Paragraph | Table> {
+  const blocks: Array<Paragraph | Table> = [];
+
+  for (const child of Array.from(node.children)) {
+    const tag = child.tagName.toLowerCase();
+
+    if (tag === 'dt') {
+      blocks.push(
+        ...convertBlockNode(child, {
+          listDepth: 0,
+          listType: null,
+          orderedIndex: 1,
+        }),
+      );
+      continue;
+    }
+
+    if (tag === 'dd') {
+      if (child instanceof HTMLElement) {
+        blocks.push(...convertDefinitionBody(child));
+      }
+      continue;
+    }
+  }
+
+  return blocks;
+}
+
+function convertDefinitionBody(node: HTMLElement): Array<Paragraph | Table> {
+  const blocks: Array<Paragraph | Table> = [];
+  let orderedListIndex = 1;
+
+  for (const child of Array.from(node.childNodes)) {
+    if (child instanceof Text) {
+      const text = normalizeWhitespace(child.textContent || '');
+      if (text) {
+        blocks.push(
+          new Paragraph({
+            children: [new TextRun(text)],
+            spacing: { after: 120 },
+          }),
+        );
+      }
+      continue;
+    }
+
+    blocks.push(...convertBlockNode(child, { listDepth: 0, listType: null, orderedIndex: orderedListIndex }));
+
+    if (child instanceof HTMLOListElement) {
+      orderedListIndex += Array.from(child.children).filter(grandChild => grandChild.tagName === 'LI').length;
+    } else {
+      orderedListIndex = 1;
+    }
+  }
+
+  return blocks;
 }
 
 function convertListItem(
@@ -1751,7 +2244,7 @@ function getHeadingLevel(tagName: string): (typeof HeadingLevel)[keyof typeof He
   }
 }
 
-function sanitizeHtmlFragment(sourceHtml: string, assets: Map<string, AssetEntry>): string {
+function sanitizeHtmlFragment(sourceHtml: string, assets: Map<string, AssetEntry>, pageDepth = 1): string {
   if (!sourceHtml.trim()) {
     return '';
   }
@@ -1776,6 +2269,12 @@ function sanitizeHtmlFragment(sourceHtml: string, assets: Map<string, AssetEntry
     removable.remove();
   }
 
+  for (const candidate of Array.from(template.content.querySelectorAll<HTMLElement>('div, img, a, p'))) {
+    if (shouldRemovePrintExtraElement(candidate)) {
+      candidate.remove();
+    }
+  }
+
   for (const details of Array.from(template.content.querySelectorAll('details'))) {
     details.setAttribute('open', 'open');
   }
@@ -1783,22 +2282,6 @@ function sanitizeHtmlFragment(sourceHtml: string, assets: Map<string, AssetEntry
   for (const feedback of Array.from(template.content.querySelectorAll('.feedback, .js-feedback, .feedbackjs'))) {
     feedback.removeAttribute('hidden');
     feedback.setAttribute('style', 'display:block; visibility:visible;');
-  }
-
-  for (const hidden of Array.from(template.content.querySelectorAll('[hidden]'))) {
-    hidden.removeAttribute('hidden');
-  }
-
-  for (const element of Array.from(template.content.querySelectorAll<HTMLElement>('[style]'))) {
-    const style = element.getAttribute('style') || '';
-    const nextStyle = style
-      .replace(/display\s*:\s*none\s*;?/gi, '')
-      .replace(/visibility\s*:\s*hidden\s*;?/gi, '');
-    if (nextStyle.trim()) {
-      element.setAttribute('style', nextStyle);
-    } else {
-      element.removeAttribute('style');
-    }
   }
 
   for (const anchor of Array.from(template.content.querySelectorAll('a'))) {
@@ -1820,6 +2303,13 @@ function sanitizeHtmlFragment(sourceHtml: string, assets: Map<string, AssetEntry
 
   for (const image of Array.from(template.content.querySelectorAll('img'))) {
     const src = image.getAttribute('src') || '';
+    const alt = (image.getAttribute('alt') || '').trim();
+
+    if (!src && /^\\[imagen\\]$/i.test(alt)) {
+      image.remove();
+      continue;
+    }
+
     if (/^(https?:)?\/\//i.test(src)) {
       const label = image.getAttribute('alt') || 'Imagen externa omitida';
       image.replaceWith(document.createTextNode(label));
@@ -1834,11 +2324,155 @@ function sanitizeHtmlFragment(sourceHtml: string, assets: Map<string, AssetEntry
   for (const media of Array.from(template.content.querySelectorAll('audio, video'))) {
     const source = media.getAttribute('src') || media.querySelector('source')?.getAttribute('src') || '';
     const replacement = document.createElement('p');
-    replacement.textContent = source ? `Recurso multimedia omitido: ${source}` : 'Recurso multimedia omitido.';
+    replacement.textContent = describeOmittedMedia(source);
     media.replaceWith(replacement);
   }
 
+  flattenFxBlocks(template.content);
+
+  const textNodes: Text[] = [];
+  const walker = document.createTreeWalker(template.content, NodeFilter.SHOW_TEXT);
+  while (walker.nextNode()) {
+    const current = walker.currentNode;
+    if (current instanceof Text) {
+      textNodes.push(current);
+    }
+  }
+
+  for (const textNode of textNodes) {
+    const source = textNode.nodeValue || '';
+    const sanitized = sanitizeEmbeddedDataText(source);
+    if (sanitized !== source) {
+      textNode.nodeValue = sanitized;
+    }
+  }
+
+  normalizeHeadingLevels(template.content, pageDepth);
+
   return template.innerHTML.trim();
+}
+
+function flattenFxBlocks(root: DocumentFragment): void {
+  for (const fxBlock of Array.from(root.querySelectorAll<HTMLElement>('.exe-fx'))) {
+    const fragment = document.createDocumentFragment();
+    let pendingText = '';
+
+    const flushText = () => {
+      const text = normalizeWhitespace(pendingText);
+      if (!text) {
+        pendingText = '';
+        return;
+      }
+
+      const paragraph = document.createElement('p');
+      paragraph.textContent = text;
+      fragment.appendChild(paragraph);
+      pendingText = '';
+    };
+
+    for (const child of Array.from(fxBlock.childNodes)) {
+      if (child.nodeType === Node.TEXT_NODE) {
+        pendingText += ` ${child.textContent || ''}`;
+        continue;
+      }
+
+      if (!(child instanceof HTMLElement)) {
+        continue;
+      }
+
+      const tag = child.tagName.toLowerCase();
+      if (/^h[1-6]$/.test(tag)) {
+        flushText();
+        const headingParagraph = document.createElement('p');
+        const strong = document.createElement('strong');
+        strong.textContent = normalizeWhitespace(child.textContent || '');
+        headingParagraph.appendChild(strong);
+        fragment.appendChild(headingParagraph);
+        continue;
+      }
+
+      flushText();
+      fragment.appendChild(child.cloneNode(true));
+    }
+
+    flushText();
+    fxBlock.replaceWith(fragment);
+  }
+}
+
+function describeOmittedMedia(source: string): string {
+  if (!source) {
+    return 'Recurso multimedia omitido.';
+  }
+
+  if (source.startsWith('data:')) {
+    return 'Recurso multimedia embebido omitido.';
+  }
+
+  return `Recurso multimedia omitido: ${source}`;
+}
+
+function sanitizeEmbeddedDataText(value: string): string {
+  return value.replace(/data:(?:audio|video)\/[a-z0-9.+-]+;base64,[A-Za-z0-9+/=\s]{120,}/gi, '[Recurso multimedia embebido omitido]');
+}
+
+function shouldRemovePrintExtraElement(element: HTMLElement): boolean {
+  const className = element.getAttribute('class') || '';
+  if (!className) {
+    return element.hasAttribute('data-evaluationid') || element.hasAttribute('data-evaluationb');
+  }
+
+  const classes = className.split(/\s+/).filter(Boolean);
+  const tagName = element.tagName.toLowerCase();
+
+  if (tagName === 'p' && classes.includes('exe-mindmap-code')) {
+    return true;
+  }
+
+  if (
+    classes.includes('game-evaluation-ids') ||
+    element.hasAttribute('data-evaluationid') ||
+    element.hasAttribute('data-evaluationb')
+  ) {
+    return true;
+  }
+
+  if (!classes.includes('js-hidden')) {
+    return false;
+  }
+
+  if (classes.includes('form-Data') || classes.some(classToken => /datagame/i.test(classToken))) {
+    return true;
+  }
+
+  if (tagName === 'div' && classes.some(classToken => /.+-(version|bns)$/i.test(classToken))) {
+    return true;
+  }
+
+  if ((tagName === 'a' || tagName === 'img') && classes.some(classToken => /image|audio|video/i.test(classToken))) {
+    return true;
+  }
+
+  return false;
+}
+
+function normalizeHeadingLevels(fragment: DocumentFragment, pageDepth: number): void {
+  const headings = Array.from(fragment.querySelectorAll('h1, h2, h3, h4, h5, h6'));
+
+  for (const heading of headings) {
+    const originalLevel = Number.parseInt(heading.tagName.slice(1), 10) || 1;
+    const targetLevel = clampHeadingLevel(pageDepth + originalLevel);
+    if (targetLevel === originalLevel) {
+      continue;
+    }
+
+    const replacement = document.createElement(`h${targetLevel}`);
+    for (const attribute of Array.from(heading.attributes)) {
+      replacement.setAttribute(attribute.name, attribute.value);
+    }
+    replacement.innerHTML = heading.innerHTML;
+    heading.replaceWith(replacement);
+  }
 }
 
 function rewriteAssetReferences(sourceHtml: string, assets: Map<string, AssetEntry>): string {
@@ -1951,7 +2585,7 @@ function sortPagesHierarchically(pages: ParsedPage[]): ParsedPage[] {
   const ordered: ParsedPage[] = [];
   const visited = new Set<string>();
 
-  const appendBranch = (parentId: string | null) => {
+  const appendBranch = (parentId: string | null, depth: number) => {
     const children = childrenByParent.get(parentId) || [];
     for (const child of children) {
       if (visited.has(child.id)) {
@@ -1959,21 +2593,44 @@ function sortPagesHierarchically(pages: ParsedPage[]): ParsedPage[] {
       }
 
       visited.add(child.id);
+      child.depth = depth;
       ordered.push(child);
-      appendBranch(child.id);
+      appendBranch(child.id, depth + 1);
     }
   };
 
-  appendBranch(null);
+  appendBranch(null, 1);
 
   for (const page of pages) {
     if (!visited.has(page.id)) {
       visited.add(page.id);
+      page.depth = 1;
       ordered.push(page);
     }
   }
 
   return ordered;
+}
+
+function clampHeadingLevel(level: number): number {
+  return Math.max(1, Math.min(6, level));
+}
+
+function toDocxHeadingLevel(level: number) {
+  switch (clampHeadingLevel(level)) {
+    case 1:
+      return HeadingLevel.HEADING_1;
+    case 2:
+      return HeadingLevel.HEADING_2;
+    case 3:
+      return HeadingLevel.HEADING_3;
+    case 4:
+      return HeadingLevel.HEADING_4;
+    case 5:
+      return HeadingLevel.HEADING_5;
+    default:
+      return HeadingLevel.HEADING_6;
+  }
 }
 
 function findPropertyValue(xmlDoc: globalThis.Document, key: string): string | null {
@@ -2013,7 +2670,13 @@ function normalizeNullable(value: string | null): string | null {
 }
 
 function normalizeAssetPath(value: string): string {
-  return value.trim().replace(/\\/g, '/').replace(/^\.\//, '').replace(/^\//, '').replace(/[?#].*$/, '');
+  return value
+    .trim()
+    .replace(/\\/g, '/')
+    .replace(/^(\.\/)+/, '')
+    .replace(/^(\.\.\/)+/, '')
+    .replace(/^\//, '')
+    .replace(/[?#].*$/, '');
 }
 
 function stripContentPrefix(value: string): string {
