@@ -1,100 +1,12 @@
 <!doctype html>
 <html lang="es">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>elpx-docx</title>
-  <style>
-    :root {
-      --bg: #f4efe4;
-      --panel: #fffaf2;
-      --ink: #1f2a1f;
-      --muted: #5f655a;
-      --accent: #1d6b57;
-      --line: #d4c7ad;
-    }
-    * { box-sizing: border-box; }
-    body {
-      margin: 0;
-      min-height: 100vh;
-      display: grid;
-      place-items: center;
-      padding: 24px;
-      font-family: Georgia, "Times New Roman", serif;
-      color: var(--ink);
-      background:
-        radial-gradient(circle at top right, rgba(29, 107, 87, 0.18), transparent 28%),
-        linear-gradient(180deg, #f8f3e8 0%, var(--bg) 100%);
-    }
-    main {
-      width: min(820px, 100%);
-      background: var(--panel);
-      border: 1px solid var(--line);
-      border-radius: 20px;
-      padding: 32px;
-      box-shadow: 0 20px 56px rgba(55, 45, 23, 0.12);
-    }
-    h1 {
-      margin: 0 0 10px;
-      font-size: clamp(2.2rem, 6vw, 4.4rem);
-      line-height: 0.95;
-    }
-    p {
-      margin: 0 0 16px;
-      line-height: 1.5;
-      font-size: 1.06rem;
-    }
-    .lead {
-      font-size: 1.15rem;
-    }
-    .note {
-      margin: 22px 0;
-      padding: 16px;
-      border-radius: 14px;
-      background: #eef7f2;
-      border: 1px solid #c7e3d8;
-    }
-    .links {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 12px;
-      margin-top: 22px;
-    }
-    a {
-      display: inline-block;
-      text-decoration: none;
-      color: #fff;
-      background: var(--accent);
-      padding: 12px 16px;
-      border-radius: 999px;
-      font-weight: 700;
-    }
-    .ghost {
-      background: transparent;
-      color: var(--accent);
-      border: 1px solid var(--accent);
-    }
-    small {
-      display: block;
-      margin-top: 22px;
-      color: var(--muted);
-      line-height: 1.45;
-    }
-  </style>
-</head>
-<body>
-  <main>
-    <h1>elpx-docx</h1>
-    <p class="lead">Conversión de proyectos <code>.elpx</code> a <code>.docx</code> reutilizando el exportador <code>HTML5 Single Page</code> de eXeLearning.</p>
-    <p>Este repositorio contiene una aplicación web en Bun. La conversión real necesita ejecutar el backend y el CLI de eXeLearning, así que GitHub Pages solo puede mostrar esta portada estática, no el conversor funcionando.</p>
-    <div class="note">
-      <p><strong>Limitación importante:</strong> GitHub Pages no puede ejecutar Bun, ni lanzar el exportador de eXeLearning, ni generar el <code>.docx</code>. Para usar la aplicación hay que arrancarla en un servidor o en local.</p>
-    </div>
-    <div class="links">
-      <a href="https://github.com/jjdeharo/elpx-docx">Ver repositorio</a>
-      <a class="ghost" href="https://github.com/jjdeharo/elpx-docx/blob/main/README.md">Leer README</a>
-    </div>
-    <small>Arranque local: <code>bun install</code> y <code>bun run start</code>. La interfaz real queda disponible en <code>http://localhost:3007</code>.</small>
-  </main>
-</body>
-</html>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ELPX a DOCX</title>
+    <script type="module" src="/src/index.ts"></script>
+  </head>
+  <body>
+    <div id="app"></div>
+  </body>
+  </html>

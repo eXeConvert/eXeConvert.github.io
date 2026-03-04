@@ -1,337 +1,517 @@
-import HtmlToDocx from "@turbodocx/html-to-docx";
-import { unzipSync } from "fflate";
-import { spawn } from "node:child_process";
-import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
-import path from "node:path";
-import { tmpdir } from "node:os";
+import { unzipSync } from 'fflate';
+import { asBlob } from 'html-docx-js-typescript';
 
-const DEFAULT_EXELEARNING_DIR = path.resolve(process.cwd(), "..", "exelearning");
-
-export interface ConvertOptions {
-  inputBuffer: Uint8Array;
-  inputFilename: string;
-  outputFilename?: string;
-  exelearningDir?: string;
+export interface ConvertProgress {
+  phase: 'read' | 'parse' | 'render' | 'docx';
+  message: string;
 }
 
 export interface ConvertResult {
-  outputBuffer: Buffer;
-  outputFilename: string;
+  blob: Blob;
+  filename: string;
+  html: string;
+  pageCount: number;
 }
 
-export async function convertElpxToDocx(options: ConvertOptions): Promise<ConvertResult> {
-  const exelearningDir = path.resolve(options.exelearningDir || DEFAULT_EXELEARNING_DIR);
-  await assertDirectory(exelearningDir, `No existe el repo de eXeLearning: ${exelearningDir}`);
-
-  const tempDir = await mkdtemp(path.join(tmpdir(), "elpx-to-docx-"));
-  const inputName = sanitizeInputFilename(options.inputFilename);
-  const inputPath = path.join(tempDir, inputName);
-  const zipPath = path.join(tempDir, "single-page.zip");
-  const outputFilename = sanitizeOutputFilename(options.outputFilename || inputName);
-  await writeFile(inputPath, options.inputBuffer);
-
-  try {
-    const cliArgs = await resolveExeLearningCliArgs(exelearningDir);
-
-    await runCommand(cliArgs[0], [...cliArgs.slice(1), "export-html5-sp", inputPath, zipPath], {
-      cwd: exelearningDir,
-    });
-
-    await assertFile(zipPath, `No se ha generado ${zipPath}`);
-    const zipBuffer = await readFile(zipPath);
-    const zipEntries = unzipSync(new Uint8Array(zipBuffer));
-    const html = buildInlineHtml(zipEntries);
-    const outputBuffer = await asBuffer(
-      HtmlToDocx(html, undefined, {
-        title: outputFilename.replace(/\.docx$/i, ""),
-        creator: "elpx-docx",
-        lang: "es-ES",
-        imageProcessing: {
-          svgHandling: "native",
-          suppressSharpWarning: true,
-        },
-      }),
-    );
-
-    return { outputBuffer, outputFilename };
-  } finally {
-    await rm(tempDir, { recursive: true, force: true });
-  }
+interface ParsedProject {
+  title: string;
+  subtitle: string;
+  language: string;
+  pages: ParsedPage[];
 }
 
-async function resolveExeLearningCliArgs(exelearningDir: string): Promise<string[]> {
-  const distCli = path.join(exelearningDir, "dist", "cli.js");
-  const srcCli = path.join(exelearningDir, "src", "cli", "index.ts");
-
-  if (await exists(distCli)) {
-    return ["bun", "run", "dist/cli.js"];
-  }
-
-  if (await exists(srcCli)) {
-    return ["bun", "src/cli/index.ts"];
-  }
-
-  throw new Error(`No encuentro el CLI de eXeLearning en ${exelearningDir}`);
+interface ParsedPage {
+  id: string;
+  parentId: string | null;
+  title: string;
+  order: number;
+  contentHtml: string;
 }
 
-async function exists(filePath: string): Promise<boolean> {
-  try {
-    await stat(filePath);
-    return true;
-  } catch {
+interface AssetEntry {
+  zipPath: string;
+  data: Uint8Array;
+  mime: string;
+}
+
+const ASSET_DIRECTORIES = ['resources', 'images', 'media', 'files', 'attachments'];
+const SYSTEM_FILES = new Set(['content.xml', 'contentv3.xml', 'content.data', 'content.xsd', 'imsmanifest.xml']);
+
+export async function convertElpxToDocx(
+  file: File,
+  onProgress?: (progress: ConvertProgress) => void,
+): Promise<ConvertResult> {
+  onProgress?.({ phase: 'read', message: 'Leyendo el archivo .elpx...' });
+  const input = new Uint8Array(await file.arrayBuffer());
+  const entries = unzipSync(input);
+
+  onProgress?.({ phase: 'parse', message: 'Analizando content.xml...' });
+  const project = parseProject(entries);
+  const assets = collectAssets(entries);
+
+  onProgress?.({ phase: 'render', message: 'Generando HTML intermedio...' });
+  const html = buildHtmlDocument(project, assets);
+
+  onProgress?.({ phase: 'docx', message: 'Generando el documento .docx...' });
+  const generated = await asBlob(html);
+  const blob = generated instanceof Blob ? generated : new Blob([generated]);
+
+  return {
+    blob,
+    filename: toOutputFilename(file.name),
+    html,
+    pageCount: project.pages.length,
+  };
+}
+
+function parseProject(entries: Record<string, Uint8Array>): ParsedProject {
+  const contentEntry = entries['content.xml'];
+  if (!contentEntry) {
+    throw new Error('No se ha encontrado content.xml. Esta versión inicial solo soporta ELPX modernos de eXeLearning 4.');
+  }
+
+  const xml = decodeUtf8(contentEntry);
+  const xmlDoc = new DOMParser().parseFromString(xml, 'application/xml');
+  const parserError = xmlDoc.querySelector('parsererror');
+  if (parserError) {
+    throw new Error('El content.xml no se ha podido interpretar correctamente.');
+  }
+
+  const title = findPropertyValue(xmlDoc, 'pp_title') || 'eXeLearning';
+  const subtitle = findPropertyValue(xmlDoc, 'pp_subtitle') || '';
+  const language = findPropertyValue(xmlDoc, 'pp_lang') || 'es';
+  const navStructures = Array.from(xmlDoc.getElementsByTagName('odeNavStructure'));
+
+  const pages = navStructures
+    .map(node => parsePageNode(node))
+    .filter((page): page is ParsedPage => page !== null);
+
+  return {
+    title,
+    subtitle,
+    language,
+    pages: sortPagesHierarchically(pages),
+  };
+}
+
+function parsePageNode(node: Element): ParsedPage | null {
+  const id = getDirectText(node, 'odePageId');
+  if (!id) {
+    return null;
+  }
+
+  const title = getDirectText(node, 'pageName') || 'Página sin título';
+  const parentId = normalizeNullable(getDirectText(node, 'odeParentPageId'));
+  const order = Number.parseInt(getDirectText(node, 'odeNavStructureOrder') || '0', 10) || 0;
+  const pageStructures = getDirectChildren(node, 'odePagStructures')
+    .flatMap(group => getDirectChildren(group, 'odePagStructure'))
+    .sort((a, b) => getOrder(a, 'odePagStructureOrder') - getOrder(b, 'odePagStructureOrder'));
+
+  const fragments: string[] = [];
+  for (const pageStructure of pageStructures) {
+    const components = getDirectChildren(pageStructure, 'odeComponents')
+      .flatMap(group => getDirectChildren(group, 'odeComponent'))
+      .sort((a, b) => getOrder(a, 'odeComponentsOrder') - getOrder(b, 'odeComponentsOrder'));
+
+    for (const component of components) {
+      const htmlView = getDirectText(component, 'htmlView');
+      if (htmlView) {
+        fragments.push(htmlView);
+      }
+    }
+  }
+
+  return {
+    id,
+    parentId,
+    title,
+    order,
+    contentHtml: fragments.join('\n'),
+  };
+}
+
+function buildHtmlDocument(project: ParsedProject, assets: Map<string, AssetEntry>): string {
+  const sections = project.pages
+    .map(page => {
+      const content = sanitizeHtmlFragment(page.contentHtml, assets);
+      if (!content.trim()) {
+        return '';
+      }
+
+      return `<section class="page">
+<h2>${escapeHtml(page.title)}</h2>
+${content}
+</section>`;
+    })
+    .filter(Boolean)
+    .join('\n');
+
+  return `<!doctype html>
+<html lang="${escapeAttribute(project.language)}">
+<head>
+  <meta charset="utf-8">
+  <title>${escapeHtml(project.title)}</title>
+  <style>
+    body { font-family: Georgia, "Times New Roman", serif; color: #222; line-height: 1.45; }
+    h1 { font-size: 24pt; margin: 0 0 10pt; }
+    h2 { font-size: 16pt; margin: 24pt 0 10pt; padding-bottom: 4pt; border-bottom: 1pt solid #d7d0c2; }
+    p, li { font-size: 11pt; }
+    img { max-width: 100%; height: auto; }
+    table { border-collapse: collapse; width: 100%; margin: 10pt 0; }
+    td, th { border: 1pt solid #bfb7a8; padding: 4pt 6pt; vertical-align: top; }
+    .project-subtitle { color: #5a544a; margin: 0 0 14pt; }
+    .feedback, .js-feedback, .feedbackjs { display: block !important; visibility: visible !important; }
+    .sr-av, .js-hidden, .screen-reader-text { display: none !important; }
+  </style>
+</head>
+<body>
+  <h1>${escapeHtml(project.title)}</h1>
+  ${project.subtitle ? `<p class="project-subtitle">${escapeHtml(project.subtitle)}</p>` : ''}
+  ${sections || '<p>El proyecto no contiene contenido exportable.</p>'}
+</body>
+</html>`;
+}
+
+function sanitizeHtmlFragment(sourceHtml: string, assets: Map<string, AssetEntry>): string {
+  if (!sourceHtml.trim()) {
+    return '';
+  }
+
+  const template = document.createElement('template');
+  template.innerHTML = rewriteAssetReferences(sourceHtml, assets);
+
+  for (const element of Array.from(template.content.querySelectorAll('*'))) {
+    for (const attribute of Array.from(element.attributes)) {
+      if (attribute.name.startsWith('on')) {
+        element.removeAttribute(attribute.name);
+      }
+    }
+
+    element.removeAttribute('id');
+    element.removeAttribute('contenteditable');
+  }
+
+  for (const removable of Array.from(
+    template.content.querySelectorAll('script, noscript, iframe, button, form, input, select, textarea'),
+  )) {
+    removable.remove();
+  }
+
+  for (const details of Array.from(template.content.querySelectorAll('details'))) {
+    details.setAttribute('open', 'open');
+  }
+
+  for (const feedback of Array.from(template.content.querySelectorAll('.feedback, .js-feedback, .feedbackjs'))) {
+    feedback.removeAttribute('hidden');
+    feedback.setAttribute('style', 'display:block; visibility:visible;');
+  }
+
+  for (const hidden of Array.from(template.content.querySelectorAll('[hidden]'))) {
+    hidden.removeAttribute('hidden');
+  }
+
+  for (const element of Array.from(template.content.querySelectorAll<HTMLElement>('[style]'))) {
+    const style = element.getAttribute('style') || '';
+    const nextStyle = style
+      .replace(/display\s*:\s*none\s*;?/gi, '')
+      .replace(/visibility\s*:\s*hidden\s*;?/gi, '');
+    if (nextStyle.trim()) {
+      element.setAttribute('style', nextStyle);
+    } else {
+      element.removeAttribute('style');
+    }
+  }
+
+  for (const anchor of Array.from(template.content.querySelectorAll('a'))) {
+    const href = anchor.getAttribute('href') || '';
+    if (href.startsWith('asset://')) {
+      anchor.replaceWith(document.createTextNode(anchor.textContent || anchor.getAttribute('download') || 'Adjunto'));
+      continue;
+    }
+
+    if (href.startsWith('exe-node:')) {
+      anchor.removeAttribute('href');
+      continue;
+    }
+
+    if (/^(?:javascript:|#)/i.test(href)) {
+      anchor.removeAttribute('href');
+    }
+  }
+
+  for (const image of Array.from(template.content.querySelectorAll('img'))) {
+    const src = image.getAttribute('src') || '';
+    if (/^(https?:)?\/\//i.test(src)) {
+      const label = image.getAttribute('alt') || 'Imagen externa omitida';
+      image.replaceWith(document.createTextNode(label));
+      continue;
+    }
+
+    if (!src.startsWith('data:') && !src.startsWith('asset://')) {
+      image.removeAttribute('src');
+    }
+  }
+
+  for (const media of Array.from(template.content.querySelectorAll('audio, video'))) {
+    const source = media.getAttribute('src') || media.querySelector('source')?.getAttribute('src') || '';
+    const replacement = document.createElement('p');
+    replacement.textContent = source ? `Recurso multimedia omitido: ${source}` : 'Recurso multimedia omitido.';
+    media.replaceWith(replacement);
+  }
+
+  return template.innerHTML.trim();
+}
+
+function rewriteAssetReferences(sourceHtml: string, assets: Map<string, AssetEntry>): string {
+  return sourceHtml.replace(
+    /\b(src|href|poster)=("([^"]*)"|'([^']*)')/gi,
+    (full, attributeName: string, quotedValue: string, doubleQuoted?: string, singleQuoted?: string) => {
+      const rawValue = doubleQuoted ?? singleQuoted ?? '';
+      const embeddedValue = resolveAssetValue(rawValue, assets);
+      if (embeddedValue === rawValue) {
+        return full;
+      }
+
+      const quote = quotedValue.startsWith('"') ? '"' : "'";
+      return `${attributeName}=${quote}${embeddedValue}${quote}`;
+    },
+  );
+}
+
+function resolveAssetValue(rawValue: string, assets: Map<string, AssetEntry>): string {
+  if (!rawValue || rawValue.startsWith('data:') || /^(?:https?:)?\/\//i.test(rawValue) || rawValue.startsWith('#')) {
+    return rawValue;
+  }
+
+  const normalized = normalizeAssetPath(rawValue.replace(/^\{\{context_path\}\}\//, ''));
+  const directAsset = assets.get(normalized);
+  if (directAsset) {
+    return toDataUrl(directAsset);
+  }
+
+  if (rawValue.startsWith('asset://')) {
+    const assetId = rawValue.slice('asset://'.length);
+    const byId = assets.get(normalizeAssetPath(assetId));
+    if (byId) {
+      return toDataUrl(byId);
+    }
+  }
+
+  return rawValue;
+}
+
+function collectAssets(entries: Record<string, Uint8Array>): Map<string, AssetEntry> {
+  const assets = new Map<string, AssetEntry>();
+
+  for (const [zipPath, data] of Object.entries(entries)) {
+    const normalized = normalizeAssetPath(zipPath);
+    if (!isAssetPath(normalized)) {
+      continue;
+    }
+
+    const asset: AssetEntry = {
+      zipPath: normalized,
+      data,
+      mime: getMimeType(normalized),
+    };
+
+    assets.set(normalized, asset);
+    assets.set(normalizeAssetPath(stripContentPrefix(normalized)), asset);
+
+    const filename = normalized.split('/').pop();
+    if (filename) {
+      assets.set(filename, asset);
+      assets.set(`resources/${filename}`, asset);
+    }
+  }
+
+  return assets;
+}
+
+function isAssetPath(zipPath: string): boolean {
+  if (!zipPath || zipPath.endsWith('/')) {
     return false;
   }
-}
 
-async function assertDirectory(dirPath: string, errorMessage: string): Promise<void> {
-  try {
-    const info = await stat(dirPath);
-    if (!info.isDirectory()) {
-      throw new Error(errorMessage);
-    }
-  } catch {
-    throw new Error(errorMessage);
-  }
-}
-
-async function assertFile(filePath: string, errorMessage: string): Promise<void> {
-  try {
-    const info = await stat(filePath);
-    if (!info.isFile()) {
-      throw new Error(errorMessage);
-    }
-  } catch {
-    throw new Error(errorMessage);
-  }
-}
-
-async function asBuffer(value: Promise<ArrayBuffer | Blob | Buffer>): Promise<Buffer> {
-  const resolved = await value;
-
-  if (Buffer.isBuffer(resolved)) {
-    return resolved;
+  const parts = zipPath.split('/');
+  if (parts[0] === 'content' && parts.length > 2 && ASSET_DIRECTORIES.includes(parts[1].toLowerCase())) {
+    return true;
   }
 
-  if (resolved instanceof Blob) {
-    return Buffer.from(await resolved.arrayBuffer());
+  if (parts.length > 1 && ASSET_DIRECTORIES.includes(parts[0].toLowerCase())) {
+    return true;
   }
 
-  return Buffer.from(resolved);
-}
+  if (parts.length === 1) {
+    if (SYSTEM_FILES.has(parts[0].toLowerCase())) {
+      return false;
+    }
 
-function buildInlineHtml(entries: Record<string, Uint8Array>): string {
-  const indexEntry = entries["index.html"];
-  if (!indexEntry) {
-    throw new Error("El ZIP exportado no contiene index.html");
+    return /\.(jpg|jpeg|png|gif|svg|webp|ico|bmp|mp3|wav|ogg|mp4|webm|ogv|pdf|doc|docx|xls|xlsx|ppt|pptx|zip)$/i.test(
+      parts[0],
+    );
   }
 
-  const assets = new Map<string, Uint8Array>();
-  for (const [entryPath, content] of Object.entries(entries)) {
-    assets.set(normalizeAssetPath(entryPath), content);
+  return false;
+}
+
+function sortPagesHierarchically(pages: ParsedPage[]): ParsedPage[] {
+  const childrenByParent = new Map<string | null, ParsedPage[]>();
+
+  for (const page of pages) {
+    const bucketKey = page.parentId;
+    const bucket = childrenByParent.get(bucketKey) || [];
+    bucket.push(page);
+    childrenByParent.set(bucketKey, bucket);
   }
 
-  let html = decodeText(indexEntry);
-  html = stripScripts(html);
-  html = neutralizeExternalImages(html);
-  html = inlineStylesheets(html, assets);
-  html = inlineImages(html, assets);
+  for (const bucket of childrenByParent.values()) {
+    bucket.sort((left, right) => left.order - right.order);
+  }
 
-  return html;
-}
+  const ordered: ParsedPage[] = [];
+  const visited = new Set<string>();
 
-function stripScripts(html: string): string {
-  return html.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, "");
-}
+  const appendBranch = (parentId: string | null) => {
+    const children = childrenByParent.get(parentId) || [];
+    for (const child of children) {
+      if (visited.has(child.id)) {
+        continue;
+      }
 
-function inlineStylesheets(html: string, assets: Map<string, Uint8Array>): string {
-  return html.replace(/<link\b([^>]*?)href=(["'])([^"']+)\2([^>]*?)>/gi, (full, before, _quote, href, after) => {
-    const rel = `${before} ${after}`.toLowerCase();
-    if (!rel.includes("stylesheet")) {
-      return full;
+      visited.add(child.id);
+      ordered.push(child);
+      appendBranch(child.id);
     }
+  };
 
-    const asset = assets.get(normalizeAssetPath(href));
-    if (!asset) {
-      return "";
+  appendBranch(null);
+
+  for (const page of pages) {
+    if (!visited.has(page.id)) {
+      visited.add(page.id);
+      ordered.push(page);
     }
+  }
 
-    const css = rewriteCssUrls(decodeText(asset), assets);
-    return `<style data-source="${escapeHtmlAttribute(href)}">\n${css}\n</style>`;
-  });
+  return ordered;
 }
 
-function inlineImages(html: string, assets: Map<string, Uint8Array>): string {
-  return html.replace(/\b(src|poster)=(["'])([^"']+)\2/gi, (full, attr, _quote, value) => {
-    if (isExternalUrl(value)) {
-      return `${attr}=""`;
+function findPropertyValue(xmlDoc: Document, key: string): string | null {
+  const nodes = Array.from(xmlDoc.getElementsByTagName('odeProperty'));
+
+  for (const node of nodes) {
+    const propertyKey = getDirectText(node, 'key');
+    if (propertyKey === key) {
+      return getDirectText(node, 'value');
     }
+  }
 
-    if (value.startsWith("data:") || value.startsWith("#")) {
-      return full;
-    }
-
-    const asset = assets.get(normalizeAssetPath(value));
-    if (!asset) {
-      return full;
-    }
-
-    return `${attr}="data:${getMimeType(value)};base64,${toBase64(asset)}"`;
-  });
+  return null;
 }
 
-function neutralizeExternalImages(html: string): string {
-  return html.replace(/<img\b[^>]*>/gi, tag => {
-    const src = getAttributeValue(tag, "src");
-    if (!src || !isExternalUrl(src)) {
-      return tag;
-    }
-
-    const alt = getAttributeValue(tag, "alt")?.trim();
-    const content = alt || "Imagen externa no incrustada";
-    return `<span>${escapeHtmlText(content)}</span>`;
-  });
+function getDirectChildren(parent: Element, tagName: string): Element[] {
+  return Array.from(parent.children).filter(
+    child => child instanceof Element && child.tagName === tagName,
+  ) as Element[];
 }
 
-function rewriteCssUrls(css: string, assets: Map<string, Uint8Array>): string {
-  return css.replace(/url\(([^)]+)\)/gi, (full, rawValue) => {
-    const value = rawValue.trim().replace(/^['"]|['"]$/g, "");
-    if (!value || isExternalUrl(value) || value.startsWith("data:") || value.startsWith("#")) {
-      return full;
-    }
-
-    const asset = assets.get(normalizeAssetPath(value));
-    if (!asset) {
-      return full;
-    }
-
-    return `url("data:${getMimeType(value)};base64,${toBase64(asset)}")`;
-  });
+function getDirectText(parent: Element, tagName: string): string | null {
+  const child = getDirectChildren(parent, tagName)[0];
+  return child?.textContent?.trim() || null;
 }
 
-function normalizeAssetPath(assetPath: string): string {
-  return assetPath
-    .trim()
-    .replace(/\\/g, "/")
-    .replace(/^[.][/]+/, "")
-    .replace(/^\//, "")
-    .replace(/[?#].*$/, "");
+function getOrder(node: Element, tagName: string): number {
+  return Number.parseInt(getDirectText(node, tagName) || '0', 10) || 0;
 }
 
-function decodeText(content: Uint8Array): string {
-  return new TextDecoder().decode(content);
+function normalizeNullable(value: string | null): string | null {
+  if (!value) {
+    return null;
+  }
+
+  return value;
 }
 
-function toBase64(content: Uint8Array): string {
-  return Buffer.from(content).toString("base64");
+function normalizeAssetPath(value: string): string {
+  return value.trim().replace(/\\/g, '/').replace(/^\.\//, '').replace(/^\//, '').replace(/[?#].*$/, '');
 }
 
-function isExternalUrl(value: string): boolean {
-  return /^(?:[a-z]+:)?\/\//i.test(value) || value.startsWith("mailto:");
+function stripContentPrefix(value: string): string {
+  return value.replace(/^content\//, '');
 }
 
-function escapeHtmlAttribute(value: string): string {
-  return value.replaceAll("&", "&amp;").replaceAll('"', "&quot;");
+function toDataUrl(asset: AssetEntry): string {
+  return `data:${asset.mime};base64,${encodeBase64(asset.data)}`;
 }
 
-function escapeHtmlText(value: string): string {
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;");
+function encodeBase64(input: Uint8Array): string {
+  let binary = '';
+  const chunkSize = 0x8000;
+
+  for (let index = 0; index < input.length; index += chunkSize) {
+    const chunk = input.subarray(index, index + chunkSize);
+    binary += String.fromCharCode(...chunk);
+  }
+
+  return btoa(binary);
 }
 
-function getAttributeValue(tag: string, attributeName: string): string | null {
-  const match = tag.match(new RegExp(`\\b${attributeName}=(["'])(.*?)\\1`, "i"));
-  return match?.[2] ?? null;
+function decodeUtf8(value: Uint8Array): string {
+  return new TextDecoder().decode(value);
+}
+
+function toOutputFilename(inputName: string): string {
+  const safe = inputName.replace(/\.[^.]+$/, '') || 'documento';
+  return `${safe}.docx`;
+}
+
+function escapeHtml(value: string): string {
+  return value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
+}
+
+function escapeAttribute(value: string): string {
+  return escapeHtml(value).replaceAll('"', '&quot;');
 }
 
 function getMimeType(filePath: string): string {
-  const extension = path.extname(filePath).toLowerCase();
+  const extension = filePath.split('.').pop()?.toLowerCase() || '';
 
   switch (extension) {
-    case ".css":
-      return "text/css";
-    case ".gif":
-      return "image/gif";
-    case ".ico":
-      return "image/x-icon";
-    case ".jpg":
-    case ".jpeg":
-      return "image/jpeg";
-    case ".otf":
-      return "font/otf";
-    case ".png":
-      return "image/png";
-    case ".svg":
-      return "image/svg+xml";
-    case ".ttf":
-      return "font/ttf";
-    case ".webp":
-      return "image/webp";
-    case ".woff":
-      return "font/woff";
-    case ".woff2":
-      return "font/woff2";
+    case 'css':
+      return 'text/css';
+    case 'gif':
+      return 'image/gif';
+    case 'ico':
+      return 'image/x-icon';
+    case 'jpg':
+    case 'jpeg':
+      return 'image/jpeg';
+    case 'mp3':
+      return 'audio/mpeg';
+    case 'mp4':
+      return 'video/mp4';
+    case 'ogg':
+      return 'audio/ogg';
+    case 'ogv':
+      return 'video/ogg';
+    case 'pdf':
+      return 'application/pdf';
+    case 'png':
+      return 'image/png';
+    case 'svg':
+      return 'image/svg+xml';
+    case 'wav':
+      return 'audio/wav';
+    case 'webm':
+      return 'video/webm';
+    case 'webp':
+      return 'image/webp';
+    case 'woff':
+      return 'font/woff';
+    case 'woff2':
+      return 'font/woff2';
     default:
-      return "application/octet-stream";
+      return 'application/octet-stream';
   }
-}
-
-function sanitizeInputFilename(filename: string): string {
-  const baseName = path.basename(filename || "document.elpx");
-  if (baseName.endsWith(".elpx") || baseName.endsWith(".elp")) {
-    return baseName;
-  }
-  return `${baseName}.elpx`;
-}
-
-function sanitizeOutputFilename(filename: string): string {
-  const baseName = path.basename(filename);
-  const stem = baseName.replace(/\.[^.]+$/, "");
-  const safeStem = stem || "documento";
-  return `${safeStem}.docx`;
-}
-
-async function runCommand(
-  command: string,
-  args: string[],
-  options?: { cwd?: string },
-): Promise<void> {
-  await new Promise<void>((resolve, reject) => {
-    const child = spawn(command, args, {
-      cwd: options?.cwd,
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-
-    let stdout = "";
-    let stderr = "";
-
-    child.stdout.on("data", chunk => {
-      stdout += chunk.toString();
-    });
-
-    child.stderr.on("data", chunk => {
-      stderr += chunk.toString();
-    });
-
-    child.on("error", error => {
-      reject(new Error(`No se pudo ejecutar ${command}: ${error.message}`));
-    });
-
-    child.on("close", code => {
-      if (code === 0) {
-        resolve();
-        return;
-      }
-
-      const details = [stdout.trim(), stderr.trim()].filter(Boolean).join("\n");
-      reject(
-        new Error(
-          details
-            ? `Fallo al ejecutar ${command} ${args.join(" ")}:\n${details}`
-            : `Fallo al ejecutar ${command} ${args.join(" ")} (exit code ${code ?? "desconocido"})`,
-        ),
-      );
-    });
-  });
 }
