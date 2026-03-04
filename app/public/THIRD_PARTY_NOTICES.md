@@ -24,7 +24,7 @@ Included resources in this repository:
   - Creative Commons Attribution-ShareAlike 4.0
   - http://creativecommons.org/licenses/by-sa/4.0/
 - The bundled `exe_math` distribution includes an Apache License 2.0 license file in the original eXeLearning source tree:
-  - `/home/jjdeharo/Documentos/github/exelearning/public/app/common/exe_math/LICENSE`
+  - `https://github.com/exelearning/exelearning/blob/main/public/app/common/exe_math/LICENSE`
 
 ## Notes
 
