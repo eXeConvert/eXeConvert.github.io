@@ -1,5 +1,5 @@
 import './style.css';
-import { convertElpxToDocx, type ConvertProgress } from './converter';
+import { convertElpxToDocx, inspectElpxPages, type ConvertProgress, type ElpxPageInfo } from './converter';
 import { convertDocxToElpx, type DocxImportProgress, type HeadingMode } from './docx-import';
 import { convertElpxToMarkdown } from './elpx-markdown';
 import { convertMarkdownToElpx } from './markdown-import';
@@ -32,6 +32,20 @@ interface PendingSaveTarget {
 
 type InputKind = 'docx' | 'markdown' | 'elpx';
 type ElpxOutputKind = 'docx' | 'markdown';
+type ConversionKind = 'docx' | 'markdown' | 'elpx';
+
+interface PreparedConversion {
+  signature: string;
+  kind: ConversionKind;
+  blob: Blob;
+  filename: string;
+  pageCount: number;
+  blockCount?: number;
+  previewType: 'html' | 'markdown';
+  previewContent: string;
+  previewPages?: Record<string, string>;
+  previewStartPath?: string;
+}
 
 const app = document.querySelector<HTMLDivElement>('#app');
 
@@ -87,6 +101,18 @@ app.innerHTML = `
               <span>Markdown (.md)</span>
             </label>
           </div>
+        </div>
+
+        <div id="page-selection-field" class="field" hidden>
+          <span>Páginas a exportar</span>
+          <div class="page-selection-actions">
+            <button id="pages-all" type="button" class="ghost-button">Todas</button>
+            <button id="pages-none" type="button" class="ghost-button">Ninguna</button>
+          </div>
+          <div id="page-selection-list" class="page-selection-list"></div>
+          <p id="page-selection-help" class="field-help">
+            Modo jerárquico normalizado: si falta una página padre seleccionada, sus hijas pasan a raíz.
+          </p>
         </div>
 
         <div id="structure-field" class="field" hidden>
@@ -147,7 +173,8 @@ app.innerHTML = `
         </div>
 
         <div class="actions">
-          <button id="submit-button" type="submit" disabled>Convertir y guardar</button>
+          <button id="preview-button" type="button" disabled>Previsualizar</button>
+          <button id="submit-button" type="submit" disabled hidden>Guardar archivo</button>
         </div>
       </form>
 
@@ -161,6 +188,16 @@ app.innerHTML = `
         <p id="status" class="status" aria-live="polite">
           Carga un archivo para que la aplicación detecte automáticamente la conversión disponible.
         </p>
+      </div>
+
+      <div id="preview-field" class="field preview-field" hidden>
+        <div class="preview-heading">
+          <span>Vista previa</span>
+          <button id="preview-popout-button" type="button" class="ghost-button" hidden>Abrir en ventana</button>
+        </div>
+        <p class="field-help">Revisa el resultado antes de guardar. Si cambias opciones o páginas, vuelve a previsualizar.</p>
+        <iframe id="preview-frame" class="preview-frame" title="Vista previa del resultado"></iframe>
+        <pre id="preview-markdown" class="preview-markdown" hidden></pre>
       </div>
     </section>
 
@@ -195,13 +232,23 @@ const fileNameElement = document.querySelector<HTMLSpanElement>('#file-name')!;
 const detectedField = document.querySelector<HTMLDivElement>('#detected-field')!;
 const detectedHelp = document.querySelector<HTMLParagraphElement>('#detected-help')!;
 const outputField = document.querySelector<HTMLDivElement>('#output-field')!;
+const pageSelectionField = document.querySelector<HTMLDivElement>('#page-selection-field')!;
+const pageSelectionList = document.querySelector<HTMLDivElement>('#page-selection-list')!;
+const pageSelectionHelp = document.querySelector<HTMLParagraphElement>('#page-selection-help')!;
+const pagesAllButton = document.querySelector<HTMLButtonElement>('#pages-all')!;
+const pagesNoneButton = document.querySelector<HTMLButtonElement>('#pages-none')!;
 const outputRadioElements = document.querySelectorAll<HTMLInputElement>('input[name="elpx-output"]');
 const structureField = document.querySelector<HTMLDivElement>('#structure-field')!;
 const markdownImagesField = document.querySelector<HTMLDivElement>('#markdown-images-field')!;
 const markdownImages = document.querySelector<HTMLInputElement>('#markdown-images')!;
+const previewField = document.querySelector<HTMLDivElement>('#preview-field')!;
+const previewPopoutButton = document.querySelector<HTMLButtonElement>('#preview-popout-button')!;
+const previewFrame = document.querySelector<HTMLIFrameElement>('#preview-frame')!;
+const previewMarkdown = document.querySelector<HTMLPreElement>('#preview-markdown')!;
 const heading2Mode = document.querySelector<HTMLSelectElement>('#heading2-mode')!;
 const heading3Mode = document.querySelector<HTMLSelectElement>('#heading3-mode')!;
 const heading4Mode = document.querySelector<HTMLSelectElement>('#heading4-mode')!;
+const previewButton = document.querySelector<HTMLButtonElement>('#preview-button')!;
 const submitButton = document.querySelector<HTMLButtonElement>('#submit-button')!;
 const progressShell = document.querySelector<HTMLDivElement>('#progress-shell')!;
 const progressBar = document.querySelector<HTMLDivElement>('#progress-bar')!;
@@ -214,7 +261,14 @@ if (outputRadioElements.length === 0) {
 
 let selectedFile: File | null = null;
 let selectedKind: InputKind | null = null;
-const idleButtonLabel = 'Convertir y guardar';
+let selectedElpxPages = new Set<string>();
+let availableElpxPages: ElpxPageInfo[] = [];
+let pageInspectionSequence = 0;
+let preparedConversion: PreparedConversion | null = null;
+let previewVirtualPages: Record<string, string> | null = null;
+let previewCurrentPath = 'index.html';
+const idlePreviewLabel = 'Previsualizar';
+const idleSaveLabel = 'Guardar archivo';
 
 pickButton.addEventListener('click', () => {
   fileInput.click();
@@ -258,18 +312,91 @@ dropField.addEventListener('drop', event => {
 
 heading2Mode.addEventListener('change', () => {
   syncStructureControls();
+  invalidatePreparedConversion();
 });
 
 heading3Mode.addEventListener('change', () => {
   syncStructureControls();
+  invalidatePreparedConversion();
+});
+
+heading4Mode.addEventListener('change', () => {
+  invalidatePreparedConversion();
+});
+
+markdownImages.addEventListener('change', () => {
+  invalidatePreparedConversion();
 });
 
 for (const radio of outputRadioElements) {
   radio.addEventListener('change', () => {
     syncOutputControls();
     syncDetectedMessage();
+    invalidatePreparedConversion();
   });
 }
+
+pagesAllButton.addEventListener('click', () => {
+  selectedElpxPages = new Set(availableElpxPages.map(page => page.id));
+  renderPageSelectionList();
+});
+
+pagesNoneButton.addEventListener('click', () => {
+  selectedElpxPages.clear();
+  renderPageSelectionList();
+});
+
+pageSelectionList.addEventListener('change', event => {
+  const target = event.target as HTMLInputElement;
+  if (!target || target.type !== 'checkbox') {
+    return;
+  }
+
+  const pageId = target.dataset.pageId;
+  if (!pageId) {
+    return;
+  }
+
+  if (target.checked) {
+    selectedElpxPages.add(pageId);
+  } else {
+    selectedElpxPages.delete(pageId);
+  }
+
+  invalidatePreparedConversion();
+  refreshPageSelectionHelp();
+});
+
+previewPopoutButton.addEventListener('click', () => {
+  if (!preparedConversion) {
+    return;
+  }
+  openPreviewInWindow(preparedConversion);
+});
+
+previewFrame.addEventListener('load', () => {
+  bindPreviewFrameNavigation();
+});
+
+previewButton.addEventListener('click', async () => {
+  if (!selectedFile || !selectedKind) {
+    setStatus('Selecciona antes un archivo compatible.');
+    return;
+  }
+
+  setBusyState(true);
+  try {
+    preparedConversion = await prepareCurrentConversion(selectedFile, selectedKind);
+    renderPreview(preparedConversion);
+    setStatus('Vista previa generada. Si te convence, pulsa Guardar archivo.');
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    setStatus(`Error: ${message}`, true);
+  } finally {
+    setBusyState(false);
+    syncActionButtons();
+  }
+});
 
 form.addEventListener('submit', async event => {
   event.preventDefault();
@@ -279,91 +406,36 @@ form.addEventListener('submit', async event => {
     return;
   }
 
-  setBusyState(true);
-  submitButton.disabled = true;
+  const currentSignature = computeConversionSignature();
+  if (!preparedConversion || preparedConversion.signature !== currentSignature) {
+    setStatus('Primero genera la vista previa con la configuración actual.', true);
+    syncActionButtons();
+    return;
+  }
 
   try {
-    if (selectedKind === 'docx' || selectedKind === 'markdown') {
-      const saveTarget = await prepareSaveTarget({
-        inputFilename: selectedFile.name,
-        description: 'Proyecto de eXeLearning',
-        mime: 'application/zip',
-        extension: '.elpx',
-      });
+    const saveTarget = await prepareSaveTargetForKind(selectedFile.name, preparedConversion.kind);
+    const savedWithDialog = await saveBlobToTarget(preparedConversion.blob, preparedConversion.filename, saveTarget);
 
-      const result =
-        selectedKind === 'docx'
-          ? await convertDocxToElpx(selectedFile, getHeadingOptions(), progress => {
-              updateProgress(progress);
-              setStatus(progress.message);
-            })
-          : await convertMarkdownToElpx(selectedFile, getHeadingOptions(), progress => {
-              updateProgress(progress);
-              setStatus(progress.message);
-            });
-
-      const savedWithDialog = await saveBlobToTarget(result.blob, result.filename, saveTarget);
+    if (preparedConversion.kind === 'elpx') {
       const sourceName = selectedKind === 'docx' ? 'Importación DOCX' : 'Importación Markdown';
       setStatus(
         savedWithDialog
-          ? `${sourceName} completada. Se han creado ${result.pageCount} páginas y ${result.blockCount} iDevices.`
-          : `${sourceName} completada. Se han creado ${result.pageCount} páginas y ${result.blockCount} iDevices con descarga estándar.`,
+          ? `${sourceName} completada. Se han creado ${preparedConversion.pageCount} páginas y ${preparedConversion.blockCount || 0} iDevices.`
+          : `${sourceName} completada. Se han creado ${preparedConversion.pageCount} páginas y ${preparedConversion.blockCount || 0} iDevices con descarga estándar.`,
       );
       return;
     }
 
-    const outputKind = getSelectedElpxOutputKind();
-
-    if (outputKind === 'markdown') {
-      const saveTarget = await prepareSaveTarget({
-        inputFilename: selectedFile.name,
-        description: 'Documento Markdown',
-        mime: 'text/markdown',
-        extension: '.md',
-      });
-
-      const result = await convertElpxToMarkdown(
-        selectedFile,
-        { includeImages: markdownImages.checked },
-        progress => {
-          updateProgress(progress);
-          setStatus(progress.message);
-        },
-      );
-
-      const savedWithDialog = await saveBlobToTarget(result.blob, result.filename, saveTarget);
-      setStatus(
-        savedWithDialog
-          ? `Conversión completada. Se han procesado ${result.pageCount} páginas.`
-          : `Conversión completada. Se han procesado ${result.pageCount} páginas y se ha usado la descarga estándar.`,
-      );
-      return;
-    }
-
-    const saveTarget = await prepareSaveTarget({
-      inputFilename: selectedFile.name,
-      description: 'Documento de Word',
-      mime: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-      extension: '.docx',
-    });
-
-    const result = await convertElpxToDocx(selectedFile, progress => {
-      updateProgress(progress);
-      setStatus(progress.message);
-    });
-
-    const savedWithDialog = await saveBlobToTarget(result.blob, result.filename, saveTarget);
+    const formatLabel = preparedConversion.kind === 'markdown' ? 'Markdown' : 'DOCX';
     setStatus(
       savedWithDialog
-        ? `Conversión completada. Se han procesado ${result.pageCount} páginas.`
-        : `Conversión completada. Se han procesado ${result.pageCount} páginas y se ha usado la descarga estándar.`,
+        ? `Conversión a ${formatLabel} completada. Se han procesado ${preparedConversion.pageCount} páginas.`
+        : `Conversión a ${formatLabel} completada. Se han procesado ${preparedConversion.pageCount} páginas y se ha usado la descarga estándar.`,
     );
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     setStatus(`Error: ${message}`, true);
-  } finally {
-    setBusyState(false);
-    submitButton.disabled = selectedFile === null;
   }
 });
 
@@ -375,6 +447,8 @@ function handleSelectedFile(file: File | null): void {
     fileInput.value = '';
     fileNameElement.textContent = 'Ningún archivo seleccionado.';
     resetDetectedOptions();
+    clearPageSelectionState();
+    clearPreview();
     setStatus('Carga un archivo para que la aplicación detecte automáticamente la conversión disponible.');
     return;
   }
@@ -385,13 +459,15 @@ function handleSelectedFile(file: File | null): void {
   if (!kind) {
     selectedKind = null;
     resetDetectedOptions();
+    clearPageSelectionState();
+    clearPreview();
     setStatus('Formato no compatible. Usa un archivo .elpx, .docx o .md.', true);
     return;
   }
 
   selectedKind = kind;
-  submitButton.disabled = false;
   applyDetectedOptions(kind);
+  syncActionButtons();
 }
 
 function detectInputKind(filename: string): InputKind | null {
@@ -415,21 +491,28 @@ function detectInputKind(filename: string): InputKind | null {
 function applyDetectedOptions(kind: InputKind): void {
   detectedField.hidden = false;
   outputField.hidden = kind !== 'elpx';
+  pageSelectionField.hidden = kind !== 'elpx';
   structureField.hidden = kind === 'elpx';
 
   if (kind !== 'elpx') {
+    clearPageSelectionState();
     syncStructureControls();
+  } else if (selectedFile) {
+    void inspectSelectedElpxPages(selectedFile);
   }
 
   syncOutputControls();
   syncDetectedMessage();
+  syncActionButtons();
 }
 
 function resetDetectedOptions(): void {
   detectedField.hidden = true;
   outputField.hidden = true;
+  pageSelectionField.hidden = true;
   structureField.hidden = true;
   markdownImagesField.hidden = true;
+  previewButton.disabled = true;
   submitButton.disabled = true;
 }
 
@@ -458,7 +541,7 @@ function syncDetectedMessage(): void {
     outputKind === 'markdown'
       ? 'Se exportará el archivo <code>.elpx</code> a <code>.md</code>.'
       : 'Se exportará el archivo <code>.elpx</code> a <code>.docx</code>.';
-  setStatus('Archivo ELPX detectado. Elige el formato de salida y pulsa convertir.');
+  setStatus('Archivo ELPX detectado. Elige formato y páginas, y pulsa convertir.');
 }
 
 function syncStructureControls(): void {
@@ -523,8 +606,12 @@ function setStatus(message: string, isError = false): void {
 }
 
 function setBusyState(isBusy: boolean): void {
+  previewButton.classList.toggle('is-loading', isBusy);
   submitButton.classList.toggle('is-loading', isBusy);
-  submitButton.textContent = isBusy ? 'Trabajando...' : idleButtonLabel;
+  previewButton.textContent = isBusy ? 'Trabajando...' : idlePreviewLabel;
+  submitButton.textContent = isBusy ? 'Trabajando...' : idleSaveLabel;
+  previewButton.disabled = isBusy;
+  submitButton.disabled = isBusy;
   statusSpinner.hidden = !isBusy;
   progressShell.hidden = !isBusy;
 
@@ -539,6 +626,7 @@ function updateProgress(progress: ConvertProgress | DocxImportProgress): void {
   const phasePercent: Record<ConvertProgress['phase'] | DocxImportProgress['phase'], number> = {
     read: 14,
     parse: 32,
+    filter: 48,
     template: 58,
     render: 72,
     docx: 88,
@@ -616,3 +704,452 @@ function toOutputFilename(inputFilename: string, extension: '.docx' | '.elpx' | 
   const stem = inputFilename.replace(/\.[^.]+$/, '') || 'documento';
   return `${stem}${extension}`;
 }
+
+function syncActionButtons(): void {
+  const hasFile = selectedFile !== null && selectedKind !== null;
+  previewButton.disabled = !hasFile;
+  const currentSignature = computeConversionSignature();
+  const canSave = Boolean(hasFile && preparedConversion && preparedConversion.signature === currentSignature);
+  submitButton.hidden = !canSave;
+  submitButton.disabled = !canSave;
+  previewPopoutButton.hidden = !canSave;
+}
+
+function invalidatePreparedConversion(): void {
+  preparedConversion = null;
+  syncActionButtons();
+}
+
+function clearPreview(): void {
+  previewField.hidden = true;
+  previewPopoutButton.hidden = true;
+  previewVirtualPages = null;
+  previewCurrentPath = 'index.html';
+  previewFrame.removeAttribute('srcdoc');
+  previewFrame.removeAttribute('src');
+  previewMarkdown.hidden = true;
+  previewMarkdown.textContent = '';
+  invalidatePreparedConversion();
+}
+
+async function inspectSelectedElpxPages(file: File): Promise<void> {
+  const inspectionId = ++pageInspectionSequence;
+  setStatus('Leyendo estructura de páginas del ELPX...');
+  pageSelectionList.innerHTML = '';
+  pageSelectionHelp.textContent = 'Cargando páginas...';
+
+  try {
+    const pages = await inspectElpxPages(file);
+    if (inspectionId !== pageInspectionSequence) {
+      return;
+    }
+
+    availableElpxPages = pages;
+    selectedElpxPages = new Set(pages.map(page => page.id));
+    renderPageSelectionList();
+    invalidatePreparedConversion();
+  } catch {
+    if (inspectionId !== pageInspectionSequence) {
+      return;
+    }
+
+    availableElpxPages = [];
+    selectedElpxPages.clear();
+    pageSelectionList.innerHTML = '';
+    pageSelectionHelp.textContent = 'No se ha podido leer la estructura de páginas. Se exportará todo el contenido.';
+  } finally {
+    if (inspectionId === pageInspectionSequence) {
+      syncDetectedMessage();
+    }
+  }
+}
+
+function renderPageSelectionList(): void {
+  if (availableElpxPages.length === 0) {
+    pageSelectionList.innerHTML = '';
+    pageSelectionHelp.textContent = 'No se han detectado páginas seleccionables. Se exportará todo el contenido.';
+    return;
+  }
+
+  pageSelectionList.innerHTML = availableElpxPages
+    .map(page => {
+      const checked = selectedElpxPages.has(page.id) ? 'checked' : '';
+      const indent = Math.max(0, page.depth - 1) * 18;
+      return `<label class="page-selection-row" style="--depth-indent: ${indent}px;">
+  <input type="checkbox" data-page-id="${escapeAttribute(page.id)}" ${checked} />
+  <span>${escapeHtml(page.title)}</span>
+</label>`;
+    })
+    .join('');
+
+  refreshPageSelectionHelp();
+}
+
+function refreshPageSelectionHelp(): void {
+  if (availableElpxPages.length === 0) {
+    return;
+  }
+
+  const selectedCount = selectedElpxPages.size;
+  pageSelectionHelp.innerHTML = `${selectedCount} de ${availableElpxPages.length} páginas seleccionadas. Modo jerárquico normalizado: si falta una página padre seleccionada, sus hijas pasan a raíz.`;
+}
+
+function getSelectedElpxPageIds(): string[] | undefined {
+  if (availableElpxPages.length === 0) {
+    return undefined;
+  }
+
+  return availableElpxPages.map(page => page.id).filter(id => selectedElpxPages.has(id));
+}
+
+function clearPageSelectionState(): void {
+  availableElpxPages = [];
+  selectedElpxPages.clear();
+  pageSelectionList.innerHTML = '';
+  pageSelectionHelp.textContent = 'Modo jerárquico normalizado: si falta una página padre seleccionada, sus hijas pasan a raíz.';
+  invalidatePreparedConversion();
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+}
+
+function escapeAttribute(value: string): string {
+  return escapeHtml(value);
+}
+
+function computeConversionSignature(): string {
+  const filePart = selectedFile ? `${selectedFile.name}:${selectedFile.size}:${selectedFile.lastModified}` : 'none';
+  const kindPart = selectedKind || 'none';
+  const outputPart = getSelectedElpxOutputKind();
+  const headingsPart = `${heading2Mode.value}|${heading3Mode.value}|${heading4Mode.value}`;
+  const markdownPart = markdownImages.checked ? 'img:1' : 'img:0';
+  const selectedPages = getSelectedElpxPageIds();
+  const pagesPart = selectedPages ? selectedPages.slice().sort().join(',') : 'all';
+  return [filePart, kindPart, outputPart, headingsPart, markdownPart, pagesPart].join('::');
+}
+
+async function prepareCurrentConversion(file: File, kind: InputKind): Promise<PreparedConversion> {
+  const signature = computeConversionSignature();
+  const selectedPageIds = getSelectedElpxPageIds();
+  const selectedPageCount = selectedPageIds?.length ?? availableElpxPages.length;
+  if (kind === 'elpx' && availableElpxPages.length > 0 && selectedPageCount === 0) {
+    throw new Error('Selecciona al menos una página para exportar.');
+  }
+
+  if (kind === 'docx' || kind === 'markdown') {
+    const importResult =
+      kind === 'docx'
+        ? await convertDocxToElpx(file, getHeadingOptions(), progress => {
+            updateProgress(progress);
+            setStatus(progress.message);
+          })
+        : await convertMarkdownToElpx(file, getHeadingOptions(), progress => {
+            updateProgress(progress);
+            setStatus(progress.message);
+          });
+
+    setStatus('Generando vista previa del ELPX...');
+    const previewHtml = importResult.previewHtml;
+
+    return {
+      signature,
+      kind: 'elpx',
+      blob: importResult.blob,
+      filename: importResult.filename,
+      pageCount: importResult.pageCount,
+      blockCount: importResult.blockCount,
+      previewType: 'html',
+      previewContent: previewHtml,
+      previewPages: importResult.previewPages,
+      previewStartPath: 'index.html',
+    };
+  }
+
+  const outputKind = getSelectedElpxOutputKind();
+  if (outputKind === 'markdown') {
+    const result = await convertElpxToMarkdown(
+      file,
+      { includeImages: markdownImages.checked, selectedPageIds },
+      progress => {
+        updateProgress(progress);
+        setStatus(progress.message);
+      },
+    );
+
+    return {
+      signature,
+      kind: 'markdown',
+      blob: result.blob,
+      filename: result.filename,
+      pageCount: result.pageCount,
+      previewType: 'markdown',
+      previewContent: await result.blob.text(),
+    };
+  }
+
+  const result = await convertElpxToDocx(
+    file,
+    { selectedPageIds },
+    progress => {
+      updateProgress(progress);
+      setStatus(progress.message);
+    },
+  );
+
+  return {
+    signature,
+    kind: 'docx',
+    blob: result.blob,
+    filename: result.filename,
+    pageCount: result.pageCount,
+    previewType: 'html',
+    previewContent: result.previewHtml,
+  };
+}
+
+function renderPreview(conversion: PreparedConversion): void {
+  previewField.hidden = false;
+  previewPopoutButton.hidden = false;
+  if (conversion.previewType === 'markdown') {
+    previewVirtualPages = null;
+    previewCurrentPath = 'index.html';
+    previewFrame.removeAttribute('srcdoc');
+    previewFrame.removeAttribute('src');
+    previewFrame.hidden = true;
+    previewMarkdown.hidden = false;
+    previewMarkdown.textContent = conversion.previewContent;
+    return;
+  }
+
+  previewMarkdown.hidden = true;
+  previewMarkdown.textContent = '';
+  previewFrame.hidden = false;
+  previewVirtualPages = conversion.previewPages ?? null;
+  previewCurrentPath = conversion.previewStartPath || 'index.html';
+
+  if (previewVirtualPages && previewVirtualPages[previewCurrentPath]) {
+    previewFrame.srcdoc = previewVirtualPages[previewCurrentPath];
+    previewFrame.removeAttribute('src');
+    return;
+  }
+
+  previewFrame.srcdoc = conversion.previewContent;
+  previewFrame.removeAttribute('src');
+}
+
+function openPreviewInWindow(conversion: PreparedConversion): void {
+  const previewWindow = window.open('', '_blank', 'popup=yes,width=1100,height=760,resizable=yes,scrollbars=yes');
+  if (!previewWindow) {
+    setStatus('No se pudo abrir la ventana de vista previa (bloqueador de ventanas emergentes).', true);
+    return;
+  }
+
+  const htmlContent = (() => {
+    if (conversion.previewType === 'markdown') {
+      return buildMarkdownPreviewDocument(conversion.previewContent, conversion.filename);
+    }
+
+    if (conversion.previewPages) {
+      return buildPagedPreviewDocument(
+        conversion.previewPages,
+        conversion.previewStartPath || 'index.html',
+        conversion.filename,
+      );
+    }
+
+    return conversion.previewContent;
+  })();
+
+  previewWindow.document.open();
+  previewWindow.document.write(htmlContent);
+  previewWindow.document.close();
+}
+
+function bindPreviewFrameNavigation(): void {
+  if (!previewVirtualPages) {
+    return;
+  }
+
+  const frameDocument = previewFrame.contentDocument;
+  if (!frameDocument) {
+    return;
+  }
+
+  frameDocument.addEventListener('click', event => {
+    const target = event.target as HTMLElement | null;
+    const anchor = target?.closest('a[href]') as HTMLAnchorElement | null;
+    if (!anchor) {
+      return;
+    }
+
+    const href = (anchor.getAttribute('href') || '').trim();
+    const resolved = resolveVirtualPreviewPath(previewCurrentPath, href);
+    if (!resolved || !previewVirtualPages?.[resolved]) {
+      return;
+    }
+
+    event.preventDefault();
+    previewCurrentPath = resolved;
+    previewFrame.srcdoc = previewVirtualPages[resolved];
+    previewFrame.removeAttribute('src');
+  });
+}
+
+function buildPagedPreviewDocument(pages: Record<string, string>, startPath: string, title: string): string {
+  const safeStartPath = pages[startPath] ? startPath : Object.keys(pages)[0] || 'index.html';
+  const serializedPages = JSON.stringify(pages)
+    .replace(/</g, '\\u003c')
+    .replace(/>/g, '\\u003e')
+    .replace(/&/g, '\\u0026');
+
+  return `<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>${escapeHtml(title)}</title>
+  <style>
+    html, body { margin: 0; padding: 0; height: 100%; }
+    iframe { display: block; width: 100%; height: 100%; border: 0; }
+  </style>
+</head>
+<body>
+  <iframe id="preview-frame" title="Vista previa del ELPX"></iframe>
+  <script>
+    const pages = ${serializedPages};
+    let currentPath = ${JSON.stringify(safeStartPath)};
+    const frame = document.getElementById('preview-frame');
+
+    const normalizePath = value => {
+      const parts = value.replaceAll('\\\\', '/').split('/');
+      const normalized = [];
+      for (const part of parts) {
+        if (!part || part === '.') continue;
+        if (part === '..') {
+          normalized.pop();
+          continue;
+        }
+        normalized.push(part);
+      }
+      return normalized.join('/');
+    };
+
+    const resolvePath = (basePath, href) => {
+      const isExternalHref = value => /^[a-z][a-z0-9+.-]*:/i.test(value) || value.startsWith('//');
+      if (!href || href.startsWith('#') || isExternalHref(href)) return null;
+      const plainHref = href.split('#')[0].split('?')[0];
+      if (!plainHref) return null;
+      const baseDir = basePath.includes('/') ? basePath.slice(0, basePath.lastIndexOf('/') + 1) : '';
+      const combined = plainHref.startsWith('/') ? plainHref.slice(1) : baseDir + plainHref;
+      return normalizePath(combined);
+    };
+
+    const render = path => {
+      if (!pages[path]) return;
+      currentPath = path;
+      frame.srcdoc = pages[path];
+    };
+
+    frame.addEventListener('load', () => {
+      const doc = frame.contentDocument;
+      if (!doc) return;
+      doc.addEventListener('click', event => {
+        const anchor = event.target && event.target.closest ? event.target.closest('a[href]') : null;
+        if (!anchor) return;
+        const href = (anchor.getAttribute('href') || '').trim();
+        const resolved = resolvePath(currentPath, href);
+        if (!resolved || !pages[resolved]) return;
+        event.preventDefault();
+        render(resolved);
+      });
+    });
+
+    render(currentPath);
+  </script>
+</body>
+</html>`;
+}
+
+function resolveVirtualPreviewPath(basePath: string, href: string): string | null {
+  if (!href || href.startsWith('#') || /^(?:[a-z][a-z0-9+.-]*:|\/\/)/i.test(href)) {
+    return null;
+  }
+
+  const plainHref = href.split('#')[0].split('?')[0];
+  if (!plainHref) {
+    return null;
+  }
+
+  const baseDir = basePath.includes('/') ? basePath.slice(0, basePath.lastIndexOf('/') + 1) : '';
+  const combined = plainHref.startsWith('/') ? plainHref.slice(1) : `${baseDir}${plainHref}`;
+  return normalizeVirtualPreviewPath(combined);
+}
+
+function normalizeVirtualPreviewPath(path: string): string {
+  const parts = path.replaceAll('\\', '/').split('/');
+  const normalized: string[] = [];
+  for (const part of parts) {
+    if (!part || part === '.') {
+      continue;
+    }
+    if (part === '..') {
+      normalized.pop();
+      continue;
+    }
+    normalized.push(part);
+  }
+  return normalized.join('/');
+}
+
+function buildMarkdownPreviewDocument(markdown: string, title: string): string {
+  return `<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>${escapeHtml(title)}</title>
+  <style>
+    body { margin: 16px; font-family: Consolas, "Liberation Mono", monospace; line-height: 1.45; color: #1f2a1f; background: #fff; }
+    pre { white-space: pre-wrap; word-break: break-word; margin: 0; }
+  </style>
+</head>
+<body>
+  <pre>${escapeHtml(markdown)}</pre>
+</body>
+</html>`;
+}
+
+async function prepareSaveTargetForKind(inputFilename: string, kind: ConversionKind): Promise<PendingSaveTarget | null> {
+  if (kind === 'elpx') {
+    return prepareSaveTarget({
+      inputFilename,
+      description: 'Proyecto de eXeLearning',
+      mime: 'application/zip',
+      extension: '.elpx',
+    });
+  }
+
+  if (kind === 'markdown') {
+    return prepareSaveTarget({
+      inputFilename,
+      description: 'Documento Markdown',
+      mime: 'text/markdown',
+      extension: '.md',
+    });
+  }
+
+  return prepareSaveTarget({
+    inputFilename,
+    description: 'Documento de Word',
+    mime: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    extension: '.docx',
+  });
+}
+
+syncActionButtons();

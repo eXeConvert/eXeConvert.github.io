@@ -14,6 +14,8 @@ export interface ImportToElpxResult {
   filename: string;
   pageCount: number;
   blockCount: number;
+  previewHtml: string;
+  previewPages: Record<string, string>;
 }
 
 export type HeadingMode = 'block' | 'page';
@@ -79,6 +81,11 @@ export async function convertHtmlToElpx(
 
   onProgress?.({ phase: 'template', message: 'Aplicando la plantilla base de eXeLearning...' });
   const template = await loadBaseTemplate();
+  const previewPages = buildStandalonePreviewPages(project, template.entries);
+  const previewHtml =
+    previewPages['index.html']
+      ? previewPages['index.html']
+      : '<!doctype html><html lang="es"><body><p>Sin contenido para previsualizar.</p></body></html>';
   const elpxData = buildElpxFromTemplate(template, project);
 
   onProgress?.({ phase: 'pack', message: 'Generando el archivo .elpx...' });
@@ -90,6 +97,8 @@ export async function convertHtmlToElpx(
     filename: toElpxFilename(filename),
     pageCount: project.pages.length,
     blockCount: project.pages.reduce((count, page) => count + page.blocks.length, 0),
+    previewHtml,
+    previewPages,
   };
 }
 
@@ -488,6 +497,182 @@ function buildElpxFromTemplate(template: TemplateParts, project: ImportedProject
   return zipSync(entries, { level: 0 });
 }
 
+function buildStandalonePreviewPages(
+  project: ImportedProject,
+  entries: Record<string, Uint8Array>,
+): Record<string, string> {
+  const pages = getPreviewPages(project);
+  const output: Record<string, string> = {};
+
+  for (const [index, pageInfo] of pages.entries()) {
+    const html = generatePreviewPageHtml(project, pages, index);
+    output[pageInfo.href] = buildStandalonePreviewHtml(html, entries, pageInfo.href);
+  }
+
+  return output;
+}
+
+function buildStandalonePreviewHtml(html: string, entries: Record<string, Uint8Array>, docPath: string): string {
+  const document = new DOMParser().parseFromString(html, 'text/html');
+
+  for (const link of Array.from(document.querySelectorAll<HTMLLinkElement>('link[href]'))) {
+    const href = (link.getAttribute('href') || '').trim();
+    const resolved = resolveEntryPath(docPath, href, entries);
+    if (!resolved) {
+      link.remove();
+      continue;
+    }
+
+    if (/\.css$/i.test(resolved)) {
+      const style = document.createElement('style');
+      style.textContent = inlineCssAssetUrls(decodeUtf8(entries[resolved]), resolved, entries);
+      link.replaceWith(style);
+      continue;
+    }
+
+    link.remove();
+  }
+
+  for (const script of Array.from(document.querySelectorAll('script'))) {
+    script.remove();
+  }
+
+  const mediaNodes = Array.from(document.querySelectorAll<HTMLElement>('[src], [poster], source[src], track[src]'));
+  for (const node of mediaNodes) {
+    for (const attribute of ['src', 'poster']) {
+      const rawValue = (node.getAttribute(attribute) || '').trim();
+      if (!rawValue) {
+        continue;
+      }
+      const resolved = resolveEntryPath(docPath, rawValue, entries);
+      if (!resolved) {
+        continue;
+      }
+
+      const mime = getMimeTypeFromPath(resolved);
+      const dataUrl = `data:${mime};base64,${uint8ToBase64(entries[resolved])}`;
+      node.setAttribute(attribute, dataUrl);
+    }
+  }
+
+  for (const frameLike of Array.from(document.querySelectorAll('iframe, object, embed'))) {
+    const replacement = document.createElement('div');
+    replacement.className = 'preview-embed-placeholder';
+    replacement.textContent = 'Contenido incrustado omitido en la vista previa.';
+    frameLike.replaceWith(replacement);
+  }
+
+  const previewStyle = document.createElement('style');
+  previewStyle.textContent = `
+.preview-embed-placeholder {
+  margin: 0.75rem 0;
+  padding: 0.75rem;
+  border: 1px dashed #9db29a;
+  border-radius: 6px;
+  background: #f4f8f2;
+  color: #3e5740;
+  font-style: italic;
+}
+`;
+  document.head?.append(previewStyle);
+
+  return `<!doctype html>\n${document.documentElement.outerHTML}`;
+}
+
+function resolveEntryPath(docPath: string, reference: string, entries: Record<string, Uint8Array>): string | null {
+  const raw = reference.trim();
+  if (!raw || raw.startsWith('#') || /^(?:[a-z][a-z0-9+.-]*:|\/\/)/i.test(raw)) {
+    return null;
+  }
+
+  const normalizedReference = raw.split('#')[0].split('?')[0];
+  if (!normalizedReference) {
+    return null;
+  }
+
+  const baseDir = docPath.includes('/') ? docPath.slice(0, docPath.lastIndexOf('/') + 1) : '';
+  const combined = normalizedReference.startsWith('/') ? normalizedReference.slice(1) : `${baseDir}${normalizedReference}`;
+  const normalized = normalizeEntryPath(combined);
+  const candidates = [
+    normalized,
+    normalized.startsWith('html/') ? normalized.slice(5) : '',
+    normalized.startsWith('content/') ? normalized.slice(8) : '',
+    `content/${normalized}`,
+  ].filter(Boolean);
+
+  for (const candidate of candidates) {
+    if (entries[candidate]) {
+      return candidate;
+    }
+  }
+  return null;
+}
+
+function normalizeEntryPath(path: string): string {
+  const parts = path.replaceAll('\\', '/').split('/');
+  const normalized: string[] = [];
+  for (const part of parts) {
+    if (!part || part === '.') {
+      continue;
+    }
+    if (part === '..') {
+      normalized.pop();
+      continue;
+    }
+    normalized.push(part);
+  }
+  return normalized.join('/');
+}
+
+function uint8ToBase64(data: Uint8Array): string {
+  let binary = '';
+  const chunkSize = 0x8000;
+  for (let index = 0; index < data.length; index += chunkSize) {
+    const chunk = data.subarray(index, index + chunkSize);
+    binary += String.fromCharCode(...chunk);
+  }
+  return btoa(binary);
+}
+
+function getMimeTypeFromPath(path: string): string {
+  const lower = path.toLowerCase();
+  if (lower.endsWith('.css')) return 'text/css';
+  if (lower.endsWith('.js')) return 'application/javascript';
+  if (lower.endsWith('.svg')) return 'image/svg+xml';
+  if (lower.endsWith('.png')) return 'image/png';
+  if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) return 'image/jpeg';
+  if (lower.endsWith('.gif')) return 'image/gif';
+  if (lower.endsWith('.webp')) return 'image/webp';
+  if (lower.endsWith('.mp3')) return 'audio/mpeg';
+  if (lower.endsWith('.ogg')) return 'audio/ogg';
+  if (lower.endsWith('.wav')) return 'audio/wav';
+  if (lower.endsWith('.mp4')) return 'video/mp4';
+  if (lower.endsWith('.webm')) return 'video/webm';
+  if (lower.endsWith('.woff2')) return 'font/woff2';
+  if (lower.endsWith('.woff')) return 'font/woff';
+  if (lower.endsWith('.ttf')) return 'font/ttf';
+  if (lower.endsWith('.ico')) return 'image/x-icon';
+  return 'application/octet-stream';
+}
+
+function inlineCssAssetUrls(cssText: string, cssPath: string, entries: Record<string, Uint8Array>): string {
+  return cssText.replace(/url\(([^)]+)\)/gi, (fullMatch, rawReference: string) => {
+    const reference = rawReference.trim().replace(/^['"]|['"]$/g, '');
+    if (!reference || reference.startsWith('data:') || reference.startsWith('#')) {
+      return fullMatch;
+    }
+
+    const resolved = resolveEntryPath(cssPath, reference, entries);
+    if (!resolved) {
+      return fullMatch;
+    }
+
+    const mime = getMimeTypeFromPath(resolved);
+    const dataUrl = `data:${mime};base64,${uint8ToBase64(entries[resolved])}`;
+    return `url("${dataUrl}")`;
+  });
+}
+
 function generateContentXml(project: ImportedProject): string {
   const odeId = createResourceId();
   const odeVersionId = createResourceId();
@@ -782,6 +967,7 @@ function generatePreviewNavHtml(pages: PreviewPageInfo[], activePageNumber: numb
 function generatePreviewBlockHtml(block: ImportedBlock, pageNumber: number, blockIndex: number): string {
   const blockId = `block-preview-${pageNumber}-${blockIndex + 1}`;
   const ideviceId = `idevice-preview-${pageNumber}-${blockIndex + 1}`;
+  const safeHtml = sanitizePreviewBlockHtml(block.html || '<p></p>');
 
   return `<article id="${escapeHtml(blockId)}" class="box">
 <header class="box-head no-icon">
@@ -792,7 +978,7 @@ function generatePreviewBlockHtml(block: ImportedBlock, pageNumber: number, bloc
 <div class="box-content">
 <div id="${escapeHtml(ideviceId)}" class="idevice_node text" data-idevice-path="idevices/text/" data-idevice-type="text" data-idevice-component-type="json" data-idevice-json-data="{&quot;ideviceId&quot;:&quot;${escapeHtml(ideviceId)}&quot;}">
 <div class="exe-text"><div class="exe-text-template">
-${block.html || '<p></p>'}
+${safeHtml}
 </div></div>
 </div>
 </div>
@@ -810,6 +996,27 @@ function slugifyPageTitle(value: string): string {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '');
+}
+
+function sanitizePreviewBlockHtml(html: string): string {
+  const document = new DOMParser().parseFromString(`<!doctype html><html><body>${html}</body></html>`, 'text/html');
+  for (const element of Array.from(document.body.querySelectorAll('script, iframe, object, embed'))) {
+    const replacement = document.createElement('div');
+    replacement.className = 'preview-embed-placeholder';
+    replacement.textContent = 'Contenido incrustado omitido en la vista previa.';
+    element.replaceWith(replacement);
+  }
+
+  for (const anchor of Array.from(document.body.querySelectorAll<HTMLAnchorElement>('a[href]'))) {
+    const href = (anchor.getAttribute('href') || '').trim();
+    if (!href || href.startsWith('#') || /^(?:[a-z][a-z0-9+.-]*:|\/\/)/i.test(href)) {
+      continue;
+    }
+    anchor.setAttribute('href', '#');
+    anchor.removeAttribute('target');
+  }
+
+  return document.body.innerHTML || '<p></p>';
 }
 
 function decodeUtf8(data?: Uint8Array): string {

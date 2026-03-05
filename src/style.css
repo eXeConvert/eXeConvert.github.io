@@ -298,6 +298,86 @@ select:disabled {
   border-bottom: 0;
 }
 
+.page-selection-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.ghost-button {
+  padding: 8px 12px;
+  border: 1px solid var(--line-strong);
+  background: #fff;
+  color: var(--brand-dark);
+  box-shadow: none;
+}
+
+.ghost-button:hover:not(:disabled) {
+  transform: none;
+  background: var(--panel-soft);
+  box-shadow: none;
+}
+
+.page-selection-list {
+  max-height: 220px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+}
+
+.page-selection-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  padding: 8px 10px 8px calc(10px + var(--depth-indent, 0px));
+  border-bottom: 1px solid #e8eee4;
+  font-weight: 400;
+}
+
+.page-selection-row:last-child {
+  border-bottom: 0;
+}
+
+.page-selection-row input[type='checkbox'] {
+  margin: 0;
+}
+
+.preview-field {
+  gap: 10px;
+}
+
+.preview-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.preview-frame {
+  width: 100%;
+  min-height: 420px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+}
+
+.preview-markdown {
+  margin: 0;
+  max-height: 420px;
+  overflow: auto;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  font-family: "IBM Plex Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.88rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .actions {
   display: flex;
   flex-wrap: wrap;

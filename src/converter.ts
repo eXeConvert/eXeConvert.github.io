@@ -28,9 +28,10 @@ import {
 import { unzipSync } from 'fflate';
 import { mml2omml } from 'mathml2omml';
 import temml from 'temml';
+import mammoth from 'mammoth';
 
 export interface ConvertProgress {
-  phase: 'read' | 'parse' | 'render' | 'docx';
+  phase: 'read' | 'parse' | 'filter' | 'render' | 'docx';
   message: string;
 }
 
@@ -38,12 +39,24 @@ export interface ConvertResult {
   blob: Blob;
   filename: string;
   html: string;
+  previewHtml: string;
   pageCount: number;
 }
 
 export interface ElpxHtmlResult {
   html: string;
   pageCount: number;
+}
+
+export interface ElpxPageInfo {
+  id: string;
+  parentId: string | null;
+  title: string;
+  depth: number;
+}
+
+export interface ElpxExportOptions {
+  selectedPageIds?: string[];
 }
 
 interface ParsedProject {
@@ -111,6 +124,7 @@ const latexRenderCache = new Map<string, Promise<{ dataUrl: string; width: numbe
 
 export async function convertElpxToDocx(
   file: File,
+  options?: ElpxExportOptions,
   onProgress?: (progress: ConvertProgress) => void,
 ): Promise<ConvertResult> {
   onProgress?.({ phase: 'read', message: 'Leyendo el archivo .elpx...' });
@@ -119,24 +133,29 @@ export async function convertElpxToDocx(
 
   onProgress?.({ phase: 'parse', message: 'Analizando content.xml...' });
   const project = parseProject(entries);
+  const scopedProject = scopeProjectToSelection(project, options?.selectedPageIds);
   const assets = collectAssets(entries);
 
+  onProgress?.({ phase: 'filter', message: 'Aplicando selección de páginas...' });
   onProgress?.({ phase: 'render', message: 'Generando HTML intermedio...' });
-  const html = await buildHtmlDocument(project, assets, entries);
+  const html = await buildHtmlDocument(project, scopedProject, assets, entries);
 
   onProgress?.({ phase: 'docx', message: 'Generando el documento .docx...' });
   const blob = await buildCompatibleDocx(html);
+  const previewHtml = await buildDocxPreviewHtml(blob, scopedProject.title, scopedProject.language);
 
   return {
     blob,
     filename: toOutputFilename(file.name),
     html,
-    pageCount: project.pages.length,
+    previewHtml,
+    pageCount: scopedProject.pages.length,
   };
 }
 
 export async function convertElpxToHtml(
   file: File,
+  options?: ElpxExportOptions,
   onProgress?: (progress: ConvertProgress) => void,
 ): Promise<ElpxHtmlResult> {
   onProgress?.({ phase: 'read', message: 'Leyendo el archivo .elpx...' });
@@ -145,15 +164,29 @@ export async function convertElpxToHtml(
 
   onProgress?.({ phase: 'parse', message: 'Analizando content.xml...' });
   const project = parseProject(entries);
+  const scopedProject = scopeProjectToSelection(project, options?.selectedPageIds);
   const assets = collectAssets(entries);
 
+  onProgress?.({ phase: 'filter', message: 'Aplicando selección de páginas...' });
   onProgress?.({ phase: 'render', message: 'Generando HTML intermedio...' });
-  const html = await buildHtmlDocument(project, assets, entries);
+  const html = await buildHtmlDocument(project, scopedProject, assets, entries);
 
   return {
     html,
-    pageCount: project.pages.length,
+    pageCount: scopedProject.pages.length,
   };
+}
+
+export async function inspectElpxPages(file: File): Promise<ElpxPageInfo[]> {
+  const input = new Uint8Array(await file.arrayBuffer());
+  const entries = unzipSync(input);
+  const project = parseProject(entries);
+  return project.pages.map(page => ({
+    id: page.id,
+    parentId: page.parentId,
+    title: page.title,
+    depth: page.depth,
+  }));
 }
 
 async function buildCompatibleDocx(htmlDocument: string): Promise<Blob> {
@@ -167,6 +200,56 @@ async function buildCompatibleDocx(htmlDocument: string): Promise<Blob> {
   const sections: ISectionOptions[] = [{ children }];
   const document = new DocxDocument({ sections });
   return Packer.toBlob(document);
+}
+
+async function buildDocxPreviewHtml(blob: Blob, title: string, language: string): Promise<string> {
+  try {
+    const result = await mammoth.convertToHtml(
+      { arrayBuffer: await blob.arrayBuffer() },
+      {
+        includeDefaultStyleMap: true,
+        includeEmbeddedStyleMap: true,
+        ignoreEmptyParagraphs: false,
+      },
+    );
+
+    return `<!doctype html>
+<html lang="${escapeAttribute(language || 'es')}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>${escapeHtml(title || 'Vista previa DOCX')}</title>
+  <style>
+    html, body { margin: 0; padding: 0; background: #f5f5f5; }
+    body { font-family: Georgia, "Times New Roman", serif; color: #222; line-height: 1.45; }
+    .docx-preview {
+      box-sizing: border-box;
+      width: min(900px, 100%);
+      margin: 0 auto;
+      padding: 24px;
+      background: #fff;
+      column-count: 1 !important;
+      column-gap: 0 !important;
+    }
+    .docx-preview * {
+      box-sizing: border-box;
+      max-width: 100%;
+      column-count: initial;
+    }
+    .docx-preview table { border-collapse: collapse; width: 100%; margin: 10pt 0; }
+    .docx-preview td, .docx-preview th { border: 1px solid #c8c8c8; padding: 6px; vertical-align: top; }
+    .docx-preview img { height: auto; }
+  </style>
+</head>
+<body>
+  <main class="docx-preview">
+    ${result.value || '<p>No se pudo generar la vista previa del DOCX.</p>'}
+  </main>
+</body>
+</html>`;
+  } catch {
+    return '<!doctype html><html lang="es"><body><p>No se pudo generar la vista previa del DOCX.</p></body></html>';
+  }
 }
 
 function parseProject(entries: Record<string, Uint8Array>): ParsedProject {
@@ -237,14 +320,17 @@ function parsePageNode(node: Element): ParsedPage | null {
 }
 
 async function buildHtmlDocument(
-  project: ParsedProject,
+  sourceProject: ParsedProject,
+  scopedProject: ParsedProject,
   assets: Map<string, AssetEntry>,
   entries: Record<string, Uint8Array>,
 ): Promise<string> {
   const exportedPages = (await extractRenderedExportedPageFragments(entries)) || extractExportedPageFragments(entries);
-  const sections = project.pages
-    .map((page, index) => {
-      const sourceHtml = exportedPages?.[index] || page.contentHtml;
+  const sourceIndexById = new Map(sourceProject.pages.map((page, index) => [page.id, index]));
+  const sections = scopedProject.pages
+    .map(page => {
+      const sourceIndex = sourceIndexById.get(page.id);
+      const sourceHtml = typeof sourceIndex === 'number' ? (exportedPages?.[sourceIndex] || page.contentHtml) : page.contentHtml;
       const content = sanitizeHtmlFragment(sourceHtml, assets, page.depth);
       if (!content.trim()) {
         return '';
@@ -260,10 +346,10 @@ ${content}
     .join('\n');
 
   return `<!doctype html>
-<html lang="${escapeAttribute(project.language)}">
+<html lang="${escapeAttribute(scopedProject.language)}">
 <head>
   <meta charset="utf-8">
-  <title>${escapeHtml(project.title)}</title>
+  <title>${escapeHtml(scopedProject.title)}</title>
   <style>
     body { font-family: Georgia, "Times New Roman", serif; color: #222; line-height: 1.45; }
     h1 { font-size: 24pt; margin: 0 0 10pt; }
@@ -283,11 +369,31 @@ ${content}
   </style>
 </head>
 <body>
-  <h1>${escapeHtml(project.title)}</h1>
-  ${project.subtitle ? `<p class="project-subtitle">${escapeHtml(project.subtitle)}</p>` : ''}
+  <h1>${escapeHtml(scopedProject.title)}</h1>
+  ${scopedProject.subtitle ? `<p class="project-subtitle">${escapeHtml(scopedProject.subtitle)}</p>` : ''}
   ${sections || '<p>El proyecto no contiene contenido exportable.</p>'}
 </body>
 </html>`;
+}
+
+function scopeProjectToSelection(project: ParsedProject, selectedPageIds?: string[]): ParsedProject {
+  if (!selectedPageIds || selectedPageIds.length === 0) {
+    return project;
+  }
+
+  const selectedSet = new Set(selectedPageIds);
+  const scopedPages = project.pages
+    .filter(page => selectedSet.has(page.id))
+    .map(page => ({
+      ...page,
+      parentId: page.parentId && selectedSet.has(page.parentId) ? page.parentId : null,
+      depth: 1,
+    }));
+
+  return {
+    ...project,
+    pages: sortPagesHierarchically(scopedPages),
+  };
 }
 
 async function extractRenderedExportedPageFragments(entries: Record<string, Uint8Array>): Promise<string[] | null> {

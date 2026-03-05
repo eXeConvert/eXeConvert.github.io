@@ -5,6 +5,7 @@ import { convertElpxToHtml, type ConvertProgress } from './converter';
 
 export interface MarkdownExportOptions {
   includeImages: boolean;
+  selectedPageIds?: string[];
 }
 
 export interface MarkdownExportResult {
@@ -18,7 +19,7 @@ export async function convertElpxToMarkdown(
   options: MarkdownExportOptions,
   onProgress?: (progress: ConvertProgress) => void,
 ): Promise<MarkdownExportResult> {
-  const htmlResult = await convertElpxToHtml(file, onProgress);
+  const htmlResult = await convertElpxToHtml(file, { selectedPageIds: options.selectedPageIds }, onProgress);
 
   onProgress?.({ phase: 'render', message: 'Convirtiendo HTML a Markdown...' });
   const markdown = convertHtmlDocumentToMarkdown(htmlResult.html, options);
