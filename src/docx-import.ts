@@ -19,8 +19,10 @@ export interface ImportToElpxResult {
 }
 
 export type HeadingMode = 'block' | 'page';
+export type Heading1Mode = 'page' | 'resource';
 
 export interface DocxImportOptions {
+  heading1Mode: Heading1Mode;
   heading2Mode: HeadingMode;
   heading3Mode: HeadingMode;
   heading4Mode: HeadingMode;
@@ -128,6 +130,8 @@ function buildProjectFromHtml(htmlValue: string, filename: string, options: Docx
   const document = new DOMParser().parseFromString(`<!doctype html><html><body>${htmlValue}</body></html>`, 'text/html');
   const body = document.body;
 
+  let resourceTitle = '';
+  let resourceTitleAssigned = false;
   const pages: ImportedPage[] = [];
   let currentPage: ImportedPage | null = null;
   let currentBlock: ImportedBlock | null = null;
@@ -148,54 +152,72 @@ function buildProjectFromHtml(htmlValue: string, filename: string, options: Docx
       continue;
     }
 
-    if (tag === 'h1') {
-      currentPage = createPage(pages, trimmed, 1, null);
-      currentTopLevelPage = currentPage;
-      currentSecondLevelPage = null;
-      currentThirdLevelPage = null;
-      currentBlock = null;
-      continue;
-    }
+    const headingMatch = /^h([1-6])$/.exec(tag);
+    if (headingMatch) {
+      const rawLevel = Number(headingMatch[1]);
+      const useResourceTitle = options.heading1Mode === 'resource';
 
-    if (tag === 'h2') {
-      if (options.heading2Mode === 'page') {
-        const parentPage = currentTopLevelPage ?? ensurePage(pages, currentPage);
-        currentPage = createPage(pages, trimmed, 2, pages.indexOf(parentPage));
-        currentSecondLevelPage = currentPage;
-        currentThirdLevelPage = null;
-        currentBlock = null;
+      if (useResourceTitle && rawLevel === 1 && !resourceTitleAssigned) {
+        resourceTitle = trimmed;
+        resourceTitleAssigned = true;
         continue;
       }
 
-      currentPage = ensurePage(pages, currentPage);
-      currentBlock = { title: trimmed, html: '' };
-      currentPage.blocks.push(currentBlock);
-      continue;
-    }
-
-    if (tag === 'h3') {
-      if (options.heading2Mode !== 'page') {
+      const effectiveLevel = useResourceTitle && rawLevel > 1 ? rawLevel - 1 : rawLevel;
+      if (effectiveLevel < 1 || effectiveLevel > 4) {
         currentPage = ensurePage(pages, currentPage);
         currentBlock = ensureBlock(currentPage, currentBlock);
         currentBlock.html = appendParagraphHtml(currentBlock.html, cleanedHtml);
         continue;
       }
 
-      if (options.heading2Mode === 'page' && options.heading3Mode === 'page') {
-        const parentPage = currentSecondLevelPage ?? currentTopLevelPage ?? ensurePage(pages, currentPage);
-        currentPage = createPage(pages, trimmed, 3, pages.indexOf(parentPage));
-        currentThirdLevelPage = currentPage;
+      if (effectiveLevel === 1) {
+        currentPage = createPage(pages, trimmed, 1, null);
+        currentTopLevelPage = currentPage;
+        currentSecondLevelPage = null;
+        currentThirdLevelPage = null;
         currentBlock = null;
         continue;
       }
 
-      currentPage = ensurePage(pages, currentPage);
-      currentBlock = { title: trimmed, html: '' };
-      currentPage.blocks.push(currentBlock);
-      continue;
-    }
+      if (effectiveLevel === 2) {
+        if (options.heading2Mode === 'page') {
+          const parentPage = currentTopLevelPage ?? ensurePage(pages, currentPage);
+          currentPage = createPage(pages, trimmed, 2, pages.indexOf(parentPage));
+          currentSecondLevelPage = currentPage;
+          currentThirdLevelPage = null;
+          currentBlock = null;
+          continue;
+        }
 
-    if (tag === 'h4') {
+        currentPage = ensurePage(pages, currentPage);
+        currentBlock = { title: trimmed, html: '' };
+        currentPage.blocks.push(currentBlock);
+        continue;
+      }
+
+      if (effectiveLevel === 3) {
+        if (options.heading2Mode !== 'page') {
+          currentPage = ensurePage(pages, currentPage);
+          currentBlock = ensureBlock(currentPage, currentBlock);
+          currentBlock.html = appendParagraphHtml(currentBlock.html, cleanedHtml);
+          continue;
+        }
+
+        if (options.heading3Mode === 'page') {
+          const parentPage = currentSecondLevelPage ?? currentTopLevelPage ?? ensurePage(pages, currentPage);
+          currentPage = createPage(pages, trimmed, 3, pages.indexOf(parentPage));
+          currentThirdLevelPage = currentPage;
+          currentBlock = null;
+          continue;
+        }
+
+        currentPage = ensurePage(pages, currentPage);
+        currentBlock = { title: trimmed, html: '' };
+        currentPage.blocks.push(currentBlock);
+        continue;
+      }
+
       if (options.heading2Mode !== 'page' || options.heading3Mode !== 'page') {
         currentPage = ensurePage(pages, currentPage);
         currentBlock = ensureBlock(currentPage, currentBlock);
@@ -203,9 +225,8 @@ function buildProjectFromHtml(htmlValue: string, filename: string, options: Docx
         continue;
       }
 
-      if (options.heading2Mode === 'page' && options.heading3Mode === 'page' && options.heading4Mode === 'page') {
-        const parentPage =
-          currentThirdLevelPage ?? currentSecondLevelPage ?? currentTopLevelPage ?? ensurePage(pages, currentPage);
+      if (options.heading4Mode === 'page') {
+        const parentPage = currentThirdLevelPage ?? currentSecondLevelPage ?? currentTopLevelPage ?? ensurePage(pages, currentPage);
         currentPage = createPage(pages, trimmed, 4, pages.indexOf(parentPage));
         currentBlock = null;
         continue;
@@ -245,7 +266,7 @@ function buildProjectFromHtml(htmlValue: string, filename: string, options: Docx
   }
 
   return {
-    title: stemFromFilename(filename) || 'Documento importado',
+    title: resourceTitle || stemFromFilename(filename) || 'Documento importado',
     subtitle: '',
     pages,
   };

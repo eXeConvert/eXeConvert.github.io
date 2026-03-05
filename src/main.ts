@@ -1,6 +1,6 @@
 import './style.css';
 import { convertElpxToDocx, inspectElpxPages, type ConvertProgress, type ElpxPageInfo } from './converter';
-import { convertDocxToElpx, type DocxImportProgress, type HeadingMode } from './docx-import';
+import { convertDocxToElpx, type DocxImportProgress, type Heading1Mode, type HeadingMode } from './docx-import';
 import { convertElpxToMarkdown } from './elpx-markdown';
 import { convertMarkdownToElpx } from './markdown-import';
 
@@ -145,7 +145,12 @@ app.innerHTML = `
             <tbody>
               <tr>
                 <th scope="row"><code>Título 1</code></th>
-                <td>Página</td>
+                <td>
+                  <select id="heading1-mode">
+                    <option value="page" selected>Página</option>
+                    <option value="resource">Título del recurso</option>
+                  </select>
+                </td>
               </tr>
               <tr>
                 <th scope="row"><code>Título 2</code></th>
@@ -178,6 +183,9 @@ app.innerHTML = `
           </table>
           <p class="field-help">
             Cada nivel solo puede crear subpáginas cuando el nivel inmediatamente anterior también se usa como subpágina.
+          </p>
+          <p class="field-help">
+            Si <code>Título 1</code> se usa como <em>Título del recurso</em>, el resto de encabezados se interpreta subiendo un nivel.
           </p>
         </div>
 
@@ -230,7 +238,7 @@ app.innerHTML = `
 
     <footer class="app-footer">
       <p class="app-footer-meta">
-        Versión beta · v0.1.0-beta.2 · ©
+        Versión beta · v0.1.0-beta.3 · ©
         <a href="https://bilateria.org" target="_blank" rel="noopener noreferrer">Juan José de Haro</a>
         ·
         <a href="https://www.gnu.org/licenses/agpl-3.0.html" target="_blank" rel="noopener noreferrer">Licencia AGPLv3</a>
@@ -272,6 +280,7 @@ const previewField = document.querySelector<HTMLDivElement>('#preview-field')!;
 const previewPopoutButton = document.querySelector<HTMLButtonElement>('#preview-popout-button')!;
 const previewFrame = document.querySelector<HTMLIFrameElement>('#preview-frame')!;
 const previewMarkdown = document.querySelector<HTMLPreElement>('#preview-markdown')!;
+const heading1Mode = document.querySelector<HTMLSelectElement>('#heading1-mode')!;
 const heading2Mode = document.querySelector<HTMLSelectElement>('#heading2-mode')!;
 const heading3Mode = document.querySelector<HTMLSelectElement>('#heading3-mode')!;
 const heading4Mode = document.querySelector<HTMLSelectElement>('#heading4-mode')!;
@@ -335,6 +344,11 @@ dropField.addEventListener('drop', event => {
   dropField.classList.remove('drop-active');
   const file = event.dataTransfer?.files?.[0] || null;
   handleSelectedFile(file);
+});
+
+heading1Mode.addEventListener('change', () => {
+  syncStructureControls();
+  invalidatePreparedConversion();
 });
 
 heading2Mode.addEventListener('change', () => {
@@ -577,7 +591,14 @@ function syncStructureControls(): void {
     return;
   }
 
-  const heading2UsesPages = heading2Mode.value === 'page';
+  const heading1UsesResourceTitle = heading1Mode.value === 'resource';
+  if (heading1UsesResourceTitle) {
+    setForcedPageSelectState(heading2Mode, 'Página (obligatorio)');
+  } else {
+    setDependentSelectState(heading2Mode, true, 'iDevice de texto');
+  }
+
+  const heading2UsesPages = heading1UsesResourceTitle || heading2Mode.value === 'page';
   setDependentSelectState(heading3Mode, heading2UsesPages, 'Subtítulo dentro del iDevice actual');
 
   const heading3UsesPages = heading2UsesPages && heading3Mode.value === 'page';
@@ -595,11 +616,13 @@ function getSelectedElpxOutputKind(): ElpxOutputKind {
 }
 
 function getHeadingOptions(): {
+  heading1Mode: Heading1Mode;
   heading2Mode: HeadingMode;
   heading3Mode: HeadingMode;
   heading4Mode: HeadingMode;
 } {
   return {
+    heading1Mode: heading1Mode.value as Heading1Mode,
     heading2Mode: heading2Mode.value as HeadingMode,
     heading3Mode: heading3Mode.value as HeadingMode,
     heading4Mode: heading4Mode.value as HeadingMode,
@@ -625,6 +648,12 @@ function setDependentSelectState(
   `;
   selectElement.value = currentValue;
   selectElement.disabled = false;
+}
+
+function setForcedPageSelectState(selectElement: HTMLSelectElement, label: string): void {
+  selectElement.innerHTML = `<option value="page">${label}</option>`;
+  selectElement.value = 'page';
+  selectElement.disabled = true;
 }
 
 function setStatus(message: string, isError = false): void {
@@ -864,7 +893,7 @@ function computeConversionSignature(): string {
   const filePart = selectedFile ? `${selectedFile.name}:${selectedFile.size}:${selectedFile.lastModified}` : 'none';
   const kindPart = selectedKind || 'none';
   const outputPart = getSelectedElpxOutputKind();
-  const headingsPart = `${heading2Mode.value}|${heading3Mode.value}|${heading4Mode.value}`;
+  const headingsPart = `${heading1Mode.value}|${heading2Mode.value}|${heading3Mode.value}|${heading4Mode.value}`;
   const markdownPart = markdownImages.checked ? 'img:1' : 'img:0';
   const selectedPages = getSelectedElpxPageIds();
   const pagesPart = selectedPages ? selectedPages.slice().sort().join(',') : 'all';
