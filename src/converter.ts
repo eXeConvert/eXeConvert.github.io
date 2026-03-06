@@ -257,6 +257,12 @@ async function buildDocxPreviewHtml(blob: Blob, title: string, language: string)
 
 function buildMathEnabledSourcePreviewHtml(htmlDocument: string, title: string, language: string): string {
   const parsed = new DOMParser().parseFromString(htmlDocument, 'text/html');
+  for (const script of Array.from(parsed.querySelectorAll('script'))) {
+    script.remove();
+  }
+  for (const link of Array.from(parsed.querySelectorAll('link[rel="stylesheet"]'))) {
+    link.remove();
+  }
   const bodyHtml = parsed.body?.innerHTML || '<p>Sin contenido para previsualizar.</p>';
 
   return `<!doctype html>
@@ -375,13 +381,15 @@ async function buildHtmlDocument(
   assets: Map<string, AssetEntry>,
   entries: Record<string, Uint8Array>,
 ): Promise<string> {
-  const exportedPages = (await extractRenderedExportedPageFragments(entries)) || extractExportedPageFragments(entries);
+  const exportedPagesById = (await extractRenderedExportedPageFragments(entries)) || extractExportedPageFragments(entries);
   const sourceIndexById = new Map(sourceProject.pages.map((page, index) => [page.id, index]));
+  const exportedPagesInSourceOrder = sourceProject.pages.map(page => exportedPagesById?.get(page.id) || '');
   const sections = scopedProject.pages
     .map(page => {
       const sourceIndex = sourceIndexById.get(page.id);
       const originalHtml = page.contentHtml || '';
-      const renderedHtml = typeof sourceIndex === 'number' ? (exportedPages?.[sourceIndex] || '') : '';
+      const renderedHtml =
+        exportedPagesById?.get(page.id) || (typeof sourceIndex === 'number' ? (exportedPagesInSourceOrder[sourceIndex] || '') : '');
       const sourceHtml = choosePreferredPageSource(originalHtml, renderedHtml);
       const content = sanitizeHtmlFragment(sourceHtml, assets, page.depth);
       if (!content.trim()) {
@@ -496,13 +504,13 @@ function scopeProjectToSelection(project: ParsedProject, selectedPageIds?: strin
   };
 }
 
-async function extractRenderedExportedPageFragments(entries: Record<string, Uint8Array>): Promise<string[] | null> {
+async function extractRenderedExportedPageFragments(entries: Record<string, Uint8Array>): Promise<Map<string, string> | null> {
   if (!entries['index.html']) {
     return null;
   }
 
   const orderedPaths = getExportedHtmlPagePaths(entries);
-  const fragments: string[] = [];
+  const fragments = new Map<string, string>();
 
   for (const path of orderedPaths) {
     const entry = entries[path];
@@ -511,25 +519,27 @@ async function extractRenderedExportedPageFragments(entries: Record<string, Uint
     }
 
     try {
-      const rendered = await renderExportedPageContent(path, decodeUtf8(entry), entries);
-      if (rendered.trim()) {
-        fragments.push(rendered);
+      const html = decodeUtf8(entry);
+      const pageId = extractExportedPageId(html);
+      const rendered = await renderExportedPageContent(path, html, entries);
+      if (pageId && rendered.trim()) {
+        fragments.set(pageId, rendered);
       }
     } catch {
       return null;
     }
   }
 
-  return fragments.length > 0 ? fragments : null;
+  return fragments.size > 0 ? fragments : null;
 }
 
-function extractExportedPageFragments(entries: Record<string, Uint8Array>): string[] | null {
+function extractExportedPageFragments(entries: Record<string, Uint8Array>): Map<string, string> | null {
   if (!entries['index.html']) {
     return null;
   }
 
   const orderedPaths = getExportedHtmlPagePaths(entries);
-  const fragments: string[] = [];
+  const fragments = new Map<string, string>();
 
   for (const path of orderedPaths) {
     const entry = entries[path];
@@ -538,13 +548,19 @@ function extractExportedPageFragments(entries: Record<string, Uint8Array>): stri
     }
 
     const html = decodeUtf8(entry);
+    const pageId = extractExportedPageId(html);
     const fragment = extractExportedPageContent(html);
-    if (fragment.trim()) {
-      fragments.push(fragment);
+    if (pageId && fragment.trim()) {
+      fragments.set(pageId, fragment);
     }
   }
 
-  return fragments.length > 0 ? fragments : null;
+  return fragments.size > 0 ? fragments : null;
+}
+
+function extractExportedPageId(html: string): string | null {
+  const match = html.match(/\bid=["']exe-(page-[A-Za-z0-9_-]+)["']/i);
+  return match?.[1] || null;
 }
 
 function getExportedHtmlPagePaths(entries: Record<string, Uint8Array>): string[] {
@@ -686,22 +702,15 @@ async function renderExportedPageContent(
 function inlineExportedPageResources(pagePath: string, html: string, entries: Record<string, Uint8Array>): string {
   const doc = new DOMParser().parseFromString(html, 'text/html');
 
-  for (const script of Array.from(doc.querySelectorAll<HTMLScriptElement>('script[src]'))) {
-    const src = script.getAttribute('src') || '';
-    const resolved = resolveEntryPathFromDocument(pagePath, src);
-    if (!resolved || !entries[resolved]) {
-      continue;
-    }
-
-    const inline = doc.createElement('script');
-    inline.textContent = decodeUtf8(entries[resolved]);
-    script.replaceWith(inline);
+  for (const script of Array.from(doc.querySelectorAll<HTMLScriptElement>('script'))) {
+    script.remove();
   }
 
   for (const link of Array.from(doc.querySelectorAll<HTMLLinkElement>('link[rel="stylesheet"][href]'))) {
     const href = link.getAttribute('href') || '';
     const resolved = resolveEntryPathFromDocument(pagePath, href);
     if (!resolved || !entries[resolved]) {
+      link.remove();
       continue;
     }
 

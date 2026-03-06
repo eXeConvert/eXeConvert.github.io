@@ -3,6 +3,7 @@ import mammoth from 'mammoth';
 // @ts-expect-error omml2mathml does not ship TypeScript declarations.
 import omml2mathml from 'omml2mathml';
 import { MathMLToLaTeX } from 'mathml-to-latex';
+import temml from 'temml';
 
 export interface DocxImportProgress {
   phase: 'read' | 'parse' | 'template' | 'pack';
@@ -29,26 +30,30 @@ export interface DocxImportOptions {
   heading4Mode: HeadingMode;
 }
 
-interface ImportedProject {
+export interface ImportedProject {
   title: string;
   subtitle: string;
   pages: ImportedPage[];
 }
 
-interface ImportedPage {
+export interface ImportedPage {
   title: string;
   level: 1 | 2 | 3 | 4;
   parentIndex: number | null;
   blocks: ImportedBlock[];
 }
 
-interface ImportedBlock {
+export interface ImportedBlock {
   title: string;
   html: string;
 }
 
 interface TemplateParts {
   entries: Record<string, Uint8Array>;
+}
+
+interface PreviewOptions {
+  renderLatex?: boolean;
 }
 
 interface PreviewPageInfo {
@@ -59,7 +64,7 @@ interface PreviewPageInfo {
   parentIndex: number | null;
 }
 
-const EXECONVERT_SIGNATURE = 'eXeConvert v0.1.0-beta.4';
+const EXECONVERT_SIGNATURE = 'eXeConvert v0.1.0-beta.5';
 
 export async function convertDocxToElpx(
   file: File,
@@ -71,7 +76,14 @@ export async function convertDocxToElpx(
 
   onProgress?.({ phase: 'parse', message: 'Analizando estilos y contenido del DOCX...', messageKey: 'progress.parseDocxStyles' });
   const htmlValue = await extractDocxHtml(inputBuffer);
-  return convertHtmlToElpx(htmlValue, file.name, options, onProgress, 'progress.parseDocumentStructure');
+  return convertHtmlToElpx(
+    htmlValue,
+    file.name,
+    options,
+    onProgress,
+    'progress.parseDocumentStructure',
+    { renderLatex: true },
+  );
 }
 
 export async function convertHtmlToElpx(
@@ -80,13 +92,30 @@ export async function convertHtmlToElpx(
   options: DocxImportOptions,
   onProgress?: (progress: DocxImportProgress) => void,
   parseMessageKey = 'progress.parseDocumentStructure',
+  previewOptions: PreviewOptions = {},
 ): Promise<ImportToElpxResult> {
   onProgress?.({ phase: 'parse', message: 'Interpretando la estructura del documento...', messageKey: parseMessageKey });
   const project = buildProjectFromHtml(htmlValue, filename, options);
 
+  return convertProjectToElpx(project, filename, undefined, onProgress, previewOptions);
+}
+
+export async function convertProjectToElpx(
+  project: ImportedProject,
+  filename: string,
+  extraEntries?: Record<string, Uint8Array>,
+  onProgress?: (progress: DocxImportProgress) => void,
+  previewOptions: PreviewOptions = {},
+): Promise<ImportToElpxResult> {
+
   onProgress?.({ phase: 'template', message: 'Aplicando la plantilla base de eXeLearning...', messageKey: 'progress.applyTemplate' });
   const template = await loadBaseTemplate();
-  const previewPages = buildStandalonePreviewPages(project, template.entries);
+  if (extraEntries) {
+    for (const [entryPath, entryData] of Object.entries(extraEntries)) {
+      template.entries[entryPath] = entryData;
+    }
+  }
+  const previewPages = buildStandalonePreviewPages(project, template.entries, previewOptions);
   const previewHtml =
     previewPages['index.html']
       ? previewPages['index.html']
@@ -524,12 +553,13 @@ function buildElpxFromTemplate(template: TemplateParts, project: ImportedProject
 function buildStandalonePreviewPages(
   project: ImportedProject,
   entries: Record<string, Uint8Array>,
+  previewOptions: PreviewOptions = {},
 ): Record<string, string> {
   const pages = getPreviewPages(project);
   const output: Record<string, string> = {};
 
   for (const [index, pageInfo] of pages.entries()) {
-    const html = generatePreviewPageHtml(project, pages, index);
+    const html = generatePreviewPageHtml(project, pages, index, previewOptions);
     output[pageInfo.href] = buildStandalonePreviewHtml(html, entries, pageInfo.href);
   }
 
@@ -538,6 +568,11 @@ function buildStandalonePreviewPages(
 
 function buildStandalonePreviewHtml(html: string, entries: Record<string, Uint8Array>, docPath: string): string {
   const document = new DOMParser().parseFromString(html, 'text/html');
+  const docAny = document as Document & { querySelectorAll?: Document['querySelectorAll']; head?: HTMLElement | null; body?: HTMLElement | null };
+
+  if (!docAny.querySelectorAll || !docAny.body) {
+    return html;
+  }
 
   for (const link of Array.from(document.querySelectorAll<HTMLLinkElement>('link[href]'))) {
     const href = (link.getAttribute('href') || '').trim();
@@ -598,7 +633,7 @@ function buildStandalonePreviewHtml(html: string, entries: Record<string, Uint8A
   font-style: italic;
 }
 `;
-  document.head?.append(previewStyle);
+  docAny.head?.append(previewStyle);
 
   return `<!doctype html>\n${document.documentElement.outerHTML}`;
 }
@@ -874,7 +909,12 @@ function getPreviewPages(project: ImportedProject): PreviewPageInfo[] {
   });
 }
 
-function generatePreviewPageHtml(project: ImportedProject, pages: PreviewPageInfo[], activeIndex: number): string {
+function generatePreviewPageHtml(
+  project: ImportedProject,
+  pages: PreviewPageInfo[],
+  activeIndex: number,
+  previewOptions: PreviewOptions = {},
+): string {
   const activePageInfo = pages[activeIndex];
   const activePage = project.pages[activeIndex];
   const assetPrefix = activeIndex === 0 ? '' : '../';
@@ -882,7 +922,7 @@ function generatePreviewPageHtml(project: ImportedProject, pages: PreviewPageInf
   const nextPage = activeIndex < pages.length - 1 ? pages[activeIndex + 1] : null;
   const navItems = generatePreviewNavHtml(pages, activePageInfo.pageNumber, activeIndex);
   const blocks = activePage.blocks
-    .map((block, blockIndex) => generatePreviewBlockHtml(block, activePageInfo.pageNumber, blockIndex))
+    .map((block, blockIndex) => generatePreviewBlockHtml(block, activePageInfo.pageNumber, blockIndex, previewOptions))
     .join('\n');
   const prevHref = prevPage
     ? activeIndex === 1
@@ -991,10 +1031,16 @@ function generatePreviewNavHtml(pages: PreviewPageInfo[], activePageNumber: numb
   return renderBranch(null);
 }
 
-function generatePreviewBlockHtml(block: ImportedBlock, pageNumber: number, blockIndex: number): string {
+function generatePreviewBlockHtml(
+  block: ImportedBlock,
+  pageNumber: number,
+  blockIndex: number,
+  previewOptions: PreviewOptions = {},
+): string {
   const blockId = `block-preview-${pageNumber}-${blockIndex + 1}`;
   const ideviceId = `idevice-preview-${pageNumber}-${blockIndex + 1}`;
-  const safeHtml = sanitizePreviewBlockHtml(block.html || '<p></p>');
+  const sanitizedHtml = sanitizePreviewBlockHtml(block.html || '<p></p>');
+  const safeHtml = previewOptions.renderLatex ? renderLatexPreviewHtml(sanitizedHtml) : sanitizedHtml;
 
   return `<article id="${escapeHtml(blockId)}" class="box">
 <header class="box-head no-icon">
@@ -1027,14 +1073,18 @@ function slugifyPageTitle(value: string): string {
 
 function sanitizePreviewBlockHtml(html: string): string {
   const document = new DOMParser().parseFromString(`<!doctype html><html><body>${html}</body></html>`, 'text/html');
-  for (const element of Array.from(document.body.querySelectorAll('script, iframe, object, embed'))) {
+  const body = (document as Document & { body?: HTMLElement | null }).body;
+  if (!body || !('querySelectorAll' in body)) {
+    return html;
+  }
+  for (const element of Array.from(body.querySelectorAll('script, iframe, object, embed'))) {
     const replacement = document.createElement('div');
     replacement.className = 'preview-embed-placeholder';
     replacement.textContent = 'Contenido incrustado omitido en la vista previa.';
     element.replaceWith(replacement);
   }
 
-  for (const anchor of Array.from(document.body.querySelectorAll<HTMLAnchorElement>('a[href]'))) {
+  for (const anchor of Array.from(body.querySelectorAll<HTMLAnchorElement>('a[href]'))) {
     const href = (anchor.getAttribute('href') || '').trim();
     if (!href || href.startsWith('#') || /^(?:[a-z][a-z0-9+.-]*:|\/\/)/i.test(href)) {
       continue;
@@ -1043,7 +1093,53 @@ function sanitizePreviewBlockHtml(html: string): string {
     anchor.removeAttribute('target');
   }
 
-  return document.body.innerHTML || '<p></p>';
+  return body.innerHTML || '<p></p>';
+}
+
+function renderLatexPreviewHtml(html: string): string {
+  return html
+    .replace(/\\\[([\s\S]*?)\\\]/g, (_match, expression: string) => renderLatexFragment(expression, true))
+    .replace(/\\\(([\s\S]*?)\\\)/g, (_match, expression: string) => renderLatexFragment(expression, false));
+}
+
+function renderLatexFragment(expression: string, displayMode: boolean): string {
+  const normalized = normalizeLegacyPreviewLatex(expression);
+  if (!normalized) {
+    return displayMode ? '\\[\\]' : '\\(\\)';
+  }
+
+  try {
+    return temml.renderToString(normalized, {
+      displayMode,
+      throwOnError: false,
+      annotate: false,
+    });
+  } catch {
+    return displayMode ? `\\[${normalized}\\]` : `\\(${normalized}\\)`;
+  }
+}
+
+function normalizeLegacyPreviewLatex(expression: string): string {
+  const htmlLike = expression
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>');
+
+  const parsed = new DOMParser().parseFromString(`<!doctype html><html><body>${htmlLike}</body></html>`, 'text/html');
+  const body = (parsed as Document & { body?: HTMLElement | null }).body;
+  const text = body?.textContent || htmlLike;
+
+  return text
+    .normalize('NFC')
+    .replace(/\u00a0/g, ' ')
+    .replace(/[\uFFFD\uFEFF\u00AD\u2066-\u2069\u200B-\u200F\u202A-\u202E\uFFF9-\uFFFB]/g, '')
+    .replace(/[\uD800-\uDFFF]/g, '')
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '')
+    .replace(/[ \t]*\n[ \t]*/g, '\n')
+    .replace(/[ \t]+/g, ' ')
+    .trim();
 }
 
 function decodeUtf8(data?: Uint8Array): string {
@@ -1097,7 +1193,10 @@ function stripHtmlFromMath(value: string): string {
 }
 
 function normalizeLatexValue(value: string): string {
-  let output = value.replace(/\u00a0/g, ' ').replace(/\r/g, '');
+  let output = value.normalize('NFC').replace(/\u00a0/g, ' ').replace(/\r/g, '');
+  output = output.replace(/[\uFFFD\uFEFF\u00AD\u2066-\u2069\u200B-\u200F\u202A-\u202E\uFFF9-\uFFFB]/g, '');
+  output = output.replace(/[\uD800-\uDFFF]/g, '');
+  output = output.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
   output = output.replace(/[ \t]*\n[ \t]*/g, '\n');
   output = output.replace(/\\\s+([A-Za-z])/g, '\\$1');
   output = output.replace(/\\ext\{/g, '\\text{');

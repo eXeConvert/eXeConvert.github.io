@@ -2,8 +2,13 @@ import './style.css';
 import { convertElpxToDocx, inspectElpxPages, type ConvertProgress, type ElpxPageInfo } from './converter';
 import { convertDocxToElpx, type DocxImportProgress, type Heading1Mode, type HeadingMode } from './docx-import';
 import { convertElpxToMarkdown } from './elpx-markdown';
+import { convertElpToElpx } from './legacy-elp';
 import { convertMarkdownToElpx } from './markdown-import';
 import { createI18n, persistLocale, resolveInitialLocale, type Locale } from './i18n';
+import MarkdownIt from 'markdown-it';
+// @ts-expect-error markdown-it-texmath does not ship TypeScript declarations.
+import texmath from 'markdown-it-texmath';
+import temml from 'temml';
 
 interface FilePickerWindow extends Window {
   showSaveFilePicker?: (options?: SaveFilePickerOptions) => Promise<FileSystemFileHandle>;
@@ -31,9 +36,20 @@ interface PendingSaveTarget {
   filename: string;
 }
 
-type InputKind = 'docx' | 'markdown' | 'elpx';
-type ElpxOutputKind = 'docx' | 'markdown';
+type InputKind = 'docx' | 'markdown' | 'elpx' | 'elp';
 type ConversionKind = 'docx' | 'markdown' | 'elpx';
+type OutputKind = ConversionKind;
+type MarkdownPreviewMode = 'formatted' | 'source';
+
+interface IntermediateElpxSave {
+  blob: Blob;
+  filename: string;
+  pageCount: number;
+  blockCount?: number;
+  previewHtml?: string;
+  previewPages?: Record<string, string>;
+  previewStartPath?: string;
+}
 
 interface PreparedConversion {
   signature: string;
@@ -46,6 +62,7 @@ interface PreparedConversion {
   previewContent: string;
   previewPages?: Record<string, string>;
   previewStartPath?: string;
+  intermediateElpx?: IntermediateElpxSave;
 }
 
 const app = document.querySelector<HTMLDivElement>('#app');
@@ -54,7 +71,7 @@ if (!app) {
   throw new Error('No se ha encontrado el contenedor principal.');
 }
 
-const APP_VERSION = 'v0.1.0-beta.4';
+const APP_VERSION = 'v0.1.0-beta.5';
 const locale = resolveInitialLocale();
 const { t } = createI18n(locale);
 
@@ -96,7 +113,7 @@ app.innerHTML = `
       <h2>${t('panel.conversion')}</h2>
       <form id="conversion-form" class="form">
         <div id="drop-field" class="dropzone" tabindex="0" role="button" aria-describedby="drop-help">
-          <input id="file-input" type="file" accept=".elpx,.zip,.docx,.md,.markdown,.mdown,.txt" hidden />
+          <input id="file-input" type="file" accept=".elp,.elpx,.zip,.docx,.md,.markdown,.mdown,.txt" hidden />
           <p class="dropzone-title">${t('drop.title')}</p>
           <p id="drop-help" class="drop-help">
             ${t('drop.help')}
@@ -118,15 +135,28 @@ app.innerHTML = `
         <div id="output-field" class="field" hidden>
           <span>${t('output.title')}</span>
           <div class="radio-group" role="radiogroup" aria-label="${escapeAttribute(t('output.aria'))}">
-            <label class="radio-row">
-              <input type="radio" name="elpx-output" value="docx" checked />
+            <label id="output-option-elpx" class="radio-row" hidden>
+              <input type="radio" name="output-kind" value="elpx" />
+              <span>${t('output.elpx')}</span>
+            </label>
+            <label id="output-option-docx" class="radio-row">
+              <input type="radio" name="output-kind" value="docx" checked />
               <span>${t('output.docx')}</span>
             </label>
-            <label class="radio-row">
-              <input type="radio" name="elpx-output" value="markdown" />
+            <label id="output-option-markdown" class="radio-row">
+              <input type="radio" name="output-kind" value="markdown" />
               <span>${t('output.md')}</span>
             </label>
           </div>
+        </div>
+
+        <div id="legacy-save-field" class="field" hidden>
+          <span>${t('legacySave.title')}</span>
+          <label class="checkbox-row">
+            <input id="legacy-save-elpx" type="checkbox" />
+            <span>${t('legacySave.include')}</span>
+          </label>
+          <p class="field-help">${t('legacySave.help')}</p>
         </div>
 
         <div id="page-selection-field" class="field" hidden>
@@ -217,11 +247,16 @@ app.innerHTML = `
             <span class="material-symbols-rounded" aria-hidden="true">preview</span>
             <span class="btn-label">${t('button.preview')}</span>
           </button>
+          <button id="save-intermediate-button" type="button" hidden>
+            <span class="material-symbols-rounded" aria-hidden="true">save</span>
+            <span class="btn-label">${t('button.saveElpx')}</span>
+          </button>
           <button id="submit-button" type="submit" disabled hidden>
             <span class="material-symbols-rounded" aria-hidden="true">save</span>
             <span class="btn-label">${t('button.save')}</span>
           </button>
         </div>
+        <p id="actions-help" class="actions-help" hidden></p>
       </form>
 
       <div id="progress-shell" class="progress-shell" hidden aria-hidden="true">
@@ -245,6 +280,17 @@ app.innerHTML = `
           </button>
         </div>
         <p class="field-help">${t('preview.help')}</p>
+        <div id="preview-markdown-mode-field" class="preview-mode" hidden>
+          <span class="preview-mode-label">${t('preview.markdownMode')}</span>
+          <div class="preview-mode-actions" role="group" aria-label="${escapeAttribute(t('preview.markdownMode'))}">
+            <button id="preview-markdown-formatted" type="button" class="ghost-button preview-mode-button">
+              ${t('preview.markdownFormatted')}
+            </button>
+            <button id="preview-markdown-source" type="button" class="ghost-button preview-mode-button">
+              ${t('preview.markdownSource')}
+            </button>
+          </div>
+        </div>
         <iframe id="preview-frame" class="preview-frame" title="${escapeAttribute(t('preview.iframeTitle'))}"></iframe>
         <pre id="preview-markdown" class="preview-markdown" hidden></pre>
       </div>
@@ -281,16 +327,21 @@ const fileNameElement = document.querySelector<HTMLSpanElement>('#file-name')!;
 const detectedField = document.querySelector<HTMLDivElement>('#detected-field')!;
 const detectedHelp = document.querySelector<HTMLParagraphElement>('#detected-help')!;
 const outputField = document.querySelector<HTMLDivElement>('#output-field')!;
+const outputOptionElpx = document.querySelector<HTMLLabelElement>('#output-option-elpx')!;
 const pageSelectionField = document.querySelector<HTMLDivElement>('#page-selection-field')!;
 const pageSelectionList = document.querySelector<HTMLDivElement>('#page-selection-list')!;
 const pageSelectionHelp = document.querySelector<HTMLParagraphElement>('#page-selection-help')!;
 const pagesAllButton = document.querySelector<HTMLButtonElement>('#pages-all')!;
 const pagesNoneButton = document.querySelector<HTMLButtonElement>('#pages-none')!;
-const outputRadioElements = document.querySelectorAll<HTMLInputElement>('input[name="elpx-output"]');
+const outputRadioElements = document.querySelectorAll<HTMLInputElement>('input[name="output-kind"]');
 const structureField = document.querySelector<HTMLDivElement>('#structure-field')!;
 const markdownImagesField = document.querySelector<HTMLDivElement>('#markdown-images-field')!;
 const markdownImages = document.querySelector<HTMLInputElement>('#markdown-images')!;
+const legacySaveField = document.querySelector<HTMLDivElement>('#legacy-save-field')!;
 const previewField = document.querySelector<HTMLDivElement>('#preview-field')!;
+const previewMarkdownModeField = document.querySelector<HTMLDivElement>('#preview-markdown-mode-field')!;
+const previewMarkdownFormattedButton = document.querySelector<HTMLButtonElement>('#preview-markdown-formatted')!;
+const previewMarkdownSourceButton = document.querySelector<HTMLButtonElement>('#preview-markdown-source')!;
 const previewPopoutButton = document.querySelector<HTMLButtonElement>('#preview-popout-button')!;
 const previewFrame = document.querySelector<HTMLIFrameElement>('#preview-frame')!;
 const previewMarkdown = document.querySelector<HTMLPreElement>('#preview-markdown')!;
@@ -299,11 +350,16 @@ const heading2Mode = document.querySelector<HTMLSelectElement>('#heading2-mode')
 const heading3Mode = document.querySelector<HTMLSelectElement>('#heading3-mode')!;
 const heading4Mode = document.querySelector<HTMLSelectElement>('#heading4-mode')!;
 const previewButton = document.querySelector<HTMLButtonElement>('#preview-button')!;
+const saveIntermediateButton = document.querySelector<HTMLButtonElement>('#save-intermediate-button')!;
 const submitButton = document.querySelector<HTMLButtonElement>('#submit-button')!;
+const actionsHelp = document.querySelector<HTMLParagraphElement>('#actions-help')!;
 const progressShell = document.querySelector<HTMLDivElement>('#progress-shell')!;
 const progressBar = document.querySelector<HTMLDivElement>('#progress-bar')!;
 const statusSpinner = document.querySelector<HTMLSpanElement>('#status-spinner')!;
 const status = document.querySelector<HTMLParagraphElement>('#status')!;
+
+previewField.dataset.staleMessage = t('preview.stale');
+previewField.dataset.busyMessage = t('preview.generating');
 
 if (outputRadioElements.length === 0) {
   throw new Error('No se ha podido inicializar la interfaz.');
@@ -314,11 +370,32 @@ let selectedKind: InputKind | null = null;
 let selectedElpxPages = new Set<string>();
 let availableElpxPages: ElpxPageInfo[] = [];
 let pageInspectionSequence = 0;
+let autoPreviewSequence = 0;
 let preparedConversion: PreparedConversion | null = null;
+let legacyIntermediateElpx: IntermediateElpxSave | null = null;
 let previewVirtualPages: Record<string, string> | null = null;
 let previewCurrentPath = 'index.html';
+let markdownPreviewMode: MarkdownPreviewMode = 'formatted';
 const idlePreviewLabel = t('button.preview');
 const idleSaveLabel = t('button.save');
+const markdownPreview = new MarkdownIt({
+  html: true,
+  linkify: true,
+  typographer: false,
+  breaks: false,
+});
+
+markdownPreview.use(texmath, {
+  engine: {
+    renderToString(content: string, options?: { displayMode?: boolean }) {
+      return temml.renderToString(content.trim(), {
+        displayMode: options?.displayMode,
+        throwOnError: false,
+      });
+    },
+  },
+  delimiters: ['dollars', 'beg_end'],
+});
 
 languageSelect.addEventListener('change', () => {
   const value = languageSelect.value;
@@ -442,6 +519,22 @@ previewFrame.addEventListener('load', () => {
   bindPreviewFrameNavigation();
 });
 
+previewMarkdownFormattedButton.addEventListener('click', () => {
+  markdownPreviewMode = 'formatted';
+  syncMarkdownPreviewModeButtons();
+  if (preparedConversion?.previewType === 'markdown') {
+    renderPreview(preparedConversion);
+  }
+});
+
+previewMarkdownSourceButton.addEventListener('click', () => {
+  markdownPreviewMode = 'source';
+  syncMarkdownPreviewModeButtons();
+  if (preparedConversion?.previewType === 'markdown') {
+    renderPreview(preparedConversion);
+  }
+});
+
 previewButton.addEventListener('click', async () => {
   if (!selectedFile || !selectedKind) {
     setStatus(t('status.selectFileFirst'));
@@ -451,7 +544,19 @@ previewButton.addEventListener('click', async () => {
   setBusyState(true);
   try {
     preparedConversion = await prepareCurrentConversion(selectedFile, selectedKind);
+    if (selectedKind === 'elp') {
+      legacyIntermediateElpx = preparedConversion.intermediateElpx || {
+        blob: preparedConversion.blob,
+        filename: preparedConversion.filename,
+        pageCount: preparedConversion.pageCount,
+        blockCount: preparedConversion.blockCount,
+        previewHtml: preparedConversion.previewType === 'html' ? preparedConversion.previewContent : undefined,
+        previewPages: preparedConversion.previewPages,
+        previewStartPath: preparedConversion.previewStartPath,
+      };
+    }
     renderPreview(preparedConversion);
+    syncDetectedMessage();
     setStatus(t('status.previewReady'));
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -459,6 +564,25 @@ previewButton.addEventListener('click', async () => {
   } finally {
     setBusyState(false);
     syncActionButtons();
+  }
+});
+
+saveIntermediateButton.addEventListener('click', async () => {
+  if (!selectedFile || !legacyIntermediateElpx) {
+    return;
+  }
+
+  try {
+    const saveTarget = await prepareSaveTargetForKind(selectedFile.name, 'elpx');
+    const savedWithDialog = await saveBlobToTarget(
+      legacyIntermediateElpx.blob,
+      legacyIntermediateElpx.filename,
+      saveTarget,
+    );
+    setStatus(savedWithDialog ? t('done.savedIntermediateElpxDialog') : t('done.savedIntermediateElpxDownload'));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    setStatus(t('status.errorPrefix', { message }), true);
   }
 });
 
@@ -482,7 +606,12 @@ form.addEventListener('submit', async event => {
     const savedWithDialog = await saveBlobToTarget(preparedConversion.blob, preparedConversion.filename, saveTarget);
 
     if (preparedConversion.kind === 'elpx') {
-      const sourceName = selectedKind === 'docx' ? t('source.docxImport') : t('source.mdImport');
+      const sourceName =
+        selectedKind === 'docx'
+          ? t('source.docxImport')
+          : selectedKind === 'markdown'
+            ? t('source.mdImport')
+            : t('source.elpImport');
       setStatus(
         savedWithDialog
           ? t('done.import.withDialog', {
@@ -502,8 +631,14 @@ form.addEventListener('submit', async event => {
     const formatLabel = preparedConversion.kind === 'markdown' ? t('format.markdown') : t('format.docx');
     setStatus(
       savedWithDialog
-        ? t('done.export.withDialog', { format: formatLabel, pages: preparedConversion.pageCount })
-        : t('done.export.download', { format: formatLabel, pages: preparedConversion.pageCount }),
+        ? t('done.export.withDialog', {
+            format: formatLabel,
+            pages: preparedConversion.pageCount,
+          })
+        : t('done.export.download', {
+            format: formatLabel,
+            pages: preparedConversion.pageCount,
+          }),
     );
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -512,10 +647,12 @@ form.addEventListener('submit', async event => {
 });
 
 function handleSelectedFile(file: File | null): void {
+  autoPreviewSequence += 1;
   selectedFile = file;
 
   if (!file) {
     selectedKind = null;
+    legacyIntermediateElpx = null;
     fileInput.value = '';
     fileNameElement.textContent = t('file.none');
     resetDetectedOptions();
@@ -530,6 +667,7 @@ function handleSelectedFile(file: File | null): void {
 
   if (!kind) {
     selectedKind = null;
+    legacyIntermediateElpx = null;
     resetDetectedOptions();
     clearPageSelectionState();
     clearPreview();
@@ -538,12 +676,24 @@ function handleSelectedFile(file: File | null): void {
   }
 
   selectedKind = kind;
+  if (kind !== 'elp') {
+    legacyIntermediateElpx = null;
+  }
   applyDetectedOptions(kind);
   syncActionButtons();
+
+  if (kind === 'elp') {
+    const sequence = autoPreviewSequence;
+    void autoPreviewLegacyElp(file, sequence);
+  }
 }
 
 function detectInputKind(filename: string): InputKind | null {
   const lowerName = filename.toLowerCase();
+
+  if (lowerName.endsWith('.elp')) {
+    return 'elp';
+  }
 
   if (lowerName.endsWith('.docx')) {
     return 'docx';
@@ -562,9 +712,17 @@ function detectInputKind(filename: string): InputKind | null {
 
 function applyDetectedOptions(kind: InputKind): void {
   detectedField.hidden = false;
-  outputField.hidden = kind !== 'elpx';
+  outputField.hidden = kind !== 'elpx' && kind !== 'elp';
   pageSelectionField.hidden = kind !== 'elpx';
-  structureField.hidden = kind === 'elpx';
+  structureField.hidden = kind === 'elpx' || kind === 'elp';
+  legacySaveField.hidden = true;
+
+  if (kind === 'elp') {
+    const elpxRadio = Array.from(outputRadioElements).find(radio => radio.value === 'elpx');
+    if (elpxRadio) {
+      elpxRadio.checked = true;
+    }
+  }
 
   if (kind !== 'elpx') {
     clearPageSelectionState();
@@ -583,8 +741,11 @@ function resetDetectedOptions(): void {
   outputField.hidden = true;
   pageSelectionField.hidden = true;
   structureField.hidden = true;
+  legacySaveField.hidden = true;
   markdownImagesField.hidden = true;
   previewButton.disabled = true;
+  saveIntermediateButton.hidden = true;
+  saveIntermediateButton.disabled = true;
   submitButton.disabled = true;
 }
 
@@ -595,25 +756,47 @@ function syncDetectedMessage(): void {
   }
 
   detectedField.hidden = false;
+  const hasPreparedCurrentConversion = hasCurrentPreparedConversion();
 
   if (selectedKind === 'docx') {
-    detectedHelp.innerHTML = t('detected.docxToElpx');
+    detectedHelp.innerHTML = t(hasPreparedCurrentConversion ? 'detected.docxToElpxDone' : 'detected.docxToElpx');
     setStatus(t('status.docxDetected'));
     return;
   }
 
   if (selectedKind === 'markdown') {
-    detectedHelp.innerHTML = t('detected.mdToElpx');
+    detectedHelp.innerHTML = t(hasPreparedCurrentConversion ? 'detected.mdToElpxDone' : 'detected.mdToElpx');
     setStatus(t('status.mdDetected'));
+    return;
+  }
+
+  if (selectedKind === 'elp') {
+    const outputKind = getSelectedOutputKind();
+    detectedHelp.innerHTML =
+      outputKind === 'elpx'
+        ? t(hasPreparedCurrentConversion ? 'detected.elpToElpxDone' : 'detected.elpToElpx')
+        : outputKind === 'markdown'
+          ? t(hasPreparedCurrentConversion ? 'detected.elpToMdDone' : 'detected.elpToMd')
+          : t(hasPreparedCurrentConversion ? 'detected.elpToDocxDone' : 'detected.elpToDocx');
+    setStatus(t('status.elpDetected'));
     return;
   }
 
   const outputKind = getSelectedElpxOutputKind();
   detectedHelp.innerHTML =
     outputKind === 'markdown'
-      ? t('detected.elpxToMd')
-      : t('detected.elpxToDocx');
+      ? t(hasPreparedCurrentConversion ? 'detected.elpxToMdDone' : 'detected.elpxToMd')
+      : t(hasPreparedCurrentConversion ? 'detected.elpxToDocxDone' : 'detected.elpxToDocx');
   setStatus(t('status.elpxDetected'));
+}
+
+function hasCurrentPreparedConversion(): boolean {
+  return Boolean(
+    selectedFile &&
+      selectedKind &&
+      preparedConversion &&
+      preparedConversion.signature === computeConversionSignature(),
+  );
 }
 
 function syncStructureControls(): void {
@@ -637,13 +820,40 @@ function syncStructureControls(): void {
 }
 
 function syncOutputControls(): void {
-  const showMarkdownOptions = selectedKind === 'elpx' && getSelectedElpxOutputKind() === 'markdown';
+  outputOptionElpx.hidden = true;
+  if (selectedKind !== 'elp' && getSelectedOutputKind() === 'elpx') {
+    const docxRadio = Array.from(outputRadioElements).find(radio => radio.value === 'docx');
+    if (docxRadio) {
+      docxRadio.checked = true;
+    }
+  }
+
+  const outputKind = getSelectedOutputKind();
+  legacySaveField.hidden = true;
+  pageSelectionField.hidden = !(
+    selectedKind === 'elpx' ||
+    (selectedKind === 'elp' && outputKind !== 'elpx')
+  );
+
+  const showMarkdownOptions =
+    (selectedKind === 'elpx' || selectedKind === 'elp') && outputKind === 'markdown';
   markdownImagesField.hidden = !showMarkdownOptions;
 }
 
-function getSelectedElpxOutputKind(): ElpxOutputKind {
+function getSelectedElpxOutputKind(): 'docx' | 'markdown' {
   const checked = Array.from(outputRadioElements).find(radio => radio.checked);
   return checked?.value === 'markdown' ? 'markdown' : 'docx';
+}
+
+function getSelectedOutputKind(): OutputKind {
+  const checked = Array.from(outputRadioElements).find(radio => radio.checked);
+  if (checked?.value === 'markdown') {
+    return 'markdown';
+  }
+  if (checked?.value === 'elpx') {
+    return 'elpx';
+  }
+  return 'docx';
 }
 
 function getHeadingOptions(): {
@@ -696,11 +906,12 @@ function setBusyState(isBusy: boolean): void {
   previewButton.classList.toggle('is-loading', isBusy);
   submitButton.classList.toggle('is-loading', isBusy);
   setButtonLabel(previewButton, isBusy ? t('button.working') : idlePreviewLabel);
-  setButtonLabel(submitButton, isBusy ? t('button.working') : idleSaveLabel);
+  setButtonLabel(submitButton, isBusy ? t('button.working') : getSaveButtonLabel());
   previewButton.disabled = isBusy;
   submitButton.disabled = isBusy;
   statusSpinner.hidden = !isBusy;
   progressShell.hidden = !isBusy;
+  previewField.classList.toggle('preview-busy', isBusy && !previewField.hidden);
 
   if (isBusy) {
     setProgress(8);
@@ -810,22 +1021,75 @@ function toOutputFilename(inputFilename: string, extension: '.docx' | '.elpx' | 
 
 function syncActionButtons(): void {
   const hasFile = selectedFile !== null && selectedKind !== null;
-  previewButton.hidden = !hasFile;
-  previewButton.disabled = !hasFile;
   const currentSignature = computeConversionSignature();
+  const hasCurrentPreparedConversion = Boolean(hasFile && preparedConversion && preparedConversion.signature === currentSignature);
+  const hidePreviewForAutoLegacyElp =
+    selectedKind === 'elp' && getSelectedOutputKind() === 'elpx' && hasCurrentPreparedConversion;
+  const showIntermediateSave =
+    selectedKind === 'elp' &&
+    legacyIntermediateElpx !== null &&
+    (!hasCurrentPreparedConversion || preparedConversion?.kind !== 'elpx');
+  const outputKind = getSelectedOutputKind();
+  const requiresPreviewBeforeSave = Boolean(
+    hasFile &&
+      ((selectedKind === 'elpx' && outputKind !== 'elpx') ||
+        (selectedKind === 'elp' && outputKind !== 'elpx') ||
+        selectedKind === 'docx' ||
+        selectedKind === 'markdown'),
+  );
+  const shouldShowFinalSaveButton = Boolean(hasFile && (hasCurrentPreparedConversion || requiresPreviewBeforeSave));
+
+  previewButton.hidden = !hasFile || hidePreviewForAutoLegacyElp;
+  previewButton.disabled = !hasFile;
   const canSave = Boolean(hasFile && preparedConversion && preparedConversion.signature === currentSignature);
-  submitButton.hidden = !canSave;
+  saveIntermediateButton.hidden = !showIntermediateSave;
+  saveIntermediateButton.disabled = !legacyIntermediateElpx;
+  submitButton.hidden = !shouldShowFinalSaveButton;
   submitButton.disabled = !canSave;
+  setButtonLabel(saveIntermediateButton, t('button.saveElpx'));
+  setButtonLabel(submitButton, getSaveButtonLabel());
   previewPopoutButton.hidden = !canSave;
+  const shouldExplainPreviewFirst = Boolean(shouldShowFinalSaveButton && !canSave && requiresPreviewBeforeSave);
+  actionsHelp.hidden = !shouldExplainPreviewFirst;
+  if (shouldExplainPreviewFirst) {
+    actionsHelp.textContent = t('actions.previewRequired');
+  }
+}
+
+function getSaveButtonLabel(): string {
+  if (preparedConversion) {
+    if (preparedConversion.kind === 'elpx') {
+      return t('button.saveElpx');
+    }
+    if (preparedConversion.kind === 'markdown') {
+      return t('button.saveMd');
+    }
+    return t('button.saveDocx');
+  }
+
+  const outputKind = getSelectedOutputKind();
+  if (selectedKind === 'elp' && outputKind === 'elpx') {
+    return t('button.saveElpx');
+  }
+  if (outputKind === 'markdown') {
+    return t('button.saveMd');
+  }
+  if (outputKind === 'docx') {
+    return t('button.saveDocx');
+  }
+  return idleSaveLabel;
 }
 
 function invalidatePreparedConversion(): void {
   preparedConversion = null;
+  markPreviewAsStale();
   syncActionButtons();
+  syncDetectedMessage();
 }
 
 function clearPreview(): void {
   previewField.hidden = true;
+  previewMarkdownModeField.hidden = true;
   previewPopoutButton.hidden = true;
   previewVirtualPages = null;
   previewCurrentPath = 'index.html';
@@ -833,10 +1097,49 @@ function clearPreview(): void {
   previewFrame.removeAttribute('src');
   previewMarkdown.hidden = true;
   previewMarkdown.textContent = '';
+  previewField.classList.remove('preview-stale');
+  previewField.classList.remove('preview-busy');
   invalidatePreparedConversion();
 }
 
-async function inspectSelectedElpxPages(file: File): Promise<void> {
+async function autoPreviewLegacyElp(file: File, sequence: number): Promise<void> {
+  setBusyState(true);
+  try {
+    preparedConversion = await prepareCurrentConversion(file, 'elp');
+    if (sequence !== autoPreviewSequence || selectedFile !== file || selectedKind !== 'elp') {
+      return;
+    }
+    legacyIntermediateElpx = preparedConversion.intermediateElpx || {
+      blob: preparedConversion.blob,
+      filename: preparedConversion.filename,
+      pageCount: preparedConversion.pageCount,
+      blockCount: preparedConversion.blockCount,
+      previewHtml: preparedConversion.previewType === 'html' ? preparedConversion.previewContent : undefined,
+      previewPages: preparedConversion.previewPages,
+      previewStartPath: preparedConversion.previewStartPath,
+    };
+    const intermediateFile = new File([legacyIntermediateElpx.blob], legacyIntermediateElpx.filename, {
+      type: 'application/zip',
+    });
+    await inspectSelectedElpxPages(intermediateFile, true);
+    renderPreview(preparedConversion);
+    syncDetectedMessage();
+    setStatus(t('status.previewReady'));
+  } catch (error) {
+    if (sequence !== autoPreviewSequence || selectedFile !== file || selectedKind !== 'elp') {
+      return;
+    }
+    const message = error instanceof Error ? error.message : String(error);
+    setStatus(t('status.errorPrefix', { message }), true);
+  } finally {
+    if (sequence === autoPreviewSequence && selectedFile === file && selectedKind === 'elp') {
+      setBusyState(false);
+      syncActionButtons();
+    }
+  }
+}
+
+async function inspectSelectedElpxPages(file: File, preservePreparedConversion = false): Promise<void> {
   const inspectionId = ++pageInspectionSequence;
   setStatus(t('status.readingPages'));
   pageSelectionList.innerHTML = '';
@@ -851,7 +1154,12 @@ async function inspectSelectedElpxPages(file: File): Promise<void> {
     availableElpxPages = pages;
     selectedElpxPages = new Set(pages.map(page => page.id));
     renderPageSelectionList();
-    invalidatePreparedConversion();
+    if (!preservePreparedConversion) {
+      invalidatePreparedConversion();
+    } else {
+      syncOutputControls();
+      syncActionButtons();
+    }
   } catch {
     if (inspectionId !== pageInspectionSequence) {
       return;
@@ -863,6 +1171,7 @@ async function inspectSelectedElpxPages(file: File): Promise<void> {
     pageSelectionHelp.textContent = t('pages.help.readError');
   } finally {
     if (inspectionId === pageInspectionSequence) {
+      syncOutputControls();
       syncDetectedMessage();
     }
   }
@@ -930,7 +1239,7 @@ function escapeAttribute(value: string): string {
 function computeConversionSignature(): string {
   const filePart = selectedFile ? `${selectedFile.name}:${selectedFile.size}:${selectedFile.lastModified}` : 'none';
   const kindPart = selectedKind || 'none';
-  const outputPart = getSelectedElpxOutputKind();
+  const outputPart = getSelectedOutputKind();
   const headingsPart = `${heading1Mode.value}|${heading2Mode.value}|${heading3Mode.value}|${heading4Mode.value}`;
   const markdownPart = markdownImages.checked ? 'img:1' : 'img:0';
   const selectedPages = getSelectedElpxPageIds();
@@ -942,7 +1251,10 @@ async function prepareCurrentConversion(file: File, kind: InputKind): Promise<Pr
   const signature = computeConversionSignature();
   const selectedPageIds = getSelectedElpxPageIds();
   const selectedPageCount = selectedPageIds?.length ?? availableElpxPages.length;
-  if (kind === 'elpx' && availableElpxPages.length > 0 && selectedPageCount === 0) {
+  const requiresPageSelection =
+    availableElpxPages.length > 0 &&
+    ((kind === 'elpx') || (kind === 'elp' && getSelectedOutputKind() !== 'elpx'));
+  if (requiresPageSelection && selectedPageCount === 0) {
     throw new Error(t('error.selectAtLeastOnePage'));
   }
 
@@ -972,6 +1284,94 @@ async function prepareCurrentConversion(file: File, kind: InputKind): Promise<Pr
       previewContent: previewHtml,
       previewPages: importResult.previewPages,
       previewStartPath: 'index.html',
+    };
+  }
+
+  if (kind === 'elp') {
+    const cachedIntermediate = legacyIntermediateElpx;
+    const elpxResult =
+      cachedIntermediate ||
+      (await convertElpToElpx(file, progress => {
+        updateProgress(progress);
+        setStatus(toLocalizedProgressMessage(progress));
+      }));
+
+    const intermediateElpx: IntermediateElpxSave =
+      'previewHtml' in elpxResult
+        ? {
+            blob: elpxResult.blob,
+            filename: elpxResult.filename,
+            pageCount: elpxResult.pageCount,
+            blockCount: elpxResult.blockCount,
+            previewHtml: elpxResult.previewHtml,
+            previewPages: elpxResult.previewPages,
+            previewStartPath: 'index.html',
+          }
+        : {
+            blob: elpxResult.blob,
+            filename: elpxResult.filename,
+            pageCount: elpxResult.pageCount,
+            blockCount: elpxResult.blockCount,
+            previewHtml: elpxResult.previewHtml,
+            previewPages: elpxResult.previewPages,
+            previewStartPath: elpxResult.previewStartPath,
+          };
+
+    const outputKind = getSelectedOutputKind();
+    if (outputKind === 'elpx') {
+      setStatus(t('status.generatingElpxPreview'));
+      return {
+        signature,
+        kind: 'elpx',
+        blob: intermediateElpx.blob,
+        filename: intermediateElpx.filename,
+        pageCount: intermediateElpx.pageCount,
+        blockCount: intermediateElpx.blockCount,
+        previewType: 'html',
+        previewContent: intermediateElpx.previewHtml || '',
+        previewPages: intermediateElpx.previewPages,
+        previewStartPath: intermediateElpx.previewStartPath || 'index.html',
+        intermediateElpx,
+      };
+    }
+
+    const elpxFile = new File([intermediateElpx.blob], intermediateElpx.filename, { type: 'application/zip' });
+    if (outputKind === 'markdown') {
+      const result = await convertElpxToMarkdown(
+        elpxFile,
+        { includeImages: markdownImages.checked, selectedPageIds },
+        progress => {
+          updateProgress(progress);
+          setStatus(toLocalizedProgressMessage(progress));
+        },
+      );
+
+      return {
+        signature,
+        kind: 'markdown',
+        blob: result.blob,
+        filename: result.filename,
+        pageCount: result.pageCount,
+        previewType: 'markdown',
+        previewContent: await result.blob.text(),
+        intermediateElpx,
+      };
+    }
+
+    const result = await convertElpxToDocx(elpxFile, { selectedPageIds }, progress => {
+      updateProgress(progress);
+      setStatus(toLocalizedProgressMessage(progress));
+    });
+
+    return {
+      signature,
+      kind: 'docx',
+      blob: result.blob,
+      filename: result.filename,
+      pageCount: result.pageCount,
+      previewType: 'html',
+      previewContent: result.previewHtml,
+      intermediateElpx,
     };
   }
 
@@ -1019,18 +1419,31 @@ async function prepareCurrentConversion(file: File, kind: InputKind): Promise<Pr
 
 function renderPreview(conversion: PreparedConversion): void {
   previewField.hidden = false;
+  previewField.classList.remove('preview-stale');
+  previewField.classList.remove('preview-busy');
   previewPopoutButton.hidden = false;
   if (conversion.previewType === 'markdown') {
+    previewMarkdownModeField.hidden = false;
+    syncMarkdownPreviewModeButtons();
     previewVirtualPages = null;
     previewCurrentPath = 'index.html';
-    previewFrame.removeAttribute('srcdoc');
-    previewFrame.removeAttribute('src');
-    previewFrame.hidden = true;
-    previewMarkdown.hidden = false;
-    previewMarkdown.textContent = conversion.previewContent;
+    if (markdownPreviewMode === 'source') {
+      previewFrame.removeAttribute('srcdoc');
+      previewFrame.removeAttribute('src');
+      previewFrame.hidden = true;
+      previewMarkdown.hidden = false;
+      previewMarkdown.textContent = conversion.previewContent;
+    } else {
+      previewMarkdown.hidden = true;
+      previewMarkdown.textContent = '';
+      previewFrame.hidden = false;
+      previewFrame.srcdoc = buildMarkdownPreviewDocument(conversion.previewContent, conversion.filename, 'formatted');
+      previewFrame.removeAttribute('src');
+    }
     return;
   }
 
+  previewMarkdownModeField.hidden = true;
   previewMarkdown.hidden = true;
   previewMarkdown.textContent = '';
   previewFrame.hidden = false;
@@ -1047,6 +1460,14 @@ function renderPreview(conversion: PreparedConversion): void {
   previewFrame.removeAttribute('src');
 }
 
+function markPreviewAsStale(): void {
+  if (previewField.hidden) {
+    return;
+  }
+  previewField.classList.remove('preview-busy');
+  previewField.classList.add('preview-stale');
+}
+
 function openPreviewInWindow(conversion: PreparedConversion): void {
   const previewWindow = window.open('', '_blank', 'popup=yes,width=1100,height=760,resizable=yes,scrollbars=yes');
   if (!previewWindow) {
@@ -1056,7 +1477,7 @@ function openPreviewInWindow(conversion: PreparedConversion): void {
 
   const htmlContent = (() => {
     if (conversion.previewType === 'markdown') {
-      return buildMarkdownPreviewDocument(conversion.previewContent, conversion.filename);
+      return buildMarkdownPreviewDocument(conversion.previewContent, conversion.filename, markdownPreviewMode);
     }
 
     if (conversion.previewPages) {
@@ -1211,7 +1632,13 @@ function normalizeVirtualPreviewPath(path: string): string {
   return normalized.join('/');
 }
 
-function buildMarkdownPreviewDocument(markdown: string, title: string): string {
+function syncMarkdownPreviewModeButtons(): void {
+  previewMarkdownFormattedButton.dataset.state = markdownPreviewMode === 'formatted' ? 'active' : 'idle';
+  previewMarkdownSourceButton.dataset.state = markdownPreviewMode === 'source' ? 'active' : 'idle';
+}
+
+function buildMarkdownPreviewDocument(markdown: string, title: string, mode: MarkdownPreviewMode): string {
+  if (mode === 'source') {
   return `<!doctype html>
 <html lang="${escapeAttribute(locale)}">
 <head>
@@ -1227,6 +1654,138 @@ function buildMarkdownPreviewDocument(markdown: string, title: string): string {
   <pre>${escapeHtml(markdown)}</pre>
 </body>
 </html>`;
+  }
+
+  const contentHtml = sanitizeMarkdownPreviewHtml(renderMarkdownPreviewMath(markdownPreview.render(markdown)));
+  return `<!doctype html>
+<html lang="${escapeAttribute(locale)}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>${escapeHtml(title)}</title>
+  <style>
+    html, body { margin: 0; padding: 0; background: #f5f7f4; }
+    body { color: #263126; font-family: Candara, "Trebuchet MS", "Lucida Sans Unicode", sans-serif; line-height: 1.6; }
+    main { box-sizing: border-box; width: min(900px, 100%); margin: 0 auto; padding: 24px; background: #fff; }
+    h1, h2, h3, h4, h5, h6 { color: #2f5d2f; line-height: 1.2; margin: 1.4em 0 0.6em; }
+    h1 { font-size: 2rem; }
+    h2 { font-size: 1.5rem; }
+    p, li { font-size: 1rem; }
+    pre, code { font-family: "IBM Plex Mono", Consolas, monospace; }
+    pre { background: #f3f7f1; border: 1px solid #cfd8cb; border-radius: 10px; padding: 12px; overflow: auto; }
+    code { background: #e9f3e3; padding: 0.1em 0.3em; border-radius: 0.25em; }
+    img { max-width: 100%; height: auto; }
+    table { width: 100%; border-collapse: collapse; }
+    td, th { border: 1px solid #cfd8cb; padding: 6px 8px; vertical-align: top; }
+    blockquote { margin: 1em 0; padding: 0.1em 1em; border-left: 4px solid #b8c5b3; background: #f7faf6; }
+    .katex-error { color: #8d2626; }
+  </style>
+</head>
+<body>
+  <main>${contentHtml}</main>
+</body>
+</html>`;
+}
+
+function renderMarkdownPreviewMath(html: string): string {
+  const document = new DOMParser().parseFromString(`<!doctype html><html><body>${html}</body></html>`, 'text/html');
+  const protectedFragments = new Map<string, string>();
+
+  for (const element of Array.from(document.body.querySelectorAll('pre, code, kbd, samp'))) {
+    const token = `EXE_MD_PROTECTED_${Math.random().toString(36).slice(2, 10)}_TOKEN`;
+    protectedFragments.set(token, element.outerHTML);
+    element.replaceWith(document.createTextNode(token));
+  }
+
+  let renderedHtml = document.body.innerHTML
+    .replace(/\\\[([\s\S]*?)\\\]/g, (_match, expression: string) => renderMarkdownLatexFragment(expression, true))
+    .replace(/\\\(([\s\S]*?)\\\)/g, (_match, expression: string) => renderMarkdownLatexFragment(expression, false));
+
+  for (const [token, fragment] of protectedFragments) {
+    renderedHtml = renderedHtml.replaceAll(token, fragment);
+  }
+
+  return renderedHtml;
+}
+
+function renderMarkdownLatexFragment(expression: string, displayMode: boolean): string {
+  const normalized = normalizeMarkdownPreviewLatex(expression);
+  if (!normalized) {
+    return displayMode ? '\\[\\]' : '\\(\\)';
+  }
+
+  try {
+    return temml.renderToString(normalized, {
+      displayMode,
+      throwOnError: false,
+      annotate: false,
+    });
+  } catch {
+    return displayMode ? `\\[${normalized}\\]` : `\\(${normalized}\\)`;
+  }
+}
+
+function normalizeMarkdownPreviewLatex(expression: string): string {
+  let output = expression
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>');
+
+  const parsed = new DOMParser().parseFromString(`<!doctype html><html><body>${output}</body></html>`, 'text/html');
+  output = parsed.body.textContent || output;
+
+  output = output.normalize('NFC').replace(/\u00a0/g, ' ').replace(/\r/g, '');
+  output = output.replace(/[\uFFFD\uFEFF\u00AD\u2066-\u2069\u200B-\u200F\u202A-\u202E\uFFF9-\uFFFB]/g, '');
+  output = output.replace(/[\uD800-\uDFFF]/g, '');
+  output = output.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
+  output = output.replace(/[ \t]*\n[ \t]*/g, '\n');
+  output = output.replace(/\\\s+([A-Za-z])/g, '\\$1');
+  output = output.replace(/\\ext\{/g, '\\text{');
+  output = output.replace(/\bL\s+A\s+T\s+E\s+X\b\\?/g, '\\LaTeX');
+  output = output.replace(/(^|[^\\])\.{2}\s+\\\\/g, '$1\\ldots ');
+  output = output.replace(/\\\\backslash\b/g, '\\\\');
+  output = output.replace(/\\backslash\b/g, '\\\\');
+  output = output.replace(/[ \t]+/g, ' ');
+  output = output.replace(/ ?\n ?/g, '\n');
+  output = output.trim();
+
+  while (output.endsWith('\\')) {
+    output = output.slice(0, -1).trimEnd();
+  }
+
+  return output;
+}
+
+function sanitizeMarkdownPreviewHtml(html: string): string {
+  const document = new DOMParser().parseFromString(`<!doctype html><html><body>${html}</body></html>`, 'text/html');
+
+  for (const element of Array.from(document.body.querySelectorAll<HTMLElement>('*'))) {
+    element.removeAttribute('style');
+    element.removeAttribute('class');
+    element.removeAttribute('width');
+    element.removeAttribute('height');
+    element.removeAttribute('border');
+    element.removeAttribute('cellpadding');
+    element.removeAttribute('cellspacing');
+    element.removeAttribute('align');
+    element.removeAttribute('valign');
+    if (element.tagName === 'FONT') {
+      const span = document.createElement('span');
+      span.innerHTML = element.innerHTML;
+      element.replaceWith(span);
+    }
+  }
+
+  for (const table of Array.from(document.body.querySelectorAll('table'))) {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'table-scroll';
+    table.parentNode?.insertBefore(wrapper, table);
+    wrapper.appendChild(table);
+  }
+
+  return document.body.innerHTML;
 }
 
 async function prepareSaveTargetForKind(inputFilename: string, kind: ConversionKind): Promise<PendingSaveTarget | null> {
