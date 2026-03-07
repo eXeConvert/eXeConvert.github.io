@@ -1247,7 +1247,10 @@ function computeConversionSignature(): string {
   const headingsPart = `${heading1Mode.value}|${heading2Mode.value}|${heading3Mode.value}|${heading4Mode.value}`;
   const markdownPart = markdownImages.checked ? 'img:1' : 'img:0';
   const selectedPages = getSelectedElpxPageIds();
-  const pagesPart = selectedPages ? selectedPages.slice().sort().join(',') : 'all';
+  const pagesPart =
+    !selectedPages || selectedPages.length === availableElpxPages.length
+      ? 'all'
+      : selectedPages.slice().sort().join(',');
   return [filePart, kindPart, outputPart, headingsPart, markdownPart, pagesPart].join('::');
 }
 
