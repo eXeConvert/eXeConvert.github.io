@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-hidden="true">
+  <path d="M16 4h22l14 14v34a8 8 0 0 1-8 8H16a8 8 0 0 1-8-8V12a8 8 0 0 1 8-8Z" fill="#d93025"/>
+  <path d="M38 4v12a4 4 0 0 0 4 4h10" fill="#f28b82"/>
+  <text
+    x="32"
+    y="39"
+    fill="#fff"
+    font-family="Arial, Helvetica, sans-serif"
+    font-size="13"
+    font-weight="700"
+    text-anchor="middle"
+    letter-spacing="0.3"
+  >PDF</text>
+</svg>

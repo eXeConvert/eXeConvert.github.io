@@ -18,6 +18,7 @@
         --arrow-out: #2d6c4d;
         --word: #185abd;
         --word-dark: #0d3f90;
+        --pdf: #d93025;
         --md: #111111;
       }
 
@@ -178,6 +179,16 @@
         max-height: 84%;
       }
 
+      .format-icon.pdf {
+        background: rgba(217, 48, 37, 0.08);
+        box-shadow: inset 0 0 0 1px rgba(217, 48, 37, 0.14);
+      }
+
+      .format-icon.pdf img {
+        max-width: 82%;
+        max-height: 82%;
+      }
+
       .arrow-in,
       .arrow-out {
         position: absolute;
@@ -237,10 +248,6 @@
         line-height: 1.4;
         text-align: center;
         color: rgba(255, 255, 255, 0.92);
-      }
-
-      .lane.right {
-        align-content: center;
       }
 
       .pill {
@@ -478,12 +485,24 @@
               <path d="M30 2l16 8-16 8V2z" fill="#2d6c4d"/>
             </svg>
           </article>
+
+          <article class="card">
+            <div class="format-icon pdf" aria-hidden="true">
+              <img src="./pdf.svg" alt="" />
+            </div>
+            <h2><code>.pdf</code></h2>
+            <p id="info-pdf-output">Exportación desde <code>.elpx</code> a PDF.</p>
+            <svg class="arrow-out" viewBox="0 0 50 20" aria-hidden="true">
+              <path d="M2 10H32" stroke="#2d6c4d" stroke-width="3.5" stroke-linecap="round"/>
+              <path d="M30 2l16 8-16 8V2z" fill="#2d6c4d"/>
+            </svg>
+          </article>
         </section>
       </section>
 
       <footer class="footer-info">
         <p class="disclaimer" id="info-disclaimer">
-          La interactividad de iDevices no se puede exportar debido a las limitaciones técnicas de los formatos de destino (Word y Markdown).
+          La interactividad de iDevices no se puede exportar debido a las limitaciones técnicas de los formatos de destino (Word, PDF y Markdown).
         </p>
         <section class="url" id="info-url-label" aria-label="URL pública">
           <a href="https://execonvert.github.io/">https://execonvert.github.io/</a>
@@ -510,8 +529,9 @@
           centerLine2: "Convierte, guarda y sigue trabajando desde un unico formato central.",
           docxOutput: "Exportacion desde <code>.elpx</code> a Word.",
           mdOutput: "Exportacion desde <code>.elpx</code> a Markdown.",
+          pdfOutput: "Exportacion desde <code>.elpx</code> a PDF.",
           disclaimer:
-            "La interactividad de iDevices no se puede exportar debido a las limitaciones tecnicas de los formatos de destino (Word y Markdown).",
+            "La interactividad de iDevices no se puede exportar debido a las limitaciones tecnicas de los formatos de destino (Word, PDF y Markdown).",
           attribution:
             "Proyecto independiente. eXeLearning y sus logotipos se usan aqui solo con fines identificativos. No existe afiliacion ni respaldo oficial por parte del proyecto eXeLearning.",
           pageTitle: "eXeConvert",
@@ -533,8 +553,9 @@
           centerLine2: "Converteix, desa i continua treballant des d'un unic format central.",
           docxOutput: "Exportacio des de <code>.elpx</code> a Word.",
           mdOutput: "Exportacio des de <code>.elpx</code> a Markdown.",
+          pdfOutput: "Exportacio des de <code>.elpx</code> a PDF.",
           disclaimer:
-            "La interactivitat dels iDevices no es pot exportar a causa de les limitacions tecniques dels formats de destinacio (Word i Markdown).",
+            "La interactivitat dels iDevices no es pot exportar a causa de les limitacions tecniques dels formats de destinacio (Word, PDF i Markdown).",
           attribution:
             "Projecte independent. eXeLearning i els seus logotips s'utilitzen aqui nomes amb finalitats identificatives. No hi ha afiliacio ni suport oficial per part del projecte eXeLearning.",
           pageTitle: "eXeConvert",
@@ -556,8 +577,9 @@
           centerLine2: "Convert, save, and keep working from a single central format.",
           docxOutput: "Export from <code>.elpx</code> to Word.",
           mdOutput: "Export from <code>.elpx</code> to Markdown.",
+          pdfOutput: "Export from <code>.elpx</code> to PDF.",
           disclaimer:
-            "iDevice interactivity cannot be exported because of the technical limitations of the target formats (Word and Markdown).",
+            "iDevice interactivity cannot be exported because of the technical limitations of the target formats (Word, PDF, and Markdown).",
           attribution:
             "Independent project. eXeLearning and its logos are used here for identification purposes only. No official affiliation with or endorsement by the eXeLearning project is implied.",
           pageTitle: "eXeConvert",
@@ -606,6 +628,7 @@
         document.getElementById("info-center-line-2").textContent = copy.centerLine2;
         document.getElementById("info-docx-output").innerHTML = copy.docxOutput;
         document.getElementById("info-md-output").innerHTML = copy.mdOutput;
+        document.getElementById("info-pdf-output").innerHTML = copy.pdfOutput;
         document.getElementById("info-disclaimer").textContent = copy.disclaimer;
         document.getElementById("info-attribution").textContent = copy.attribution;
         document.getElementById("info-url-label").setAttribute("aria-label", copy.publicUrlAria);

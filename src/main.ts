@@ -1,5 +1,12 @@
 import './style.css';
-import { convertElpxToDocx, inspectElpxPages, type ConvertProgress, type ElpxPageInfo } from './converter';
+import {
+  buildPrintableHtmlDocument,
+  convertElpxToDocx,
+  convertElpxToHtml,
+  inspectElpxPages,
+  type ConvertProgress,
+  type ElpxPageInfo,
+} from './converter';
 import { convertDocxToElpx, type DocxImportProgress, type Heading1Mode, type HeadingMode } from './docx-import';
 import { convertElpxToMarkdown } from './elpx-markdown';
 import { convertElpToElpx } from './legacy-elp';
@@ -37,7 +44,7 @@ interface PendingSaveTarget {
 }
 
 type InputKind = 'docx' | 'markdown' | 'elpx' | 'elp';
-type ConversionKind = 'docx' | 'markdown' | 'elpx';
+type ConversionKind = 'docx' | 'markdown' | 'elpx' | 'pdf';
 type OutputKind = ConversionKind;
 type MarkdownPreviewMode = 'formatted' | 'source';
 
@@ -54,7 +61,7 @@ interface IntermediateElpxSave {
 interface PreparedConversion {
   signature: string;
   kind: ConversionKind;
-  blob: Blob;
+  blob: Blob | null;
   filename: string;
   pageCount: number;
   blockCount?: number;
@@ -71,7 +78,7 @@ if (!app) {
   throw new Error('No se ha encontrado el contenedor principal.');
 }
 
-const APP_VERSION = 'v0.1.0-beta.5';
+const APP_VERSION = 'v0.1.0-beta.6';
 const locale = resolveInitialLocale();
 const { t } = createI18n(locale);
 
@@ -150,6 +157,10 @@ app.innerHTML = `
             <label id="output-option-markdown" class="radio-row">
               <input type="radio" name="output-kind" value="markdown" />
               <span>${t('output.md')}</span>
+            </label>
+            <label id="output-option-pdf" class="radio-row">
+              <input type="radio" name="output-kind" value="pdf" />
+              <span>${t('output.pdf')}</span>
             </label>
           </div>
         </div>
@@ -401,6 +412,22 @@ markdownPreview.use(texmath, {
   delimiters: ['dollars', 'beg_end'],
 });
 
+function fallbackIntermediateElpx(conversion: PreparedConversion): IntermediateElpxSave | null {
+  if (!conversion.blob) {
+    return null;
+  }
+
+  return {
+    blob: conversion.blob,
+    filename: conversion.filename,
+    pageCount: conversion.pageCount,
+    blockCount: conversion.blockCount,
+    previewHtml: conversion.previewType === 'html' ? conversion.previewContent : undefined,
+    previewPages: conversion.previewPages,
+    previewStartPath: conversion.previewStartPath,
+  };
+}
+
 languageSelect.addEventListener('change', () => {
   const value = languageSelect.value;
   if (value === locale || (value !== 'es' && value !== 'ca' && value !== 'en')) {
@@ -549,15 +576,7 @@ previewButton.addEventListener('click', async () => {
   try {
     preparedConversion = await prepareCurrentConversion(selectedFile, selectedKind);
     if (selectedKind === 'elp') {
-      legacyIntermediateElpx = preparedConversion.intermediateElpx || {
-        blob: preparedConversion.blob,
-        filename: preparedConversion.filename,
-        pageCount: preparedConversion.pageCount,
-        blockCount: preparedConversion.blockCount,
-        previewHtml: preparedConversion.previewType === 'html' ? preparedConversion.previewContent : undefined,
-        previewPages: preparedConversion.previewPages,
-        previewStartPath: preparedConversion.previewStartPath,
-      };
+      legacyIntermediateElpx = preparedConversion.intermediateElpx || fallbackIntermediateElpx(preparedConversion);
     }
     renderPreview(preparedConversion);
     syncDetectedMessage();
@@ -606,8 +625,19 @@ form.addEventListener('submit', async event => {
   }
 
   try {
+    if (preparedConversion.kind === 'pdf') {
+      const opened = openPdfPrintWindow(preparedConversion);
+      if (!opened) {
+        setStatus(t('status.popupBlocked'), true);
+        return;
+      }
+
+      setStatus(t('done.export.pdfDialog', { pages: preparedConversion.pageCount }));
+      return;
+    }
+
     const saveTarget = await prepareSaveTargetForKind(selectedFile.name, preparedConversion.kind);
-    const savedWithDialog = await saveBlobToTarget(preparedConversion.blob, preparedConversion.filename, saveTarget);
+    const savedWithDialog = await saveBlobToTarget(preparedConversion.blob!, preparedConversion.filename, saveTarget);
 
     if (preparedConversion.kind === 'elpx') {
       const sourceName =
@@ -777,7 +807,9 @@ function syncDetectedMessage(): void {
         ? t(hasPreparedCurrentConversion ? 'detected.elpToElpxDone' : 'detected.elpToElpx')
         : outputKind === 'markdown'
           ? t(hasPreparedCurrentConversion ? 'detected.elpToMdDone' : 'detected.elpToMd')
-          : t(hasPreparedCurrentConversion ? 'detected.elpToDocxDone' : 'detected.elpToDocx');
+          : outputKind === 'pdf'
+            ? t(hasPreparedCurrentConversion ? 'detected.elpToPdfDone' : 'detected.elpToPdf')
+            : t(hasPreparedCurrentConversion ? 'detected.elpToDocxDone' : 'detected.elpToDocx');
     setStatus(t('status.elpDetected'));
     return;
   }
@@ -786,7 +818,9 @@ function syncDetectedMessage(): void {
   detectedHelp.innerHTML =
     outputKind === 'markdown'
       ? t(hasPreparedCurrentConversion ? 'detected.elpxToMdDone' : 'detected.elpxToMd')
-      : t(hasPreparedCurrentConversion ? 'detected.elpxToDocxDone' : 'detected.elpxToDocx');
+      : outputKind === 'pdf'
+        ? t(hasPreparedCurrentConversion ? 'detected.elpxToPdfDone' : 'detected.elpxToPdf')
+        : t(hasPreparedCurrentConversion ? 'detected.elpxToDocxDone' : 'detected.elpxToDocx');
   setStatus(t('status.elpxDetected'));
 }
 
@@ -840,15 +874,24 @@ function syncOutputControls(): void {
   markdownImagesField.hidden = !showMarkdownOptions;
 }
 
-function getSelectedElpxOutputKind(): 'docx' | 'markdown' {
+function getSelectedElpxOutputKind(): 'docx' | 'markdown' | 'pdf' {
   const checked = Array.from(outputRadioElements).find(radio => radio.checked);
-  return checked?.value === 'markdown' ? 'markdown' : 'docx';
+  if (checked?.value === 'markdown') {
+    return 'markdown';
+  }
+  if (checked?.value === 'pdf') {
+    return 'pdf';
+  }
+  return 'docx';
 }
 
 function getSelectedOutputKind(): OutputKind {
   const checked = Array.from(outputRadioElements).find(radio => radio.checked);
   if (checked?.value === 'markdown') {
     return 'markdown';
+  }
+  if (checked?.value === 'pdf') {
+    return 'pdf';
   }
   if (checked?.value === 'elpx') {
     return 'elpx';
@@ -958,7 +1001,7 @@ async function prepareSaveTarget(options: {
   inputFilename: string;
   description: string;
   mime: string;
-  extension: '.docx' | '.elpx' | '.md';
+  extension: '.docx' | '.elpx' | '.md' | '.pdf';
 }): Promise<PendingSaveTarget | null> {
   const filePickerWindow = window as FilePickerWindow;
 
@@ -1014,7 +1057,7 @@ function downloadBlob(blob: Blob, filename: string): void {
   URL.revokeObjectURL(url);
 }
 
-function toOutputFilename(inputFilename: string, extension: '.docx' | '.elpx' | '.md'): string {
+function toOutputFilename(inputFilename: string, extension: '.docx' | '.elpx' | '.md' | '.pdf'): string {
   const stem = inputFilename.replace(/\.[^.]+$/, '') || 'document';
   return `${stem}${extension}`;
 }
@@ -1064,6 +1107,9 @@ function getSaveButtonLabel(): string {
     if (preparedConversion.kind === 'markdown') {
       return t('button.saveMd');
     }
+    if (preparedConversion.kind === 'pdf') {
+      return t('button.savePdf');
+    }
     return t('button.saveDocx');
   }
 
@@ -1073,6 +1119,9 @@ function getSaveButtonLabel(): string {
   }
   if (outputKind === 'markdown') {
     return t('button.saveMd');
+  }
+  if (outputKind === 'pdf') {
+    return t('button.savePdf');
   }
   if (outputKind === 'docx') {
     return t('button.saveDocx');
@@ -1109,15 +1158,10 @@ async function autoPreviewLegacyElp(file: File, sequence: number): Promise<void>
     if (sequence !== autoPreviewSequence || selectedFile !== file || selectedKind !== 'elp') {
       return;
     }
-    legacyIntermediateElpx = preparedConversion.intermediateElpx || {
-      blob: preparedConversion.blob,
-      filename: preparedConversion.filename,
-      pageCount: preparedConversion.pageCount,
-      blockCount: preparedConversion.blockCount,
-      previewHtml: preparedConversion.previewType === 'html' ? preparedConversion.previewContent : undefined,
-      previewPages: preparedConversion.previewPages,
-      previewStartPath: preparedConversion.previewStartPath,
-    };
+    legacyIntermediateElpx = preparedConversion.intermediateElpx || fallbackIntermediateElpx(preparedConversion);
+    if (!legacyIntermediateElpx) {
+      throw new Error('No se ha podido preparar el archivo .elpx intermedio.');
+    }
     const intermediateFile = new File([legacyIntermediateElpx.blob], legacyIntermediateElpx.filename, {
       type: 'application/zip',
     });
@@ -1361,6 +1405,30 @@ async function prepareCurrentConversion(file: File, kind: InputKind): Promise<Pr
       };
     }
 
+    if (outputKind === 'pdf') {
+      const result = await convertElpxToHtml(
+        elpxFile,
+        { selectedPageIds },
+        progress => {
+          updateProgress(progress);
+          setStatus(toLocalizedProgressMessage(progress));
+        },
+      );
+
+      return {
+        signature,
+        kind: 'pdf',
+        blob: null,
+        filename: toOutputFilename(file.name, '.pdf'),
+        pageCount: result.pageCount,
+        previewType: 'html',
+        previewContent: buildPrintableHtmlDocument(result.html, {
+          title: toOutputFilename(file.name, '.pdf'),
+        }),
+        intermediateElpx,
+      };
+    }
+
     const result = await convertElpxToDocx(elpxFile, { selectedPageIds }, progress => {
       updateProgress(progress);
       setStatus(toLocalizedProgressMessage(progress));
@@ -1397,6 +1465,29 @@ async function prepareCurrentConversion(file: File, kind: InputKind): Promise<Pr
       pageCount: result.pageCount,
       previewType: 'markdown',
       previewContent: await result.blob.text(),
+    };
+  }
+
+  if (outputKind === 'pdf') {
+    const result = await convertElpxToHtml(
+      file,
+      { selectedPageIds },
+      progress => {
+        updateProgress(progress);
+        setStatus(toLocalizedProgressMessage(progress));
+      },
+    );
+
+    return {
+      signature,
+      kind: 'pdf',
+      blob: null,
+      filename: toOutputFilename(file.name, '.pdf'),
+      pageCount: result.pageCount,
+      previewType: 'html',
+      previewContent: buildPrintableHtmlDocument(result.html, {
+        title: toOutputFilename(file.name, '.pdf'),
+      }),
     };
   }
 
@@ -1497,6 +1588,30 @@ function openPreviewInWindow(conversion: PreparedConversion): void {
   previewWindow.document.open();
   previewWindow.document.write(htmlContent);
   previewWindow.document.close();
+}
+
+function openPdfPrintWindow(conversion: PreparedConversion): boolean {
+  const previewWindow = window.open('', '_blank', 'popup=yes,width=1100,height=760,resizable=yes,scrollbars=yes');
+  if (!previewWindow) {
+    return false;
+  }
+
+  const htmlContent = conversion.previewContent.replace(
+    '</body>',
+    `<script>
+      window.addEventListener('load', () => {
+        window.setTimeout(() => {
+          try { window.print(); } catch {}
+        }, 180);
+      }, { once: true });
+    </script>
+  </body>`,
+  );
+
+  previewWindow.document.open();
+  previewWindow.document.write(htmlContent);
+  previewWindow.document.close();
+  return true;
 }
 
 function bindPreviewFrameNavigation(): void {
@@ -1807,6 +1922,15 @@ async function prepareSaveTargetForKind(inputFilename: string, kind: ConversionK
       description: t('save.type.md'),
       mime: 'text/markdown',
       extension: '.md',
+    });
+  }
+
+  if (kind === 'pdf') {
+    return prepareSaveTarget({
+      inputFilename,
+      description: t('save.type.pdf'),
+      mime: 'application/pdf',
+      extension: '.pdf',
     });
   }
 

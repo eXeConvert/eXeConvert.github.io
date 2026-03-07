@@ -49,6 +49,10 @@ export interface ElpxHtmlResult {
   pageCount: number;
 }
 
+export interface PrintableHtmlOptions {
+  title?: string;
+}
+
 export interface ElpxPageInfo {
   id: string;
   parentId: string | null;
@@ -178,6 +182,78 @@ export async function convertElpxToHtml(
     html,
     pageCount: scopedProject.pages.length,
   };
+}
+
+export function buildPrintableHtmlDocument(htmlDocument: string, options?: PrintableHtmlOptions): string {
+  const parsed = new DOMParser().parseFromString(htmlDocument, 'text/html');
+  for (const script of Array.from(parsed.querySelectorAll('script'))) {
+    script.remove();
+  }
+  for (const link of Array.from(parsed.querySelectorAll('link[rel="stylesheet"]'))) {
+    link.remove();
+  }
+
+  const language = parsed.documentElement.lang || 'es';
+  const title = options?.title || parsed.title || 'Documento PDF';
+  const bodyHtml = parsed.body?.innerHTML || '<p>El proyecto no contiene contenido exportable.</p>';
+  const mathJaxLoader = containsLatex(htmlDocument)
+    ? `
+  <script>
+    window.MathJax = {
+      tex: {
+        inlineMath: [['\\\\(', '\\\\)'], ['$', '$']],
+        displayMath: [['\\\\[', '\\\\]'], ['$$', '$$']],
+        processEscapes: true
+      },
+      svg: { fontCache: 'global' }
+    };
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js"></script>`
+    : '';
+
+  return `<!doctype html>
+<html lang="${escapeAttribute(language)}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>${escapeHtml(title)}</title>
+  <style>
+    @page { size: A4; margin: 16mm; }
+    html, body { margin: 0; padding: 0; background: #eef1ea; }
+    body { font-family: Georgia, "Times New Roman", serif; color: #222; line-height: 1.45; }
+    .pdf-preview {
+      box-sizing: border-box;
+      width: min(210mm, calc(100% - 32px));
+      margin: 24px auto;
+      padding: 18mm 16mm;
+      background: #fff;
+      box-shadow: 0 18px 40px rgba(29, 39, 28, 0.12);
+    }
+    .pdf-preview * { box-sizing: border-box; max-width: 100%; }
+    .pdf-preview table { border-collapse: collapse; width: 100%; margin: 10pt 0; }
+    .pdf-preview td, .pdf-preview th { border: 1px solid #c8c8c8; padding: 6px; vertical-align: top; }
+    .pdf-preview img { height: auto; }
+    @media print {
+      html, body { background: #fff; }
+      .pdf-preview {
+        width: auto;
+        margin: 0;
+        padding: 0;
+        box-shadow: none;
+      }
+      a {
+        color: inherit;
+        text-decoration: none;
+      }
+    }
+  </style>${mathJaxLoader}
+</head>
+<body>
+  <main class="pdf-preview">
+    ${bodyHtml}
+  </main>
+</body>
+</html>`;
 }
 
 export async function inspectElpxPages(file: File): Promise<ElpxPageInfo[]> {
