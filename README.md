@@ -28,8 +28,9 @@ La aplicación queda disponible en `http://localhost:3007`.
 ## Publicación en GitHub Pages
 
 - La app compilada se genera en `docs/`.
-- La raíz del repositorio contiene una redirección automática a `./docs/`.
-- Tras cada cambio, hay que ejecutar `npm run build` y subir también el contenido de `docs/`.
+- El despliegue en `https://execonvert.github.io/` se hace con GitHub Actions.
+- Cada `push` a `main` recompila la app y publica el contenido de `docs/` como sitio de GitHub Pages.
+- En local puedes seguir usando `npm run build` para comprobar el resultado antes de subir cambios.
 
 ## Arquitectura
 
