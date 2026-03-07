@@ -269,7 +269,7 @@ app.innerHTML = `
         </div>
       </div>
       <div class="status-shell">
-        <span id="status-spinner" class="status-spinner" hidden aria-hidden="true"></span>
+        <span id="status-spinner" class="status-spinner material-symbols-rounded" hidden aria-hidden="true">progress_activity</span>
         <p id="status" class="status" aria-live="polite">
           ${t('status.idle')}
         </p>
@@ -653,10 +653,10 @@ form.addEventListener('submit', async event => {
 function handleSelectedFile(file: File | null): void {
   autoPreviewSequence += 1;
   selectedFile = file;
-  legacyIntermediateElpx = null;
 
   if (!file) {
     selectedKind = null;
+    legacyIntermediateElpx = null;
     fileInput.value = '';
     fileNameElement.textContent = t('file.none');
     resetDetectedOptions();
@@ -671,6 +671,7 @@ function handleSelectedFile(file: File | null): void {
 
   if (!kind) {
     selectedKind = null;
+    legacyIntermediateElpx = null;
     resetDetectedOptions();
     clearPageSelectionState();
     clearPreview();
@@ -679,6 +680,9 @@ function handleSelectedFile(file: File | null): void {
   }
 
   selectedKind = kind;
+  if (kind !== 'elp') {
+    legacyIntermediateElpx = null;
+  }
   applyDetectedOptions(kind);
   syncActionButtons();
 
