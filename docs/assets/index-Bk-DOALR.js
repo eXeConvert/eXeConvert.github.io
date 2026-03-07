@@ -1210,9 +1210,9 @@ l0,-`+(m+144)+`c-2,-159.3,-10,-310.7,-24,-454c-53.3,-528,-210,-949.7,
         ·
         <a href="https://www.gnu.org/licenses/agpl-3.0.html" target="_blank" rel="noopener noreferrer">${Ge("footer.license")}</a>
         ·
-        <a href="https://github.com/jjdeharo/eXeConvert" target="_blank" rel="noopener noreferrer">${Ge("footer.repo")}</a>
+        <a href="https://github.com/eXeConvert/eXeConvert.github.io" target="_blank" rel="noopener noreferrer">${Ge("footer.repo")}</a>
         ·
-        <a href="https://github.com/jjdeharo/eXeConvert/issues" target="_blank" rel="noopener noreferrer">${Ge("footer.issues")}</a>
+        <a href="https://github.com/eXeConvert/eXeConvert.github.io/issues" target="_blank" rel="noopener noreferrer">${Ge("footer.issues")}</a>
       </p>
       <p class="app-footer-note">
         ${Ge("footer.note.independent")}

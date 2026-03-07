@@ -307,9 +307,9 @@ app.innerHTML = `
         ·
         <a href="https://www.gnu.org/licenses/agpl-3.0.html" target="_blank" rel="noopener noreferrer">${t('footer.license')}</a>
         ·
-        <a href="https://github.com/jjdeharo/eXeConvert" target="_blank" rel="noopener noreferrer">${t('footer.repo')}</a>
+        <a href="https://github.com/eXeConvert/eXeConvert.github.io" target="_blank" rel="noopener noreferrer">${t('footer.repo')}</a>
         ·
-        <a href="https://github.com/jjdeharo/eXeConvert/issues" target="_blank" rel="noopener noreferrer">${t('footer.issues')}</a>
+        <a href="https://github.com/eXeConvert/eXeConvert.github.io/issues" target="_blank" rel="noopener noreferrer">${t('footer.issues')}</a>
       </p>
       <p class="app-footer-note">
         ${t('footer.note.independent')}
