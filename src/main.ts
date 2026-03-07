@@ -653,10 +653,10 @@ form.addEventListener('submit', async event => {
 function handleSelectedFile(file: File | null): void {
   autoPreviewSequence += 1;
   selectedFile = file;
+  legacyIntermediateElpx = null;
 
   if (!file) {
     selectedKind = null;
-    legacyIntermediateElpx = null;
     fileInput.value = '';
     fileNameElement.textContent = t('file.none');
     resetDetectedOptions();
@@ -671,7 +671,6 @@ function handleSelectedFile(file: File | null): void {
 
   if (!kind) {
     selectedKind = null;
-    legacyIntermediateElpx = null;
     resetDetectedOptions();
     clearPageSelectionState();
     clearPreview();
@@ -680,9 +679,6 @@ function handleSelectedFile(file: File | null): void {
   }
 
   selectedKind = kind;
-  if (kind !== 'elp') {
-    legacyIntermediateElpx = null;
-  }
   applyDetectedOptions(kind);
   syncActionButtons();
 
