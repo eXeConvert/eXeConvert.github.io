@@ -70,6 +70,8 @@ function analytics_render_top_links_table($title, $data) {
   }
   echo '</tbody></table></section>';
 }
+
+$central_url = '../index.php';
 ?>
 <!doctype html>
 <html>
@@ -81,6 +83,8 @@ function analytics_render_top_links_table($title, $data) {
     .wrap { max-width: 1180px; margin: 0 auto; padding: 1.25rem; }
     h1 { margin: 0 0 .35rem; }
     .muted { color: #61727e; }
+    .topbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .75rem; }
+    .back-link { text-decoration: none; padding: .5rem .75rem; border-radius: 999px; background: #e7eef5; color: #17333a; }
     .nav { display: flex; flex-wrap: wrap; gap: .45rem; margin: 1rem 0 1.2rem; }
     .nav a { text-decoration: none; padding: .5rem .75rem; border-radius: 999px; background: #e7eef5; color: #17333a; }
     .nav a.active { background: #0f5c5c; color: #fff; }
@@ -104,8 +108,12 @@ function analytics_render_top_links_table($title, $data) {
 </head>
 <body>
   <div class="wrap">
-    <h1><?php echo analytics_h(analytics_config('site_name', 'Estadisticas')); ?></h1>
-    <p class="muted">Periodo: <?php echo analytics_h($cfg['label']); ?>. Datos acumulados en una carpeta aislada para esta aplicacion.</p>
+    <div class="topbar">
+      <div>
+        <h1><?php echo analytics_h(analytics_config('site_name', 'Estadisticas')); ?></h1>
+      </div>
+      <a class="back-link" href="<?php echo analytics_h($central_url); ?>">Panel central</a>
+    </div>
 
     <nav class="nav">
       <a href="?range=today"<?php if ($range === 'today') echo ' class="active"'; ?>>Hoy</a>

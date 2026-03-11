@@ -8,8 +8,9 @@ $referrer = isset($_GET['referrer']) ? analytics_safe_value($_GET['referrer']) :
 $utm_source = isset($_GET['utm_source']) ? analytics_safe_value($_GET['utm_source']) : '';
 $utm_medium = isset($_GET['utm_medium']) ? analytics_safe_value($_GET['utm_medium']) : '';
 $utm_campaign = isset($_GET['utm_campaign']) ? analytics_safe_value($_GET['utm_campaign']) : '';
+$summary_only = isset($_GET['summary_only']) && $_GET['summary_only'] === '1';
 
-if (!analytics_is_bot()) {
+if (!$summary_only && !analytics_is_bot() && !(isset($_COOKIE['analytics_ignore']) && $_COOKIE['analytics_ignore'] === '1')) {
   $ts = time();
   $date_key = date('Y-m-d', $ts);
   $hour_key = date('H', $ts);

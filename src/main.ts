@@ -81,6 +81,7 @@ if (!app) {
 const APP_VERSION = 'v0.1.0-beta.6';
 const ANALYTICS_FALLBACK_ENDPOINT = 'https://bilateria.org/app/estadistica/execonvert/track.php';
 const ANALYTICS_FALLBACK_STATS_URL = 'https://bilateria.org/app/estadistica/execonvert/admin-stats.php';
+const ANALYTICS_VISIT_COOLDOWN_MS = 30 * 60 * 1000;
 const locale = resolveInitialLocale();
 const { t } = createI18n(locale);
 
@@ -454,6 +455,30 @@ function getAnalyticsConfig() {
   };
 }
 
+function getAnalyticsVisitStorageKey(siteId: string): string {
+  return `analytics:last-visit:${siteId}`;
+}
+
+function shouldCountAnalyticsVisit(siteId: string): boolean {
+  try {
+    const lastVisit = Number.parseInt(window.localStorage.getItem(getAnalyticsVisitStorageKey(siteId)) || '', 10);
+    if (Number.isFinite(lastVisit) && Date.now() - lastVisit < ANALYTICS_VISIT_COOLDOWN_MS) {
+      return false;
+    }
+  } catch {
+    return true;
+  }
+  return true;
+}
+
+function rememberAnalyticsVisit(siteId: string): void {
+  try {
+    window.localStorage.setItem(getAnalyticsVisitStorageKey(siteId), String(Date.now()));
+  } catch {
+    // Ignore storage failures and keep analytics best-effort.
+  }
+}
+
 function shouldTrackAnalytics(): boolean {
   const protocol = String(window.location.protocol || '');
   const host = String(window.location.hostname || '').toLowerCase();
@@ -485,6 +510,7 @@ function loadAnalyticsSummary(): void {
   const script = document.createElement('script');
   let settled = false;
   let timeoutId = 0;
+  const shouldCountVisit = shouldCountAnalyticsVisit(config.siteId);
 
   const cleanup = () => {
     if (settled) return;
@@ -502,6 +528,7 @@ function loadAnalyticsSummary(): void {
   query.set('callback', callbackName);
   query.set('page_url', window.location.href);
   query.set('referrer', document.referrer || '');
+  if (!shouldCountVisit) query.set('summary_only', '1');
   ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content'].forEach(key => {
     const value = String(urlParams.get(key) || '').trim();
     if (value) query.set(key, value);
@@ -510,6 +537,9 @@ function loadAnalyticsSummary(): void {
   (window as Window & Record<string, unknown>)[callbackName] = (payload: unknown) => {
     try {
       updateAnalyticsSummary(payload as { total?: number; today?: number });
+      if (shouldCountVisit && payload && typeof payload === 'object' && 'ok' in payload && (payload as { ok?: boolean }).ok) {
+        rememberAnalyticsVisit(config.siteId);
+      }
     } finally {
       cleanup();
     }
