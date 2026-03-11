@@ -139,6 +139,9 @@ const dictionaries: Record<Locale, Record<string, string>> = {
     'footer.license': 'Licencia AGPLv3',
     'footer.repo': 'Repositorio GitHub',
     'footer.issues': 'Problemas y sugerencias',
+    'footer.analytics.visits': 'Visitas',
+    'footer.analytics.today': 'Hoy',
+    'footer.analytics.details': 'Estadísticas',
     'footer.note.independent': 'Proyecto independiente. No está afiliado ni avalado oficialmente por eXeLearning o INTEF.',
     'footer.note.thirdParty': 'Este proyecto reutiliza recursos de eXeLearning para compatibilidad con <code>.elpx</code>. Consulta las atribuciones en',
 
@@ -296,6 +299,9 @@ const dictionaries: Record<Locale, Record<string, string>> = {
     'footer.license': 'Llicència AGPLv3',
     'footer.repo': 'Repositori GitHub',
     'footer.issues': 'Problemes i suggeriments',
+    'footer.analytics.visits': 'Visites',
+    'footer.analytics.today': 'Avui',
+    'footer.analytics.details': 'Estadístiques',
     'footer.note.independent': 'Projecte independent. No està afiliat ni avalat oficialment per eXeLearning o INTEF.',
     'footer.note.thirdParty': 'Aquest projecte reutilitza recursos d’eXeLearning per compatibilitat amb <code>.elpx</code>. Consulta les atribucions a',
 
@@ -453,6 +459,9 @@ const dictionaries: Record<Locale, Record<string, string>> = {
     'footer.license': 'AGPLv3 License',
     'footer.repo': 'GitHub repository',
     'footer.issues': 'Issues and suggestions',
+    'footer.analytics.visits': 'Visits',
+    'footer.analytics.today': 'Today',
+    'footer.analytics.details': 'Stats',
     'footer.note.independent': 'Independent project. Not officially affiliated with or endorsed by eXeLearning or INTEF.',
     'footer.note.thirdParty': 'This project reuses eXeLearning resources for <code>.elpx</code> compatibility. See attributions in',
 

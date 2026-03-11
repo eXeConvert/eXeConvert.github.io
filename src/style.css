@@ -693,6 +693,14 @@ button:disabled {
   font-size: 0.86rem;
 }
 
+.app-footer-stats {
+  font-size: 0.86rem;
+}
+
+.app-footer-stats strong {
+  color: var(--brand-dark);
+}
+
 .app-footer-note {
   max-width: 78ch;
   margin-left: auto !important;

@@ -79,6 +79,8 @@ if (!app) {
 }
 
 const APP_VERSION = 'v0.1.0-beta.6';
+const ANALYTICS_FALLBACK_ENDPOINT = 'https://bilateria.org/app/estadistica/execonvert/track.php';
+const ANALYTICS_FALLBACK_STATS_URL = 'https://bilateria.org/app/estadistica/execonvert/admin-stats.php';
 const locale = resolveInitialLocale();
 const { t } = createI18n(locale);
 
@@ -322,6 +324,13 @@ app.innerHTML = `
         ·
         <a href="https://github.com/eXeConvert/eXeConvert.github.io/issues" target="_blank" rel="noopener noreferrer">${t('footer.issues')}</a>
       </p>
+      <p class="app-footer-stats" id="analytics-summary" hidden>
+        ${t('footer.analytics.visits')} <strong id="analytics-total">-</strong>
+        ·
+        ${t('footer.analytics.today')} <strong id="analytics-today">-</strong>
+        ·
+        <a id="analytics-link" href="https://bilateria.org/app/estadistica/execonvert/admin-stats.php" target="_blank" rel="noopener noreferrer">${t('footer.analytics.details')}</a>
+      </p>
       <p class="app-footer-note">
         ${t('footer.note.independent')}
       </p>
@@ -372,6 +381,10 @@ const progressShell = document.querySelector<HTMLDivElement>('#progress-shell')!
 const progressBar = document.querySelector<HTMLDivElement>('#progress-bar')!;
 const statusSpinner = document.querySelector<HTMLSpanElement>('#status-spinner')!;
 const status = document.querySelector<HTMLParagraphElement>('#status')!;
+const analyticsSummary = document.querySelector<HTMLParagraphElement>('#analytics-summary');
+const analyticsTotal = document.querySelector<HTMLElement>('#analytics-total');
+const analyticsToday = document.querySelector<HTMLElement>('#analytics-today');
+const analyticsLink = document.querySelector<HTMLAnchorElement>('#analytics-link');
 
 previewField.dataset.staleMessage = t('preview.stale');
 previewField.dataset.busyMessage = t('preview.generating');
@@ -428,6 +441,101 @@ function fallbackIntermediateElpx(conversion: PreparedConversion): IntermediateE
   };
 }
 
+function getMetaContent(name: string): string {
+  const node = document.querySelector<HTMLMetaElement>(`meta[name="${name}"]`);
+  return String(node?.content || '').trim();
+}
+
+function getAnalyticsConfig() {
+  return {
+    endpoint: getMetaContent('analytics-endpoint') || ANALYTICS_FALLBACK_ENDPOINT,
+    statsUrl: getMetaContent('analytics-stats-url') || ANALYTICS_FALLBACK_STATS_URL,
+    siteId: getMetaContent('analytics-site-id') || 'execonvert',
+  };
+}
+
+function shouldTrackAnalytics(): boolean {
+  const protocol = String(window.location.protocol || '');
+  const host = String(window.location.hostname || '').toLowerCase();
+  if (protocol !== 'http:' && protocol !== 'https:') return false;
+  if (host === 'localhost' || host === '127.0.0.1' || host === '::1') return false;
+  return !host.endsWith('.local');
+}
+
+function updateAnalyticsSummary(payload: { total?: number; today?: number } | null | undefined): void {
+  const total = Number.parseInt(String(payload?.total ?? ''), 10);
+  const today = Number.parseInt(String(payload?.today ?? ''), 10);
+  const config = getAnalyticsConfig();
+  if (!analyticsSummary || !analyticsTotal || !analyticsToday) return;
+  if (!Number.isFinite(total) || !Number.isFinite(today)) return;
+  analyticsTotal.textContent = String(total);
+  analyticsToday.textContent = String(today);
+  if (analyticsLink && config.statsUrl) analyticsLink.href = config.statsUrl;
+  analyticsSummary.hidden = false;
+}
+
+function loadAnalyticsSummary(): void {
+  if (!shouldTrackAnalytics()) return;
+  const config = getAnalyticsConfig();
+  if (!config.endpoint) return;
+
+  const callbackName = `__exeConvertAnalytics_${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`;
+  const query = new URLSearchParams();
+  const urlParams = new URLSearchParams(window.location.search || '');
+  const script = document.createElement('script');
+  let settled = false;
+  let timeoutId = 0;
+
+  const cleanup = () => {
+    if (settled) return;
+    settled = true;
+    if (timeoutId) window.clearTimeout(timeoutId);
+    try {
+      delete (window as Window & Record<string, unknown>)[callbackName];
+    } catch {
+      (window as Window & Record<string, unknown>)[callbackName] = undefined;
+    }
+    script.remove();
+  };
+
+  query.set('site', config.siteId);
+  query.set('callback', callbackName);
+  query.set('page_url', window.location.href);
+  query.set('referrer', document.referrer || '');
+  ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content'].forEach(key => {
+    const value = String(urlParams.get(key) || '').trim();
+    if (value) query.set(key, value);
+  });
+
+  (window as Window & Record<string, unknown>)[callbackName] = (payload: unknown) => {
+    try {
+      updateAnalyticsSummary(payload as { total?: number; today?: number });
+    } finally {
+      cleanup();
+    }
+  };
+
+  script.async = true;
+  script.src = `${config.endpoint}${config.endpoint.includes('?') ? '&' : '?'}${query.toString()}`;
+  script.onerror = () => cleanup();
+  timeoutId = window.setTimeout(cleanup, 4000);
+  document.head.append(script);
+}
+
+function scheduleAnalyticsLoad(): void {
+  if (!shouldTrackAnalytics()) return;
+  const run = () => window.setTimeout(loadAnalyticsSummary, 0);
+  if (typeof window.requestIdleCallback === 'function') {
+    window.requestIdleCallback(run, { timeout: 2500 });
+    return;
+  }
+  if (document.readyState === 'complete') {
+    run();
+    return;
+  }
+  window.addEventListener('load', run, { once: true });
+}
+
 languageSelect.addEventListener('change', () => {
   const value = languageSelect.value;
   if (value === locale || (value !== 'es' && value !== 'ca' && value !== 'en')) {
@@ -436,6 +544,8 @@ languageSelect.addEventListener('change', () => {
   persistLocale(value as Locale);
   window.location.reload();
 });
+
+scheduleAnalyticsLoad();
 
 pickButton.addEventListener('click', () => {
   fileInput.click();
