@@ -329,8 +329,6 @@ app.innerHTML = `
         ${t('footer.analytics.visits')} <strong id="analytics-total">-</strong>
         ·
         ${t('footer.analytics.today')} <strong id="analytics-today">-</strong>
-        ·
-        <a id="analytics-link" href="https://bilateria.org/app/estadistica/execonvert/admin-stats.php" target="_blank" rel="noopener noreferrer">${t('footer.analytics.details')}</a>
       </p>
       <p class="app-footer-note">
         ${t('footer.note.independent')}
