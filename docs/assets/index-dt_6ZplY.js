@@ -1275,8 +1275,6 @@ l0,-`+(m+144)+`c-2,-159.3,-10,-310.7,-24,-454c-53.3,-528,-210,-949.7,
         ${je("footer.analytics.visits")} <strong id="analytics-total">-</strong>
         ·
         ${je("footer.analytics.today")} <strong id="analytics-today">-</strong>
-        ·
-        <a id="analytics-link" href="https://bilateria.org/app/estadistica/execonvert/admin-stats.php" target="_blank" rel="noopener noreferrer">${je("footer.analytics.details")}</a>
       </p>
       <p class="app-footer-note">
         ${je("footer.note.independent")}
