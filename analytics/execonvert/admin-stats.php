@@ -77,6 +77,7 @@ $central_url = '../index.php';
 <html>
 <head>
   <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title><?php echo analytics_h(analytics_config('site_name', 'Estadisticas')); ?></title>
   <style>
     body { font-family: Arial, sans-serif; margin: 0; background: #f4f7fb; color: #16313a; }
@@ -86,7 +87,7 @@ $central_url = '../index.php';
     .topbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .75rem; }
     .back-link { text-decoration: none; padding: .5rem .75rem; border-radius: 999px; background: #e7eef5; color: #17333a; }
     .nav { display: flex; flex-wrap: wrap; gap: .45rem; margin: 1rem 0 1.2rem; }
-    .nav a { text-decoration: none; padding: .5rem .75rem; border-radius: 999px; background: #e7eef5; color: #17333a; }
+    .nav a { text-decoration: none; padding: .5rem .75rem; border-radius: 999px; background: #e7eef5; color: #17333a; white-space: nowrap; }
     .nav a.active { background: #0f5c5c; color: #fff; }
     .grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; }
     .card { background: #fff; border: 1px solid #dae3ec; border-radius: 14px; padding: 1rem; box-shadow: 0 12px 30px rgba(13,34,52,.05); }
@@ -103,6 +104,17 @@ $central_url = '../index.php';
     @media (max-width: 960px) {
       .grid, .top-grid, .top-grid--three { grid-template-columns: 1fr; }
       .chart { overflow-x: auto; grid-auto-flow: column; grid-auto-columns: minmax(24px, 1fr); }
+    }
+    @media (max-width: 640px) {
+      .wrap { padding: .85rem; }
+      .topbar { align-items: stretch; }
+      .topbar > div, .back-link { width: 100%; }
+      .back-link { box-sizing: border-box; text-align: center; }
+      .nav { flex-wrap: nowrap; overflow-x: auto; padding-bottom: .25rem; scrollbar-width: thin; }
+      .card { padding: .85rem; }
+      .metric { font-size: 1.75rem; }
+      table { display: block; overflow-x: auto; white-space: nowrap; }
+      th, td { font-size: .88rem; }
     }
   </style>
 </head>

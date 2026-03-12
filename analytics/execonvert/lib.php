@@ -344,16 +344,35 @@ function analytics_build_series($rows, $range) {
   $cursor = $cfg['from'];
 
   if ($cfg['granularity'] === 'hour') {
-    for ($hour = 0; $hour < 24; $hour++) {
-      $key = sprintf('%02d', $hour);
-      $series[$key] = 0;
-    }
-    foreach ($rows as $row) {
-      $key = sprintf('%02d', intval($row['hour']));
-      if (!isset($series[$key])) {
+    if ($range === 'last24') {
+      $start_hour = intval(floor($cfg['to'] / 3600)) * 3600 - (23 * 3600);
+      $hour_keys = array();
+      for ($slot = 0; $slot < 24; $slot++) {
+        $bucket_ts = $start_hour + ($slot * 3600);
+        $key = date('H', $bucket_ts);
+        $hour_keys[$bucket_ts] = $key;
         $series[$key] = 0;
       }
-      $series[$key]++;
+      foreach ($rows as $row) {
+        $bucket_ts = intval(floor(intval($row['ts']) / 3600)) * 3600;
+        if (!isset($hour_keys[$bucket_ts])) {
+          continue;
+        }
+        $key = $hour_keys[$bucket_ts];
+        $series[$key]++;
+      }
+    } else {
+      for ($hour = 0; $hour < 24; $hour++) {
+        $key = sprintf('%02d', $hour);
+        $series[$key] = 0;
+      }
+      foreach ($rows as $row) {
+        $key = sprintf('%02d', intval($row['hour']));
+        if (!isset($series[$key])) {
+          $series[$key] = 0;
+        }
+        $series[$key]++;
+      }
     }
   } elseif ($cfg['granularity'] === 'month') {
     while ($cursor <= $cfg['to']) {
