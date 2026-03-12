@@ -143,6 +143,7 @@ const dictionaries: Record<Locale, Record<string, string>> = {
     'footer.analytics.today': 'Hoy',
     'footer.analytics.details': 'Estadísticas',
     'footer.note.independent': 'Proyecto independiente. No está afiliado ni avalado oficialmente por eXeLearning o INTEF.',
+    'footer.note.analyticsLink': 'Privacidad',
     'footer.note.analytics': 'Esta aplicación recoge únicamente estadísticas de uso agregadas con un sistema propio para conocer su utilización y mejorar la herramienta. No se almacenan direcciones IP ni se usan cookies de analítica para los visitantes.',
     'footer.note.thirdParty': 'Este proyecto reutiliza recursos de eXeLearning para compatibilidad con <code>.elpx</code>. Consulta las atribuciones en',
 
@@ -304,6 +305,7 @@ const dictionaries: Record<Locale, Record<string, string>> = {
     'footer.analytics.today': 'Avui',
     'footer.analytics.details': 'Estadístiques',
     'footer.note.independent': 'Projecte independent. No està afiliat ni avalat oficialment per eXeLearning o INTEF.',
+    'footer.note.analyticsLink': 'Privadesa',
     'footer.note.analytics': 'Aquesta aplicació recull únicament estadístiques d’ús agregades amb un sistema propi per conèixer-ne la utilització i millorar l’eina. No s’emmagatzemen adreces IP ni s’utilitzen cookies d’analítica per als visitants.',
     'footer.note.thirdParty': 'Aquest projecte reutilitza recursos d’eXeLearning per compatibilitat amb <code>.elpx</code>. Consulta les atribucions a',
 
@@ -465,6 +467,7 @@ const dictionaries: Record<Locale, Record<string, string>> = {
     'footer.analytics.today': 'Today',
     'footer.analytics.details': 'Stats',
     'footer.note.independent': 'Independent project. Not officially affiliated with or endorsed by eXeLearning or INTEF.',
+    'footer.note.analyticsLink': 'Privacy',
     'footer.note.analytics': 'This application only collects aggregated usage statistics with an in-house system to understand how it is used and improve the tool. No IP addresses are stored and no analytics cookies are used for visitors.',
     'footer.note.thirdParty': 'This project reuses eXeLearning resources for <code>.elpx</code> compatibility. See attributions in',
 
