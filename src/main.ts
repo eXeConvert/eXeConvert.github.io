@@ -334,6 +334,9 @@ app.innerHTML = `
         ${t('footer.note.independent')}
       </p>
       <p class="app-footer-note">
+        ${t('footer.note.analytics')}
+      </p>
+      <p class="app-footer-note">
         ${t('footer.note.thirdParty')}
         <a href="./THIRD_PARTY_NOTICES.md" target="_blank" rel="noopener noreferrer">THIRD_PARTY_NOTICES</a>.
       </p>
