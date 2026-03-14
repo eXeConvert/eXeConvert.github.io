@@ -80,6 +80,7 @@ interface PreparedConversion {
 
 interface CachedElpxHtml {
   signature: string;
+  mode: 'rendered' | 'static';
   html: string;
   pageCount: number;
   title: string;
@@ -92,7 +93,7 @@ if (!app) {
   throw new Error('No se ha encontrado el contenedor principal.');
 }
 
-const APP_VERSION = 'v0.1.0-beta.7';
+const APP_VERSION = 'v0.1.0-beta.8';
 const ANALYTICS_FALLBACK_ENDPOINT = 'https://bilateria.org/app/estadistica/execonvert/track.php';
 const ANALYTICS_FALLBACK_STATS_URL = 'https://bilateria.org/app/estadistica/execonvert/admin-stats.php';
 const ANALYTICS_VISIT_COOLDOWN_MS = 30 * 60 * 1000;
@@ -1470,23 +1471,24 @@ function computeConversionSignature(): string {
   return [filePart, kindPart, outputPart, headingsPart, markdownPart, pagesPart].join('::');
 }
 
-function computeElpxHtmlSignature(file: File, kind: InputKind): string {
+function computeElpxHtmlSignature(file: File, kind: InputKind, mode: 'rendered' | 'static'): string {
   const filePart = `${file.name}:${file.size}:${file.lastModified}`;
   const selectedPages = getSelectedElpxPageIds();
   const pagesPart =
     !selectedPages || selectedPages.length === availableElpxPages.length
       ? 'all'
       : selectedPages.slice().sort().join(',');
-  return [filePart, kind, 'html-base', pagesPart].join('::');
+  return [filePart, kind, 'html-base', mode, pagesPart].join('::');
 }
 
 async function getCachedElpxHtml(
   file: File,
   kind: 'elpx' | 'elp',
   selectedPageIds: string[] | undefined,
+  mode: 'rendered' | 'static' = 'rendered',
   intermediateElpx?: IntermediateElpxSave,
 ): Promise<CachedElpxHtml> {
-  const signature = computeElpxHtmlSignature(file, kind);
+  const signature = computeElpxHtmlSignature(file, kind, mode);
   if (cachedElpxHtml?.signature === signature) {
     return cachedElpxHtml;
   }
@@ -1498,7 +1500,7 @@ async function getCachedElpxHtml(
 
   const result = await convertElpxToHtml(
     sourceFile,
-    { selectedPageIds },
+    { selectedPageIds, useRenderedPages: mode === 'rendered' },
     progress => {
       updateProgress(progress);
       setStatus(toLocalizedProgressMessage(progress));
@@ -1507,6 +1509,7 @@ async function getCachedElpxHtml(
 
   cachedElpxHtml = {
     signature,
+    mode,
     html: result.html,
     pageCount: result.pageCount,
     title: result.title,
@@ -1627,7 +1630,7 @@ async function prepareCurrentConversion(file: File, kind: InputKind): Promise<Pr
     }
 
     if (outputKind === 'pdf') {
-      const result = await getCachedElpxHtml(file, 'elp', selectedPageIds, intermediateElpx);
+      const result = await getCachedElpxHtml(file, 'elp', selectedPageIds, 'static', intermediateElpx);
 
       return {
         signature,
@@ -1650,7 +1653,7 @@ async function prepareCurrentConversion(file: File, kind: InputKind): Promise<Pr
       };
     }
 
-    const htmlResult = await getCachedElpxHtml(file, 'elp', selectedPageIds, intermediateElpx);
+    const htmlResult = await getCachedElpxHtml(file, 'elp', selectedPageIds, 'rendered', intermediateElpx);
     const result = await convertHtmlToDocxResult(
       htmlResult.html,
       {
@@ -1700,7 +1703,7 @@ async function prepareCurrentConversion(file: File, kind: InputKind): Promise<Pr
   }
 
   if (outputKind === 'pdf') {
-    const result = await getCachedElpxHtml(file, 'elpx', selectedPageIds);
+    const result = await getCachedElpxHtml(file, 'elpx', selectedPageIds, 'static');
 
     return {
       signature,
@@ -1722,7 +1725,7 @@ async function prepareCurrentConversion(file: File, kind: InputKind): Promise<Pr
     };
   }
 
-  const htmlResult = await getCachedElpxHtml(file, 'elpx', selectedPageIds);
+  const htmlResult = await getCachedElpxHtml(file, 'elpx', selectedPageIds, 'rendered');
   const result = await convertHtmlToDocxResult(
     htmlResult.html,
     {

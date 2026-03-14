@@ -69,6 +69,7 @@ export interface ElpxPageInfo {
 
 export interface ElpxExportOptions {
   selectedPageIds?: string[];
+  useRenderedPages?: boolean;
 }
 
 interface ParsedProject {
@@ -151,7 +152,9 @@ export async function convertElpxToDocx(
 
   onProgress?.({ phase: 'filter', message: 'Aplicando selección de páginas...', messageKey: 'progress.filterPages' });
   onProgress?.({ phase: 'render', message: 'Generando HTML intermedio...', messageKey: 'progress.renderHtml' });
-  const html = await buildHtmlDocument(project, scopedProject, assets, entries);
+  const html = await buildHtmlDocument(project, scopedProject, assets, entries, {
+    useRenderedPages: options?.useRenderedPages,
+  });
 
   return convertHtmlToDocxResult(
     html,
@@ -181,7 +184,9 @@ export async function convertElpxToHtml(
 
   onProgress?.({ phase: 'filter', message: 'Aplicando selección de páginas...', messageKey: 'progress.filterPages' });
   onProgress?.({ phase: 'render', message: 'Generando HTML intermedio...', messageKey: 'progress.renderHtml' });
-  const html = await buildHtmlDocument(project, scopedProject, assets, entries);
+  const html = await buildHtmlDocument(project, scopedProject, assets, entries, {
+    useRenderedPages: options?.useRenderedPages,
+  });
 
   return {
     html,
@@ -337,12 +342,25 @@ export async function buildPdfBlobFromPrintableHtml(
   };
   applyPdfMakeTableLayout(docDefinition.content);
   sanitizePdfMakeNumbers(docDefinition);
+  await sanitizePdfMakeImages(docDefinition);
   try {
     const pdf = pdfMake.createPdf(docDefinition);
     return await pdf.getBlob();
   } catch (error) {
     console.error('[PDF] Error al generar el PDF', error);
     console.error('[PDF] Valores sospechosos en docDefinition', collectSuspiciousPdfMakeValues(docDefinition));
+    if (isPdfImageError(error)) {
+      console.error('[PDF] Reintentando sin imagenes embebidas');
+      stripPdfMakeImages(docDefinition);
+      stripEmbeddedPngDataUrls(docDefinition);
+      try {
+        const fallbackPdf = pdfMake.createPdf(docDefinition);
+        return await fallbackPdf.getBlob();
+      } catch (fallbackError) {
+        console.error('[PDF] El reintento sin imagenes tambien fallo', fallbackError);
+        throw fallbackError;
+      }
+    }
     throw error;
   }
 }
@@ -536,6 +554,146 @@ function collectSuspiciousPdfMakeValues(node: unknown, path = 'docDefinition', r
   return results;
 }
 
+function isPdfImageError(error: unknown): boolean {
+  const message = collectErrorText(error);
+  return /invalid image|corrupt png|incomplete.*png/i.test(message);
+}
+
+function collectErrorText(error: unknown): string {
+  if (error instanceof Error) {
+    const causeText =
+      error.cause && error.cause !== error ? ` ${collectErrorText(error.cause)}` : '';
+    return `${error.message}${causeText}`;
+  }
+
+  if (!error || typeof error !== 'object') {
+    return String(error);
+  }
+
+  const candidate = error as Record<string, unknown>;
+  const parts = Object.values(candidate)
+    .map(value => (typeof value === 'string' ? value : collectErrorText(value)))
+    .filter(Boolean);
+
+  return parts.join(' ');
+}
+
+function stripPdfMakeImages(node: unknown): void {
+  if (Array.isArray(node)) {
+    for (const item of node) {
+      stripPdfMakeImages(item);
+    }
+    return;
+  }
+
+  if (!node || typeof node !== 'object') {
+    return;
+  }
+
+  const candidate = node as Record<string, unknown>;
+  if (typeof candidate.image === 'string') {
+    delete candidate.image;
+    if (typeof candidate.text !== 'string' || !candidate.text.trim()) {
+      candidate.text = '[Imagen omitida]';
+    }
+  }
+
+  if (typeof candidate.svg === 'string') {
+    delete candidate.svg;
+    if (typeof candidate.text !== 'string' || !candidate.text.trim()) {
+      candidate.text = '[Grafico omitido]';
+    }
+  }
+
+  for (const value of Object.values(candidate)) {
+    stripPdfMakeImages(value);
+  }
+}
+
+function stripEmbeddedPngDataUrls(node: unknown): void {
+  if (Array.isArray(node)) {
+    for (const item of node) {
+      stripEmbeddedPngDataUrls(item);
+    }
+    return;
+  }
+
+  if (!node || typeof node !== 'object') {
+    return;
+  }
+
+  const candidate = node as Record<string, unknown>;
+  for (const [key, value] of Object.entries(candidate)) {
+    if (typeof value === 'string' && isPngLikeDataUrl(value)) {
+      delete candidate[key];
+      continue;
+    }
+
+    if (value && typeof value === 'object') {
+      stripEmbeddedPngDataUrls(value);
+    }
+  }
+}
+
+async function sanitizePdfMakeImages(node: unknown, path = 'docDefinition'): Promise<void> {
+  if (Array.isArray(node)) {
+    for (let index = 0; index < node.length; index += 1) {
+      await sanitizePdfMakeImages(node[index], `${path}[${index}]`);
+    }
+    return;
+  }
+
+  if (!node || typeof node !== 'object') {
+    return;
+  }
+
+  const candidate = node as Record<string, unknown>;
+  const svgValue = candidate.svg;
+  if (typeof svgValue === 'string') {
+    try {
+      const pngDataUrl = await svgToPngDataUrl(svgValue);
+      const normalized = await rasterizeDataUrlImage(pngDataUrl.dataUrl, 'image/jpeg');
+      delete candidate.svg;
+      candidate.image = normalized.dataUrl;
+    } catch {
+      console.warn('[PDF] SVG descartado antes de pdfmake', {
+        path: `${path}.svg`,
+        prefix: svgValue.slice(0, 80),
+      });
+      delete candidate.svg;
+      if (typeof candidate.text !== 'string' || !candidate.text.trim()) {
+        candidate.text = '[Grafico omitido]';
+      }
+    }
+  }
+
+  for (const [key, value] of Object.entries(candidate)) {
+    if (key === 'image' && typeof value === 'string' && value.startsWith('data:')) {
+      try {
+        const normalized = await normalizePdfDataUrlImage(value);
+        if (!normalized) {
+          throw new Error('Imagen embebida no compatible');
+        }
+        candidate[key] = normalized.dataUrl;
+      } catch {
+        console.warn('[PDF] Imagen descartada antes de pdfmake', {
+          path: `${path}.${key}`,
+          prefix: value.slice(0, 80),
+        });
+        delete candidate[key];
+        if (typeof candidate.text !== 'string' || !candidate.text.trim()) {
+          candidate.text = '[Imagen omitida]';
+        }
+      }
+      continue;
+    }
+
+    if (value && typeof value === 'object') {
+      await sanitizePdfMakeImages(value, `${path}.${key}`);
+    }
+  }
+}
+
 async function sanitizeHtmlForPdfMake(html: string): Promise<string> {
   const parsed = new DOMParser().parseFromString(`<!doctype html><html><body>${html}</body></html>`, 'text/html');
   normalizePdfMakeMarkup(parsed.body);
@@ -624,30 +782,69 @@ function stripUnsafePdfInlineStyles(root: HTMLElement): void {
 }
 
 async function normalizePdfImageSources(root: HTMLElement): Promise<void> {
-  for (const image of Array.from(root.querySelectorAll<HTMLImageElement>('img'))) {
+  const images = Array.from(root.querySelectorAll<HTMLImageElement>('img'));
+  for (const image of images) {
+    if (image.dataset.pdfDecorative === 'true') {
+      image.remove();
+      continue;
+    }
+
     const src = (image.getAttribute('src') || '').trim();
-    if (!src.startsWith('data:image/svg+xml')) {
-      continue;
-    }
-
-    const parsed = parseDataUrlImage(src);
-    if (!parsed || parsed.mime !== 'image/svg+xml') {
-      image.removeAttribute('src');
-      continue;
-    }
-
-    try {
-      const svgMarkup = new TextDecoder().decode(parsed.data);
-      const rendered = await svgToPngDataUrl(svgMarkup);
-      image.setAttribute('src', rendered.dataUrl);
-      if (!image.getAttribute('width') && rendered.width > 0) {
-        image.setAttribute('width', String(rendered.width));
+    if (src.startsWith('data:')) {
+      try {
+        const normalized = await normalizePdfDataUrlImage(src);
+        if (!normalized) {
+          throw new Error('Imagen embebida no compatible');
+        }
+        image.setAttribute('src', normalized.dataUrl);
+        if (!image.getAttribute('width') && normalized.width > 0) {
+          image.setAttribute('width', String(normalized.width));
+        }
+        image.removeAttribute('height');
+      } catch {
+        replacePdfImageWithPlaceholder(image);
       }
-      image.removeAttribute('height');
-    } catch {
-      image.removeAttribute('src');
+      continue;
     }
   }
+}
+
+function replacePdfImageWithPlaceholder(image: HTMLImageElement): void {
+  const doc = image.ownerDocument;
+  const replacement = doc.createElement('span');
+  const alt = normalizeWhitespace(image.getAttribute('alt') || '') || 'Imagen omitida en PDF';
+  replacement.textContent = `[${alt}]`;
+  image.replaceWith(replacement);
+}
+
+async function normalizePdfDataUrlImage(
+  dataUrl: string,
+): Promise<{ dataUrl: string; width: number; height: number } | null> {
+  const parsed = parseDataUrlImage(dataUrl);
+  if (!parsed || !parsed.mime.startsWith('image/')) {
+    return null;
+  }
+
+  const canonicalDataUrl =
+    dataUrl.startsWith(`data:${parsed.mime};base64,`) || parsed.mime === 'image/svg+xml'
+      ? dataUrl
+      : `data:${parsed.mime};base64,${encodeBase64(parsed.data)}`;
+
+  const source =
+    parsed.mime === 'image/svg+xml' ? await normalizeSvgDataUrl(canonicalDataUrl) : canonicalDataUrl;
+
+  return rasterizeDataUrlImage(source, 'image/jpeg');
+}
+
+async function normalizeSvgDataUrl(src: string): Promise<string> {
+  const parsed = parseDataUrlImage(src);
+  if (!parsed || parsed.mime !== 'image/svg+xml') {
+    throw new Error('SVG no valido');
+  }
+
+  const svgMarkup = new TextDecoder().decode(parsed.data);
+  const rendered = await svgToPngDataUrl(svgMarkup);
+  return rendered.dataUrl;
 }
 
 function normalizePdfMakeMarkup(root: HTMLElement): void {
@@ -1433,8 +1630,11 @@ async function buildHtmlDocument(
   scopedProject: ParsedProject,
   assets: Map<string, AssetEntry>,
   entries: Record<string, Uint8Array>,
+  options?: { useRenderedPages?: boolean },
 ): Promise<string> {
-  const exportedPagesById = (await extractRenderedExportedPageFragments(entries)) || extractExportedPageFragments(entries);
+  const renderedPages =
+    options?.useRenderedPages === false ? null : await extractRenderedExportedPageFragments(entries);
+  const exportedPagesById = renderedPages || extractExportedPageFragments(entries);
   const sourceIndexById = new Map(sourceProject.pages.map((page, index) => [page.id, index]));
   const exportedPagesInSourceOrder = sourceProject.pages.map(page => exportedPagesById?.get(page.id) || '');
   const sections = scopedProject.pages
@@ -2076,6 +2276,47 @@ async function svgToPngDataUrl(svgMarkup: string): Promise<{ dataUrl: string; wi
   } finally {
     URL.revokeObjectURL(objectUrl);
   }
+}
+
+async function rasterizeDataUrlImage(
+  dataUrl: string,
+  outputMime: 'image/png' | 'image/jpeg',
+): Promise<{ dataUrl: string; width: number; height: number }> {
+  const image = await loadImage(dataUrl);
+  const width = Math.max(1, Math.round(image.naturalWidth || 1));
+  const height = Math.max(1, Math.round(image.naturalHeight || 1));
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+
+  const context = canvas.getContext('2d');
+  if (!context) {
+    throw new Error('No se ha podido crear el contexto canvas para normalizar la imagen.');
+  }
+
+  if (outputMime === 'image/jpeg') {
+    context.fillStyle = '#ffffff';
+    context.fillRect(0, 0, width, height);
+  } else {
+    context.clearRect(0, 0, width, height);
+  }
+  context.drawImage(image, 0, 0, width, height);
+
+  const blob = await new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob(result => {
+      if (result) {
+        resolve(result);
+        return;
+      }
+      reject(new Error('No se ha podido rasterizar la imagen.'));
+    }, outputMime, outputMime === 'image/jpeg' ? 0.92 : undefined);
+  });
+
+  return {
+    dataUrl: await blobToDataUrl(blob),
+    width,
+    height,
+  };
 }
 
 function loadImage(src: string): Promise<HTMLImageElement> {
@@ -2723,14 +2964,23 @@ function parseDataUrlImage(dataUrl: string): RenderedImageData | null {
     return null;
   }
 
-  const mime = match[1] || 'application/octet-stream';
+  const rawMime = match[1] || 'application/octet-stream';
   const isBase64 = Boolean(match[2]);
   const rawData = match[3] || '';
-  const decoded = isBase64 ? decodeBase64(rawData) : new TextEncoder().encode(decodeURIComponent(rawData));
+  let decoded: Uint8Array;
+  try {
+    decoded = isBase64 ? decodeBase64(rawData) : new TextEncoder().encode(decodeURIComponent(rawData));
+  } catch {
+    return null;
+  }
+  const inferredMime = inferMimeFromBinary(decoded);
+  const mime = rawMime === 'application/octet-stream' && inferredMime ? inferredMime : rawMime;
 
   const dimensions =
     mime === 'image/png'
       ? readPngDimensions(decoded)
+      : mime === 'image/jpeg'
+        ? readJpegDimensions(decoded)
       : mime === 'image/svg+xml'
         ? readSvgDimensions(new TextDecoder().decode(decoded))
         : null;
@@ -2744,7 +2994,8 @@ function parseDataUrlImage(dataUrl: string): RenderedImageData | null {
 }
 
 function decodeBase64(value: string): Uint8Array {
-  const binary = atob(value);
+  const normalized = normalizeBase64(value);
+  const binary = atob(normalized);
   const result = new Uint8Array(binary.length);
 
   for (let index = 0; index < binary.length; index += 1) {
@@ -2752,6 +3003,15 @@ function decodeBase64(value: string): Uint8Array {
   }
 
   return result;
+}
+
+function normalizeBase64(value: string): string {
+  const sanitized = value.replace(/\s+/g, '').replace(/-/g, '+').replace(/_/g, '/');
+  const remainder = sanitized.length % 4;
+  if (remainder === 0) {
+    return sanitized;
+  }
+  return sanitized.padEnd(sanitized.length + (4 - remainder), '=');
 }
 
 function readPngDimensions(data: Uint8Array): { width: number; height: number } | null {
@@ -2764,6 +3024,109 @@ function readPngDimensions(data: Uint8Array): { width: number; height: number } 
     width: view.getUint32(16),
     height: view.getUint32(20),
   };
+}
+
+function readJpegDimensions(data: Uint8Array): { width: number; height: number } | null {
+  if (data.length < 4 || data[0] !== 0xff || data[1] !== 0xd8) {
+    return null;
+  }
+
+  let offset = 2;
+  while (offset + 9 < data.length) {
+    if (data[offset] !== 0xff) {
+      offset += 1;
+      continue;
+    }
+
+    const marker = data[offset + 1];
+    const length = (data[offset + 2] << 8) | data[offset + 3];
+    if (length < 2) {
+      return null;
+    }
+
+    if (
+      marker === 0xc0 ||
+      marker === 0xc1 ||
+      marker === 0xc2 ||
+      marker === 0xc3 ||
+      marker === 0xc5 ||
+      marker === 0xc6 ||
+      marker === 0xc7 ||
+      marker === 0xc9 ||
+      marker === 0xca ||
+      marker === 0xcb ||
+      marker === 0xcd ||
+      marker === 0xce ||
+      marker === 0xcf
+    ) {
+      return {
+        height: (data[offset + 5] << 8) | data[offset + 6],
+        width: (data[offset + 7] << 8) | data[offset + 8],
+      };
+    }
+
+    offset += 2 + length;
+  }
+
+  return null;
+}
+
+function inferMimeFromBinary(data: Uint8Array): string | null {
+  if (data.length >= 8) {
+    const pngSignature = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+    if (pngSignature.every((byte, index) => data[index] === byte)) {
+      return 'image/png';
+    }
+  }
+
+  if (data.length >= 3 && data[0] === 0xff && data[1] === 0xd8 && data[2] === 0xff) {
+    return 'image/jpeg';
+  }
+
+  if (data.length >= 6) {
+    const gif87a = [0x47, 0x49, 0x46, 0x38, 0x37, 0x61];
+    const gif89a = [0x47, 0x49, 0x46, 0x38, 0x39, 0x61];
+    if (gif87a.every((byte, index) => data[index] === byte) || gif89a.every((byte, index) => data[index] === byte)) {
+      return 'image/gif';
+    }
+  }
+
+  const textStart = new TextDecoder().decode(data.slice(0, Math.min(data.length, 256)));
+  if (/<svg[\s>]/i.test(textStart)) {
+    return 'image/svg+xml';
+  }
+
+  return null;
+}
+
+function isPngLikeDataUrl(value: string): boolean {
+  return inspectDataUrlMime(value) === 'image/png';
+}
+
+function inspectDataUrlMime(value: string): string | null {
+  const match = value.match(/^data:([^;,]+)?(?:;base64)?,([^]*)$/);
+  if (!match) {
+    return null;
+  }
+
+  const declaredMime = match[1] || 'application/octet-stream';
+  const payload = match[2] || '';
+  if (declaredMime !== 'application/octet-stream') {
+    return declaredMime;
+  }
+
+  const trimmed = payload.replace(/\s+/g, '');
+  if (trimmed.startsWith('iVBOR')) {
+    return 'image/png';
+  }
+  if (trimmed.startsWith('/9j/')) {
+    return 'image/jpeg';
+  }
+  if (trimmed.startsWith('R0lGOD')) {
+    return 'image/gif';
+  }
+
+  return declaredMime;
 }
 
 function readSvgDimensions(markup: string): { width: number; height: number } | null {
@@ -3659,6 +4022,7 @@ function sanitizeHtmlFragment(sourceHtml: string, assets: Map<string, AssetEntry
 
   const template = document.createElement('template');
   template.innerHTML = sourceHtml;
+  markDecorativeImages(template.content);
   replaceEmbeddedResourceElements(template.content, assets);
   revealExportableHiddenSections(template.content);
   template.innerHTML = rewriteAssetReferences(template.innerHTML, assets);
@@ -3769,6 +4133,27 @@ function sanitizeHtmlFragment(sourceHtml: string, assets: Map<string, AssetEntry
   normalizeHeadingLevels(template.content, pageDepth);
 
   return template.innerHTML.trim();
+}
+
+function markDecorativeImages(root: DocumentFragment): void {
+  for (const image of Array.from(root.querySelectorAll<HTMLImageElement>('img'))) {
+    const src = (image.getAttribute('src') || '').trim().toLowerCase();
+    if (!src) {
+      continue;
+    }
+
+    if (
+      src.includes('/theme/') ||
+      src.startsWith('theme/') ||
+      src.includes('/idevices/') ||
+      src.startsWith('idevices/') ||
+      src.includes('/content/img/') ||
+      src.startsWith('content/img/') ||
+      src.includes('/libs/')
+    ) {
+      image.setAttribute('data-pdf-decorative', 'true');
+    }
+  }
 }
 
 function revealExportableHiddenSections(root: DocumentFragment): void {
@@ -4295,7 +4680,9 @@ function stripContentPrefix(value: string): string {
 }
 
 function toDataUrl(asset: AssetEntry): string {
-  return `data:${asset.mime};base64,${encodeBase64(asset.data)}`;
+  const inferredMime = asset.mime === 'application/octet-stream' ? inferMimeFromBinary(asset.data) : null;
+  const mime = inferredMime || asset.mime;
+  return `data:${mime};base64,${encodeBase64(asset.data)}`;
 }
 
 function encodeBase64(input: Uint8Array): string {
