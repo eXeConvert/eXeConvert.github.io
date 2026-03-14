@@ -298,10 +298,12 @@ export async function buildPdfBlobFromPrintableHtml(
 
   const parsed = new DOMParser().parseFromString(htmlDocument, 'text/html');
   const source = parsed.querySelector<HTMLElement>('.pdf-preview') || parsed.body;
-  const contentHtml = sanitizeHtmlForPdfMake(source?.innerHTML?.trim() || '<p>El proyecto no contiene contenido exportable.</p>');
+  const contentHtml = await sanitizeHtmlForPdfMake(
+    source?.innerHTML?.trim() || '<p>El proyecto no contiene contenido exportable.</p>',
+  );
   const converted = htmlToPdfmake(contentHtml, {
     window,
-    tableAutoSize: true,
+    tableAutoSize: false,
     removeExtraBlanks: true,
     defaultStyles: {
       p: { margin: [0, 0, 0, 10] },
@@ -334,9 +336,15 @@ export async function buildPdfBlobFromPrintableHtml(
     },
   };
   applyPdfMakeTableLayout(docDefinition.content);
-
-  const pdf = pdfMake.createPdf(docDefinition);
-  return pdf.getBlob();
+  sanitizePdfMakeNumbers(docDefinition);
+  try {
+    const pdf = pdfMake.createPdf(docDefinition);
+    return await pdf.getBlob();
+  } catch (error) {
+    console.error('[PDF] Error al generar el PDF', error);
+    console.error('[PDF] Valores sospechosos en docDefinition', collectSuspiciousPdfMakeValues(docDefinition));
+    throw error;
+  }
 }
 
 function applyPdfMakeTableLayout(node: unknown): void {
@@ -370,9 +378,168 @@ function applyPdfMakeTableLayout(node: unknown): void {
   }
 }
 
-function sanitizeHtmlForPdfMake(html: string): string {
+function sanitizePdfMakeNumbers(node: unknown): void {
+  if (Array.isArray(node)) {
+    for (let index = 0; index < node.length; index += 1) {
+      const value = node[index];
+      if (typeof value === 'number' && !Number.isFinite(value)) {
+        node[index] = 0;
+        continue;
+      }
+      sanitizePdfMakeNumbers(value);
+    }
+    return;
+  }
+
+  if (!node || typeof node !== 'object') {
+    return;
+  }
+
+  const candidate = node as Record<string, unknown>;
+  for (const [key, value] of Object.entries(candidate)) {
+    if (typeof value === 'number') {
+      if (!Number.isFinite(value)) {
+        delete candidate[key];
+      }
+      continue;
+    }
+
+    if (typeof value === 'string') {
+      const numericKeys = new Set([
+        'width',
+        'height',
+        'fontSize',
+        'lineHeight',
+        'leadingIndent',
+        'characterSpacing',
+        'wordSpacing',
+      ]);
+      if (numericKeys.has(key)) {
+        const sanitized = sanitizePdfMakeNumericString(value);
+        if (sanitized === null) {
+          delete candidate[key];
+        } else {
+          candidate[key] = sanitized;
+        }
+      }
+      continue;
+    }
+
+    if (Array.isArray(value)) {
+      if (key === 'widths') {
+        candidate[key] = value.map(item => {
+          if (typeof item === 'number') {
+            return Number.isFinite(item) ? item : '*';
+          }
+          return item;
+        });
+        continue;
+      }
+
+      if (key === 'heights' || key === 'margin' || key === 'fit') {
+        candidate[key] = value.map(item => {
+          if (typeof item === 'number') {
+            return Number.isFinite(item) ? item : 0;
+          }
+          return item;
+        });
+        continue;
+      }
+
+      sanitizePdfMakeNumbers(value);
+      continue;
+    }
+
+    if (value && typeof value === 'object') {
+      sanitizePdfMakeNumbers(value);
+    }
+  }
+}
+
+function sanitizePdfMakeNumericString(value: string): number | string | null {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  if (/^[+-]?\d+(?:\.\d+)?$/.test(trimmed)) {
+    const parsed = Number.parseFloat(trimmed);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  if (/^[+-]?\d+(?:\.\d+)?\s*[-+*/]\s*[+-]?\d+(?:\.\d+)?$/.test(trimmed)) {
+    const first = trimmed.match(/^[+-]?\d+(?:\.\d+)?/)?.[0];
+    if (!first) {
+      return null;
+    }
+    const parsed = Number.parseFloat(first);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  return null;
+}
+
+function collectSuspiciousPdfMakeValues(node: unknown, path = 'docDefinition', results: string[] = []): string[] {
+  if (results.length >= 200) {
+    return results;
+  }
+
+  if (typeof node === 'number') {
+    if (!Number.isFinite(node)) {
+      results.push(`${path} = ${String(node)}`);
+    }
+    return results;
+  }
+
+  if (typeof node === 'string') {
+    if (
+      /%/.test(node) ||
+      /\bcalc\(/i.test(node) ||
+      node === 'NaN' ||
+      node === 'Infinity' ||
+      node === '-Infinity'
+    ) {
+      results.push(`${path} = ${JSON.stringify(node)}`);
+    }
+    return results;
+  }
+
+  if (Array.isArray(node)) {
+    for (let index = 0; index < node.length; index += 1) {
+      collectSuspiciousPdfMakeValues(node[index], `${path}[${index}]`, results);
+      if (results.length >= 200) {
+        break;
+      }
+    }
+    return results;
+  }
+
+  if (!node || typeof node !== 'object') {
+    return results;
+  }
+
+  for (const [key, value] of Object.entries(node as Record<string, unknown>)) {
+    if (
+      ['width', 'height', 'widths', 'heights', 'margin', 'fit', 'fontSize', 'lineHeight', 'colSpan', 'rowSpan'].includes(key) &&
+      (typeof value === 'string' || typeof value === 'number' || Array.isArray(value))
+    ) {
+      collectSuspiciousPdfMakeValues(value, `${path}.${key}`, results);
+    } else if (value && typeof value === 'object') {
+      collectSuspiciousPdfMakeValues(value, `${path}.${key}`, results);
+    }
+
+    if (results.length >= 200) {
+      break;
+    }
+  }
+
+  return results;
+}
+
+async function sanitizeHtmlForPdfMake(html: string): Promise<string> {
   const parsed = new DOMParser().parseFromString(`<!doctype html><html><body>${html}</body></html>`, 'text/html');
   normalizePdfMakeMarkup(parsed.body);
+  await normalizePdfImageSources(parsed.body);
 
   for (const element of Array.from(parsed.body.querySelectorAll<HTMLElement>('*'))) {
     element.removeAttribute('height');
@@ -388,11 +555,40 @@ function sanitizeHtmlForPdfMake(html: string): string {
       .filter(Boolean)
       .filter(part => {
         const lower = part.toLowerCase();
-        if (lower.includes('var(')) {
+        if (lower.includes('var(') || lower.includes('calc(')) {
           return false;
         }
         if (
           lower.startsWith('height:') ||
+          lower.startsWith('line-height:') ||
+          lower.startsWith('text-indent:') ||
+          lower.startsWith('letter-spacing:') ||
+          lower.startsWith('word-spacing:') ||
+          lower.startsWith('white-space:') ||
+          lower.startsWith('vertical-align:') ||
+          lower.startsWith('opacity:') ||
+          lower.startsWith('background:') ||
+          lower.startsWith('background-color:') ||
+          lower.startsWith('background-image:') ||
+          lower.startsWith('border-radius:') ||
+          lower.startsWith('box-shadow:') ||
+          lower.startsWith('display:') ||
+          lower.startsWith('align-items:') ||
+          lower.startsWith('justify-content:') ||
+          lower.startsWith('flex:') ||
+          lower.startsWith('flex-grow:') ||
+          lower.startsWith('flex-shrink:') ||
+          lower.startsWith('flex-basis:') ||
+          lower.startsWith('gap:') ||
+          lower.startsWith('overflow:') ||
+          lower.startsWith('max-width:') ||
+          lower.startsWith('min-width:') ||
+          lower.startsWith('position:') ||
+          lower.startsWith('transform:') ||
+          lower.startsWith('left:') ||
+          lower.startsWith('right:') ||
+          lower.startsWith('top:') ||
+          lower.startsWith('bottom:') ||
           lower.startsWith('font-family:') ||
           lower.startsWith('font-size:') ||
           lower.startsWith('font-weight:') ||
@@ -411,11 +607,54 @@ function sanitizeHtmlForPdfMake(html: string): string {
     }
   }
 
+  stripUnsafePdfInlineStyles(parsed.body);
+
   return parsed.body.innerHTML;
+}
+
+function stripUnsafePdfInlineStyles(root: HTMLElement): void {
+  const preserveStyleTags = new Set(['img', 'table', 'thead', 'tbody', 'tfoot', 'tr', 'td', 'th', 'colgroup', 'col']);
+
+  for (const element of Array.from(root.querySelectorAll<HTMLElement>('*'))) {
+    if (preserveStyleTags.has(element.tagName.toLowerCase())) {
+      continue;
+    }
+    element.removeAttribute('style');
+  }
+}
+
+async function normalizePdfImageSources(root: HTMLElement): Promise<void> {
+  for (const image of Array.from(root.querySelectorAll<HTMLImageElement>('img'))) {
+    const src = (image.getAttribute('src') || '').trim();
+    if (!src.startsWith('data:image/svg+xml')) {
+      continue;
+    }
+
+    const parsed = parseDataUrlImage(src);
+    if (!parsed || parsed.mime !== 'image/svg+xml') {
+      image.removeAttribute('src');
+      continue;
+    }
+
+    try {
+      const svgMarkup = new TextDecoder().decode(parsed.data);
+      const rendered = await svgToPngDataUrl(svgMarkup);
+      image.setAttribute('src', rendered.dataUrl);
+      if (!image.getAttribute('width') && rendered.width > 0) {
+        image.setAttribute('width', String(rendered.width));
+      }
+      image.removeAttribute('height');
+    } catch {
+      image.removeAttribute('src');
+    }
+  }
 }
 
 function normalizePdfMakeMarkup(root: HTMLElement): void {
   removeEmptyPdfNodes(root);
+  simplifyRichPdfWidgets(root);
+  normalizePdfEmbeds(root);
+  normalizeInlineSvgElements(root);
   normalizePdfDefinitionLists(root);
   normalizePdfColumnLayouts(root);
   normalizePdfTables(root);
@@ -425,6 +664,137 @@ function normalizePdfMakeMarkup(root: HTMLElement): void {
   normalizePdfCaptions(root);
   normalizeSplitInlineWords(root);
   removeEmptyPdfNodes(root);
+}
+
+function simplifyRichPdfWidgets(root: HTMLElement): void {
+  const selector = [
+    '[id*="infografia"]',
+    '[class*="infografia"]',
+    '[id*="timeline"]',
+    '[class*="timeline"]',
+    '[id*="modal"]',
+    '[class*="modal"]',
+  ].join(', ');
+
+  for (const element of Array.from(root.querySelectorAll<HTMLElement>(selector))) {
+    if (element.closest('[data-pdf-simplified="true"]')) {
+      continue;
+    }
+
+    const replacement = buildSimplifiedPdfWidget(element);
+    element.replaceWith(replacement);
+  }
+}
+
+function buildSimplifiedPdfWidget(element: HTMLElement): HTMLElement {
+  const doc = element.ownerDocument;
+  const wrapper = doc.createElement('div');
+  wrapper.setAttribute('data-pdf-simplified', 'true');
+
+  const title =
+    normalizeWhitespace(
+      element.querySelector('h1, h2, h3, h4, h5, h6')?.textContent || element.getAttribute('aria-label') || '',
+    ) || 'Contenido interactivo';
+
+  const heading = doc.createElement('p');
+  const strong = doc.createElement('strong');
+  strong.textContent = `${title}:`;
+  heading.append(strong);
+  wrapper.append(heading);
+
+  const summaryParts: string[] = [];
+  for (const node of Array.from(element.querySelectorAll<HTMLElement>('p, li'))) {
+    const text = normalizeWhitespace(node.textContent || '');
+    if (!text || summaryParts.includes(text)) {
+      continue;
+    }
+    summaryParts.push(text);
+    if (summaryParts.length >= 8) {
+      break;
+    }
+  }
+
+  for (const text of summaryParts) {
+    const paragraph = doc.createElement('p');
+    paragraph.textContent = text;
+    wrapper.append(paragraph);
+  }
+
+  const links = Array.from(element.querySelectorAll<HTMLAnchorElement>('a[href]'))
+    .map(anchor => ({
+      href: (anchor.getAttribute('href') || '').trim(),
+      label: normalizeWhitespace(anchor.textContent || '') || (anchor.getAttribute('href') || '').trim(),
+    }))
+    .filter(item => item.href && !/^javascript:/i.test(item.href));
+
+  const seenLinks = new Set<string>();
+  for (const linkData of links) {
+    const key = `${linkData.label}|${linkData.href}`;
+    if (seenLinks.has(key)) {
+      continue;
+    }
+    seenLinks.add(key);
+    const paragraph = doc.createElement('p');
+    const anchor = doc.createElement('a');
+    anchor.href = linkData.href;
+    anchor.textContent = linkData.label;
+    paragraph.append(anchor);
+    wrapper.append(paragraph);
+    if (seenLinks.size >= 6) {
+      break;
+    }
+  }
+
+  return wrapper;
+}
+
+function normalizePdfEmbeds(root: HTMLElement): void {
+  for (const element of Array.from(root.querySelectorAll<HTMLElement>('iframe, object, embed'))) {
+    const doc = element.ownerDocument;
+    const paragraph = doc.createElement('p');
+    const href =
+      element.getAttribute('src') ||
+      element.getAttribute('data') ||
+      element.getAttribute('href') ||
+      '';
+    const title =
+      normalizeWhitespace(element.getAttribute('title') || '') ||
+      normalizeWhitespace(element.getAttribute('aria-label') || '') ||
+      'Contenido incrustado:';
+
+    const strong = doc.createElement('strong');
+    strong.textContent = title;
+    paragraph.append(strong);
+    if (href) {
+      const link = doc.createElement('a');
+      link.href = href;
+      link.textContent = href;
+      paragraph.append(' ', link);
+    }
+
+    element.replaceWith(paragraph);
+  }
+}
+
+function normalizeInlineSvgElements(root: HTMLElement): void {
+  for (const svg of Array.from(root.querySelectorAll<SVGElement>('svg'))) {
+    const doc = svg.ownerDocument;
+    const image = doc.createElement('img');
+    const serialized = new XMLSerializer().serializeToString(svg);
+    const encoded = btoa(unescape(encodeURIComponent(serialized)));
+    image.setAttribute('src', `data:image/svg+xml;base64,${encoded}`);
+
+    const width = svg.getAttribute('width') || '';
+    const height = svg.getAttribute('height') || '';
+    if (width) {
+      image.setAttribute('width', width.replace(/px$/i, ''));
+    }
+    if (height) {
+      image.setAttribute('height', height.replace(/px$/i, ''));
+    }
+
+    svg.replaceWith(image);
+  }
 }
 
 function removeEmptyPdfNodes(root: HTMLElement): void {
@@ -542,6 +912,8 @@ function normalizePdfColumnLayouts(root: HTMLElement): void {
 
 function normalizePdfTables(root: HTMLElement): void {
   for (const table of Array.from(root.querySelectorAll<HTMLTableElement>('table'))) {
+    stripTableDimensions(table);
+
     const firstRow = table.querySelector('tr');
     if (!firstRow) {
       continue;
@@ -560,7 +932,7 @@ function normalizePdfTables(root: HTMLElement): void {
       continue;
     }
 
-    stripTableWidths(table);
+    stripTableDimensions(table);
   }
 }
 
@@ -625,15 +997,16 @@ function isSmallInlineImage(image: HTMLImageElement): boolean {
   return Math.max(width, height) > 0 && Math.max(width, height) <= 96;
 }
 
-function stripTableWidths(table: HTMLTableElement): void {
-  stripWidthDeclarations(table);
+function stripTableDimensions(table: HTMLTableElement): void {
+  stripDimensionDeclarations(table);
   for (const element of Array.from(table.querySelectorAll<HTMLElement>('tr, td, th, col, colgroup, tbody, thead, tfoot, p, span, div'))) {
-    stripWidthDeclarations(element);
+    stripDimensionDeclarations(element);
   }
 }
 
-function stripWidthDeclarations(element: HTMLElement): void {
+function stripDimensionDeclarations(element: HTMLElement): void {
   element.removeAttribute('width');
+  element.removeAttribute('height');
 
   const style = (element.getAttribute('style') || '').trim();
   if (!style) {
@@ -644,7 +1017,7 @@ function stripWidthDeclarations(element: HTMLElement): void {
     .split(';')
     .map(part => part.trim())
     .filter(Boolean)
-    .filter(part => !/^width\s*:/i.test(part))
+    .filter(part => !/^width\s*:/i.test(part) && !/^height\s*:/i.test(part))
     .join('; ');
 
   if (cleaned) {
