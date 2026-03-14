@@ -21,6 +21,10 @@ interface FilePickerWindow extends Window {
   showSaveFilePicker?: (options?: SaveFilePickerOptions) => Promise<FileSystemFileHandle>;
 }
 
+interface JsonpWindow extends Window {
+  [key: string]: unknown;
+}
+
 interface SaveFilePickerOptions {
   suggestedName?: string;
   types?: Array<{
@@ -325,23 +329,15 @@ app.innerHTML = `
         ·
         <a href="https://github.com/eXeConvert/eXeConvert.github.io/issues" target="_blank" rel="noopener noreferrer">${t('footer.issues')}</a>
       </p>
-      <p class="app-footer-stats" id="analytics-summary" hidden>
-        ${t('footer.analytics.visits')} <strong id="analytics-total">-</strong>
-        ·
-        ${t('footer.analytics.today')} <strong id="analytics-today">-</strong>
-      </p>
       <p class="app-footer-note">
         ${t('footer.note.independent')}
       </p>
-      <details class="app-footer-disclosure">
-        <summary>${t('footer.note.analyticsLink')}</summary>
-        <p class="app-footer-note app-footer-note--disclosure">
-          ${t('footer.note.analytics')}
-        </p>
-      </details>
-      <p class="app-footer-note">
+      <p class="app-footer-note app-footer-note--privacy">
         ${t('footer.note.thirdParty')}
-        <a href="./THIRD_PARTY_NOTICES.md" target="_blank" rel="noopener noreferrer">THIRD_PARTY_NOTICES</a>.
+        <a href="./THIRD_PARTY_NOTICES.md" target="_blank" rel="noopener noreferrer">THIRD_PARTY_NOTICES</a>
+        ·
+        <a id="privacy-button" href="#">${t('footer.note.analyticsLink')}</a>.
+        <span id="privacy-popover" class="footer-popover" hidden>${t('footer.note.analytics')}</span>
       </p>
     </footer>
   </main>
@@ -386,17 +382,38 @@ const progressShell = document.querySelector<HTMLDivElement>('#progress-shell')!
 const progressBar = document.querySelector<HTMLDivElement>('#progress-bar')!;
 const statusSpinner = document.querySelector<HTMLSpanElement>('#status-spinner')!;
 const status = document.querySelector<HTMLParagraphElement>('#status')!;
-const analyticsSummary = document.querySelector<HTMLParagraphElement>('#analytics-summary');
-const analyticsTotal = document.querySelector<HTMLElement>('#analytics-total');
-const analyticsToday = document.querySelector<HTMLElement>('#analytics-today');
-const analyticsLink = document.querySelector<HTMLAnchorElement>('#analytics-link');
-
+const privacyButton = document.querySelector<HTMLAnchorElement>('#privacy-button');
+const privacyPopover = document.querySelector<HTMLSpanElement>('#privacy-popover');
 previewField.dataset.staleMessage = t('preview.stale');
 previewField.dataset.busyMessage = t('preview.generating');
 
 if (outputRadioElements.length === 0) {
   throw new Error('No se ha podido inicializar la interfaz.');
 }
+
+privacyButton?.addEventListener('click', event => {
+  event.preventDefault();
+  if (!privacyPopover) return;
+  privacyPopover.hidden = !privacyPopover.hidden;
+});
+
+document.addEventListener('click', event => {
+  if (!privacyPopover || privacyPopover.hidden) return;
+  const target = event.target;
+  if (
+    target instanceof Node &&
+    !privacyPopover.contains(target) &&
+    !privacyButton?.contains(target)
+  ) {
+    privacyPopover.hidden = true;
+  }
+});
+
+document.addEventListener('keydown', event => {
+  if (event.key === 'Escape' && privacyPopover && !privacyPopover.hidden) {
+    privacyPopover.hidden = true;
+  }
+});
 
 let selectedFile: File | null = null;
 let selectedKind: InputKind | null = null;
@@ -494,19 +511,14 @@ function shouldTrackAnalytics(): boolean {
 function updateAnalyticsSummary(payload: { total?: number; today?: number } | null | undefined): void {
   const total = Number.parseInt(String(payload?.total ?? ''), 10);
   const today = Number.parseInt(String(payload?.today ?? ''), 10);
-  const config = getAnalyticsConfig();
-  if (!analyticsSummary || !analyticsTotal || !analyticsToday) return;
   if (!Number.isFinite(total) || !Number.isFinite(today)) return;
-  analyticsTotal.textContent = String(total);
-  analyticsToday.textContent = String(today);
-  if (analyticsLink && config.statsUrl) analyticsLink.href = config.statsUrl;
-  analyticsSummary.hidden = false;
 }
 
 function loadAnalyticsSummary(): void {
   if (!shouldTrackAnalytics()) return;
   const config = getAnalyticsConfig();
   if (!config.endpoint) return;
+  const jsonpWindow = window as unknown as JsonpWindow;
 
   const callbackName = `__exeConvertAnalytics_${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`;
   const query = new URLSearchParams();
@@ -521,9 +533,9 @@ function loadAnalyticsSummary(): void {
     settled = true;
     if (timeoutId) window.clearTimeout(timeoutId);
     try {
-      delete (window as Window & Record<string, unknown>)[callbackName];
+      delete jsonpWindow[callbackName];
     } catch {
-      (window as Window & Record<string, unknown>)[callbackName] = undefined;
+      jsonpWindow[callbackName] = undefined;
     }
     script.remove();
   };
@@ -538,7 +550,7 @@ function loadAnalyticsSummary(): void {
     if (value) query.set(key, value);
   });
 
-  (window as Window & Record<string, unknown>)[callbackName] = (payload: unknown) => {
+  jsonpWindow[callbackName] = (payload: unknown) => {
     try {
       updateAnalyticsSummary(payload as { total?: number; today?: number });
       if (shouldCountVisit && payload && typeof payload === 'object' && 'ok' in payload && (payload as { ok?: boolean }).ok) {
@@ -1420,6 +1432,12 @@ function escapeHtml(value: string): string {
     .replaceAll("'", '&#39;');
 }
 
+function decodeHtmlEntities(value: string): string {
+  const textarea = document.createElement('textarea');
+  textarea.innerHTML = value;
+  return textarea.value;
+}
+
 function escapeAttribute(value: string): string {
   return escapeHtml(value);
 }
@@ -1740,11 +1758,15 @@ function openPdfPrintWindow(conversion: PreparedConversion): boolean {
     return false;
   }
 
+  const titleMatch = conversion.previewContent.match(/<title>([\s\S]*?)<\/title>/i);
+  const printTitle = titleMatch ? decodeHtmlEntities(titleMatch[1].trim()) : conversion.filename;
   const htmlContent = conversion.previewContent.replace(
     '</body>',
     `<script>
+      try { document.title = ${JSON.stringify(printTitle)}; } catch {}
       window.addEventListener('load', () => {
         window.setTimeout(() => {
+          try { document.title = ${JSON.stringify(printTitle)}; } catch {}
           try { window.print(); } catch {}
         }, 180);
       }, { once: true });

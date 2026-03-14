@@ -538,6 +538,10 @@ function hasMeaningfulPageSource(html: string): boolean {
   const template = document.createElement('template');
   template.innerHTML = html;
 
+  if (template.content.querySelector('iframe, object, embed')) {
+    return true;
+  }
+
   for (const removable of Array.from(template.content.querySelectorAll('script, style, noscript, iframe, object, embed'))) {
     removable.remove();
   }
@@ -1214,8 +1218,35 @@ function convertBlockNode(
   if (isStructuralBlockContainer(tag)) {
     const nestedBlocks: Array<Paragraph | Table> = [];
     let orderedListIndex = 1;
+    let inlineBuffer: ParagraphChild[] = [];
+    const alignment = getParagraphAlignment(node);
+
+    const flushInlineBuffer = () => {
+      if (inlineBuffer.length === 0) {
+        return;
+      }
+
+      nestedBlocks.push(
+        new Paragraph({
+          alignment,
+          children: inlineBuffer,
+          spacing: { after: 120 },
+        }),
+      );
+      inlineBuffer = [];
+    };
 
     for (const child of Array.from(node.childNodes)) {
+      if (isIgnorableInlineWhitespace(child)) {
+        continue;
+      }
+
+      if (isInlineFlowNode(child)) {
+        inlineBuffer.push(...inlineChildrenFromNode(child));
+        continue;
+      }
+
+      flushInlineBuffer();
       nestedBlocks.push(...convertBlockNode(child, { listDepth: context.listDepth, listType: null, orderedIndex: orderedListIndex }));
 
       if (child instanceof HTMLOListElement) {
@@ -1225,6 +1256,7 @@ function convertBlockNode(
       }
     }
 
+    flushInlineBuffer();
     return nestedBlocks;
   }
 
@@ -1292,6 +1324,39 @@ function isStructuralBlockContainer(tag: string): boolean {
   return ['div', 'article', 'main', 'header', 'footer', 'dd'].includes(tag);
 }
 
+function isInlineFlowNode(node: Node): boolean {
+  if (node.nodeType === Node.TEXT_NODE) {
+    return normalizeWhitespace(node.textContent || '').length > 0;
+  }
+
+  if (!(node instanceof HTMLElement)) {
+    return false;
+  }
+
+  const tag = node.tagName.toLowerCase();
+  if (tag === 'img') {
+    return false;
+  }
+
+  if (isCaptionLikeContainer(node, tag)) {
+    return false;
+  }
+
+  if (isStructuralBlockContainer(tag)) {
+    return false;
+  }
+
+  if (getHeadingLevel(tag)) {
+    return false;
+  }
+
+  return !['p', 'table', 'ul', 'ol', 'li', 'dl', 'dt', 'dd', 'figure', 'blockquote', 'pre', 'hr'].includes(tag);
+}
+
+function isIgnorableInlineWhitespace(node: Node): boolean {
+  return node.nodeType === Node.TEXT_NODE && normalizeWhitespace(node.textContent || '').length === 0;
+}
+
 function isCaptionLikeContainer(node: HTMLElement, tag: string): boolean {
   if (tag === 'figcaption' || tag === 'caption') {
     return true;
@@ -1323,6 +1388,43 @@ function getParagraphAlignment(node: HTMLElement) {
   }
 
   if (align === 'left') {
+    return AlignmentType.LEFT;
+  }
+
+  const inferred = inferImageAlignment(node);
+  if (inferred) {
+    return inferred;
+  }
+
+  return undefined;
+}
+
+function inferImageAlignment(node: HTMLElement) {
+  const directImages = Array.from(node.children).filter((child): child is HTMLImageElement => child instanceof HTMLImageElement);
+  const nestedImage =
+    directImages.length === 1
+      ? directImages[0]
+      : node.children.length === 1 && node.firstElementChild instanceof HTMLImageElement
+        ? node.firstElementChild
+        : null;
+
+  if (!nestedImage || !isBlockLikeImage(nestedImage)) {
+    return undefined;
+  }
+
+  const style = (nestedImage.getAttribute('style') || '').toLowerCase();
+  const hasAutoLeft = /margin-left\s*:\s*auto/.test(style);
+  const hasAutoRight = /margin-right\s*:\s*auto/.test(style);
+
+  if (hasAutoLeft && hasAutoRight) {
+    return AlignmentType.CENTER;
+  }
+
+  if (hasAutoLeft) {
+    return AlignmentType.RIGHT;
+  }
+
+  if (hasAutoRight) {
     return AlignmentType.LEFT;
   }
 
@@ -2579,7 +2681,10 @@ function sanitizeHtmlFragment(sourceHtml: string, assets: Map<string, AssetEntry
   }
 
   const template = document.createElement('template');
-  template.innerHTML = rewriteAssetReferences(sourceHtml, assets);
+  template.innerHTML = sourceHtml;
+  replaceEmbeddedResourceElements(template.content, assets);
+  revealExportableHiddenSections(template.content);
+  template.innerHTML = rewriteAssetReferences(template.innerHTML, assets);
 
   for (const element of Array.from(template.content.querySelectorAll('*'))) {
     for (const attribute of Array.from(element.attributes)) {
@@ -2687,6 +2792,173 @@ function sanitizeHtmlFragment(sourceHtml: string, assets: Map<string, AssetEntry
   normalizeHeadingLevels(template.content, pageDepth);
 
   return template.innerHTML.trim();
+}
+
+function revealExportableHiddenSections(root: DocumentFragment): void {
+  for (const element of Array.from(root.querySelectorAll<HTMLElement>('.feedback, .js-feedback'))) {
+    element.classList.remove('js-hidden');
+    element.removeAttribute('hidden');
+
+    const style = (element.getAttribute('style') || '').trim();
+    if (!style) {
+      continue;
+    }
+
+    const normalized = style
+      .split(';')
+      .map(part => part.trim())
+      .filter(Boolean)
+      .filter(part => !/^display\s*:\s*none$/i.test(part) && !/^visibility\s*:\s*hidden$/i.test(part))
+      .join('; ');
+
+    if (normalized) {
+      element.setAttribute('style', normalized);
+    } else {
+      element.removeAttribute('style');
+    }
+  }
+}
+
+function replaceEmbeddedResourceElements(root: DocumentFragment, assets: Map<string, AssetEntry>): void {
+  for (const element of Array.from(root.querySelectorAll<HTMLElement>('iframe, object, embed'))) {
+    element.replaceWith(buildEmbeddedResourcePlaceholder(element, assets));
+  }
+}
+
+function buildEmbeddedResourcePlaceholder(element: HTMLElement, assets: Map<string, AssetEntry>): HTMLElement {
+  const source = getEmbeddedResourceSource(element);
+  const doc = element.ownerDocument;
+  const placeholder = doc.createElement('p');
+  const kind = classifyEmbeddedResource(source);
+  const label = getEmbeddedResourceLabel(kind);
+  const title = getEmbeddedResourceTitle(element, source);
+  const resolvedSource = resolveEmbeddedResourceLink(source, assets);
+
+  placeholder.className = `embedded-resource embedded-resource-${kind}`;
+
+  const strong = doc.createElement('strong');
+  strong.textContent = `${label}:`;
+  placeholder.append(strong, ' ');
+
+  if (title) {
+    const titleSpan = doc.createElement('span');
+    titleSpan.textContent = title;
+    placeholder.append(titleSpan);
+  }
+
+  if (resolvedSource?.href) {
+    if (title) {
+      placeholder.append(' ');
+    }
+    const link = doc.createElement('a');
+    link.setAttribute('href', resolvedSource.href);
+    link.textContent = resolvedSource.label;
+    placeholder.append(link);
+    return placeholder;
+  }
+
+  if (resolvedSource?.label && resolvedSource.label !== title) {
+    if (title) {
+      placeholder.append(' ');
+    }
+    const reference = doc.createElement('span');
+    reference.textContent = resolvedSource.label;
+    placeholder.append(reference);
+    return placeholder;
+  }
+
+  if (!title) {
+    placeholder.append('Recurso no disponible');
+  }
+
+  return placeholder;
+}
+
+function getEmbeddedResourceSource(element: HTMLElement): string {
+  if (element instanceof HTMLObjectElement) {
+    return (element.getAttribute('data') || '').trim();
+  }
+
+  return (
+    element.getAttribute('src') ||
+    element.getAttribute('data') ||
+    element.querySelector('source')?.getAttribute('src') ||
+    ''
+  ).trim();
+}
+
+function classifyEmbeddedResource(source: string): 'pdf' | 'video' | 'genially' | 'canva' | 'web' | 'resource' {
+  const normalized = source.toLowerCase();
+  if (!normalized) return 'resource';
+  if (normalized.includes('genially.com')) return 'genially';
+  if (normalized.includes('canva.com')) return 'canva';
+  if (/\b(youtube\.com|youtu\.be|vimeo\.com|dailymotion\.com)\b/.test(normalized)) return 'video';
+  if (normalized.endsWith('.pdf') || normalized.includes('/pdf/')) return 'pdf';
+  if (/^https?:\/\//.test(normalized)) return 'web';
+  return 'resource';
+}
+
+function getEmbeddedResourceLabel(kind: 'pdf' | 'video' | 'genially' | 'canva' | 'web' | 'resource'): string {
+  switch (kind) {
+    case 'pdf':
+      return 'PDF incrustado';
+    case 'video':
+      return 'Video incrustado';
+    case 'genially':
+      return 'Genially incrustado';
+    case 'canva':
+      return 'Canva incrustado';
+    case 'web':
+      return 'Recurso web incrustado';
+    default:
+      return 'Recurso incrustado';
+  }
+}
+
+function getEmbeddedResourceTitle(element: HTMLElement, source: string): string {
+  const candidates = [
+    element.getAttribute('title'),
+    element.getAttribute('aria-label'),
+    element.getAttribute('name'),
+  ];
+
+  for (const candidate of candidates) {
+    const normalized = normalizeWhitespace(candidate || '');
+    if (normalized) {
+      return normalized;
+    }
+  }
+
+  if (!source) {
+    return '';
+  }
+
+  if (/^https?:\/\//i.test(source)) {
+    return '';
+  }
+
+  const path = source.replace(/^.*\//, '');
+  return path ? decodeURIComponent(path) : '';
+}
+
+function resolveEmbeddedResourceLink(
+  source: string,
+  assets: Map<string, AssetEntry>,
+): { href?: string; label: string } | null {
+  if (!source) {
+    return null;
+  }
+
+  if (/^https?:\/\//i.test(source)) {
+    return { href: source, label: source };
+  }
+
+  const normalized = normalizeAssetPath(source.replace(/^\{\{context_path\}\}\//, ''));
+  if (assets.has(normalized)) {
+    return { label: normalized.split('/').pop() || normalized };
+  }
+
+  return { label: normalized.split('/').pop() || normalized || source };
 }
 
 function shouldDropHiddenElement(element: HTMLElement): boolean {

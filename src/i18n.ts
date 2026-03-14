@@ -66,6 +66,7 @@ const dictionaries: Record<Locale, Record<string, string>> = {
     'button.saveDocx': 'Guardar .docx',
     'button.savePdf': 'Guardar .pdf',
     'button.saveMd': 'Guardar .md',
+    'button.close': 'Cerrar',
     'button.working': 'Trabajando...',
     'actions.previewRequired': 'Para guardar en Word, PDF o Markdown, primero pulsa Previsualizar.',
 
@@ -228,6 +229,7 @@ const dictionaries: Record<Locale, Record<string, string>> = {
     'button.saveDocx': 'Desar .docx',
     'button.savePdf': 'Desar .pdf',
     'button.saveMd': 'Desar .md',
+    'button.close': 'Tancar',
     'button.working': 'Treballant...',
     'actions.previewRequired': 'Per desar en Word, PDF o Markdown, primer prem Previsualitzar.',
 
@@ -390,6 +392,7 @@ const dictionaries: Record<Locale, Record<string, string>> = {
     'button.saveDocx': 'Save .docx',
     'button.savePdf': 'Save .pdf',
     'button.saveMd': 'Save .md',
+    'button.close': 'Close',
     'button.working': 'Working...',
     'actions.previewRequired': 'To save as Word, PDF, or Markdown, click Preview first.',
 
