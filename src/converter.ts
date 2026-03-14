@@ -340,6 +340,7 @@ export async function buildPdfBlobFromPrintableHtml(
       title: options?.title || parsed.title || 'Documento PDF',
     },
   };
+  sanitizePdfMakeTables(docDefinition.content);
   applyPdfMakeTableLayout(docDefinition.content);
   sanitizePdfMakeNumbers(docDefinition);
   await sanitizePdfMakeImages(docDefinition);
@@ -394,6 +395,85 @@ function applyPdfMakeTableLayout(node: unknown): void {
   for (const value of Object.values(candidate)) {
     applyPdfMakeTableLayout(value);
   }
+}
+
+function sanitizePdfMakeTables(node: unknown): void {
+  if (Array.isArray(node)) {
+    for (const item of node) {
+      sanitizePdfMakeTables(item);
+    }
+    return;
+  }
+
+  if (!node || typeof node !== 'object') {
+    return;
+  }
+
+  const candidate = node as Record<string, unknown>;
+  const tableNode = candidate.table;
+  if (tableNode && typeof tableNode === 'object') {
+    const table = tableNode as Record<string, unknown>;
+    const body = Array.isArray(table.body) ? table.body : null;
+    if (body && body.length > 0) {
+      const columnCount = Math.max(...body.map(row => getPdfMakeTableColumnCount(row)), 0);
+      if (columnCount > 0) {
+        table.body = body.map(row => normalizePdfMakeTableRow(row, columnCount));
+        if (!Array.isArray(table.widths) || table.widths.length !== columnCount) {
+          table.widths = Array.from({ length: columnCount }, () => '*');
+        }
+      }
+    }
+  }
+
+  for (const value of Object.values(candidate)) {
+    sanitizePdfMakeTables(value);
+  }
+}
+
+function getPdfMakeTableColumnCount(row: unknown): number {
+  if (!Array.isArray(row)) {
+    return 0;
+  }
+
+  let count = 0;
+  for (const cell of row) {
+    count += getPdfMakeTableCellSpan(cell);
+  }
+  return count;
+}
+
+function getPdfMakeTableCellSpan(cell: unknown): number {
+  if (!cell || typeof cell !== 'object' || Array.isArray(cell)) {
+    return 1;
+  }
+
+  const span = (cell as Record<string, unknown>).colSpan;
+  return typeof span === 'number' && Number.isFinite(span) && span > 1 ? Math.floor(span) : 1;
+}
+
+function normalizePdfMakeTableRow(row: unknown, columnCount: number): unknown[] {
+  if (!Array.isArray(row)) {
+    return Array.from({ length: columnCount }, () => ({ text: '' }));
+  }
+
+  const normalized: unknown[] = [];
+  for (const cell of row) {
+    normalized.push(cell ?? { text: '' });
+    const span = getPdfMakeTableCellSpan(cell);
+    for (let index = 1; index < span; index += 1) {
+      normalized.push({ text: '' });
+    }
+  }
+
+  if (normalized.length > columnCount) {
+    return normalized.slice(0, columnCount);
+  }
+
+  while (normalized.length < columnCount) {
+    normalized.push({ text: '' });
+  }
+
+  return normalized;
 }
 
 function sanitizePdfMakeNumbers(node: unknown): void {
