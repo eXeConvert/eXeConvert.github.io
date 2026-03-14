@@ -25,13 +25,14 @@ import {
   type MathComponent,
   type ParagraphChild,
 } from 'docx';
+import html2pdf from 'html2pdf.js';
 import { unzipSync } from 'fflate';
 import { mml2omml } from 'mathml2omml';
 import temml from 'temml';
 import mammoth from 'mammoth';
 
 export interface ConvertProgress {
-  phase: 'read' | 'parse' | 'filter' | 'render' | 'docx';
+  phase: 'read' | 'parse' | 'filter' | 'render' | 'docx' | 'pdf';
   message: string;
   messageKey?: string;
 }
@@ -254,6 +255,99 @@ export function buildPrintableHtmlDocument(htmlDocument: string, options?: Print
   </main>
 </body>
 </html>`;
+}
+
+export async function buildPdfBlobFromPrintableHtml(
+  htmlDocument: string,
+  options?: PrintableHtmlOptions,
+  onProgress?: (progress: ConvertProgress) => void,
+): Promise<Blob> {
+  onProgress?.({ phase: 'pdf', message: 'Generando el documento .pdf...' });
+
+  const iframe = document.createElement('iframe');
+  iframe.setAttribute('aria-hidden', 'true');
+  iframe.tabIndex = -1;
+  Object.assign(iframe.style, {
+    position: 'fixed',
+    right: '100vw',
+    bottom: '100vh',
+    width: '900px',
+    height: '1200px',
+    border: '0',
+    opacity: '0',
+    pointerEvents: 'none',
+  });
+
+  iframe.srcdoc = htmlDocument;
+  document.body.appendChild(iframe);
+
+  try {
+    await new Promise<void>((resolve, reject) => {
+      iframe.addEventListener('load', () => resolve(), { once: true });
+      iframe.addEventListener('error', () => reject(new Error('No se pudo preparar el documento imprimible.')), {
+        once: true,
+      });
+    });
+
+    const frameDocument = iframe.contentDocument;
+    const frameWindow = iframe.contentWindow as (Window & {
+      MathJax?: { startup?: { promise?: Promise<unknown> } };
+    }) | null;
+
+    if (!frameDocument || !frameWindow) {
+      throw new Error('No se pudo acceder a la vista imprimible del PDF.');
+    }
+
+    if ('fonts' in frameDocument && frameDocument.fonts) {
+      try {
+        await frameDocument.fonts.ready;
+      } catch {
+        // Ignore font loading failures and continue with the best available render.
+      }
+    }
+
+    if (frameWindow.MathJax?.startup?.promise) {
+      try {
+        await frameWindow.MathJax.startup.promise;
+      } catch {
+        // MathJax failures should not block PDF generation.
+      }
+    }
+
+    await new Promise<void>(resolve => {
+      frameWindow.requestAnimationFrame(() => {
+        frameWindow.requestAnimationFrame(() => resolve());
+      });
+    });
+
+    const source = frameDocument.body;
+    const worker = new html2pdf.Worker();
+    worker.set({
+      filename: options?.title || frameDocument.title || 'document.pdf',
+      margin: 0,
+      image: { type: 'jpeg', quality: 0.98 },
+      html2canvas: {
+        scale: 2,
+        useCORS: true,
+        backgroundColor: '#ffffff',
+        windowWidth: Math.max(source.scrollWidth, 1024),
+      },
+      jsPDF: {
+        unit: 'pt',
+        format: 'a4',
+        orientation: 'portrait',
+      },
+      pagebreak: {
+        mode: ['css', 'legacy'],
+      },
+    } as Parameters<typeof worker.set>[0] & {
+      pagebreak: { mode: string[] };
+    });
+
+    return worker.from(source).outputPdf('blob');
+  } finally {
+    iframe.remove();
+  }
 }
 
 export async function inspectElpxPages(file: File): Promise<ElpxPageInfo[]> {

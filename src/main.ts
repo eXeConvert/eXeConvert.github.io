@@ -1,5 +1,6 @@
 import './style.css';
 import {
+  buildPdfBlobFromPrintableHtml,
   buildPrintableHtmlDocument,
   convertElpxToDocx,
   convertElpxToHtml,
@@ -69,7 +70,7 @@ interface PreparedConversion {
   filename: string;
   pageCount: number;
   blockCount?: number;
-  previewType: 'html' | 'markdown';
+  previewType: 'html' | 'markdown' | 'pdf';
   previewContent: string;
   previewPages?: Record<string, string>;
   previewStartPath?: string;
@@ -463,6 +464,12 @@ function fallbackIntermediateElpx(conversion: PreparedConversion): IntermediateE
   };
 }
 
+function revokePreparedPreviewUrl(conversion: PreparedConversion | null): void {
+  if (conversion?.previewType === 'pdf' && conversion.previewContent) {
+    URL.revokeObjectURL(conversion.previewContent);
+  }
+}
+
 function getMetaContent(name: string): string {
   const node = document.querySelector<HTMLMetaElement>(`meta[name="${name}"]`);
   return String(node?.content || '').trim();
@@ -730,7 +737,9 @@ previewButton.addEventListener('click', async () => {
 
   setBusyState(true);
   try {
-    preparedConversion = await prepareCurrentConversion(selectedFile, selectedKind);
+    const nextConversion = await prepareCurrentConversion(selectedFile, selectedKind);
+    revokePreparedPreviewUrl(preparedConversion);
+    preparedConversion = nextConversion;
     if (selectedKind === 'elp') {
       legacyIntermediateElpx = preparedConversion.intermediateElpx || fallbackIntermediateElpx(preparedConversion);
     }
@@ -781,17 +790,6 @@ form.addEventListener('submit', async event => {
   }
 
   try {
-    if (preparedConversion.kind === 'pdf') {
-      const opened = openPdfPrintWindow(preparedConversion);
-      if (!opened) {
-        setStatus(t('status.popupBlocked'), true);
-        return;
-      }
-
-      setStatus(t('done.export.pdfDialog', { pages: preparedConversion.pageCount }));
-      return;
-    }
-
     const saveTarget = await prepareSaveTargetForKind(selectedFile.name, preparedConversion.kind);
     const savedWithDialog = await saveBlobToTarget(preparedConversion.blob!, preparedConversion.filename, saveTarget);
 
@@ -818,7 +816,12 @@ form.addEventListener('submit', async event => {
       return;
     }
 
-    const formatLabel = preparedConversion.kind === 'markdown' ? t('format.markdown') : t('format.docx');
+    const formatLabel =
+      preparedConversion.kind === 'markdown'
+        ? t('format.markdown')
+        : preparedConversion.kind === 'pdf'
+          ? t('format.pdf')
+          : t('format.docx');
     setStatus(
       savedWithDialog
         ? t('done.export.withDialog', {
@@ -1135,6 +1138,7 @@ function updateProgress(progress: ConvertProgress | DocxImportProgress): void {
     filter: 48,
     template: 58,
     render: 72,
+    pdf: 88,
     docx: 88,
     pack: 94,
   };
@@ -1286,6 +1290,7 @@ function getSaveButtonLabel(): string {
 }
 
 function invalidatePreparedConversion(): void {
+  revokePreparedPreviewUrl(preparedConversion);
   preparedConversion = null;
   markPreviewAsStale();
   syncActionButtons();
@@ -1580,13 +1585,20 @@ async function prepareCurrentConversion(file: File, kind: InputKind): Promise<Pr
       return {
         signature,
         kind: 'pdf',
-        blob: null,
+        blob: await buildPdfBlobFromPrintableHtml(
+          buildPrintableHtmlDocument(result.html, {
+            title: toOutputFilename(file.name, '.pdf'),
+          }),
+          { title: toOutputFilename(file.name, '.pdf') },
+          progress => {
+            updateProgress(progress);
+            setStatus(toLocalizedProgressMessage(progress));
+          },
+        ),
         filename: toOutputFilename(file.name, '.pdf'),
         pageCount: result.pageCount,
-        previewType: 'html',
-        previewContent: buildPrintableHtmlDocument(result.html, {
-          title: toOutputFilename(file.name, '.pdf'),
-        }),
+        previewType: 'pdf',
+        previewContent: '',
         intermediateElpx,
       };
     }
@@ -1643,13 +1655,20 @@ async function prepareCurrentConversion(file: File, kind: InputKind): Promise<Pr
     return {
       signature,
       kind: 'pdf',
-      blob: null,
+      blob: await buildPdfBlobFromPrintableHtml(
+        buildPrintableHtmlDocument(result.html, {
+          title: toOutputFilename(file.name, '.pdf'),
+        }),
+        { title: toOutputFilename(file.name, '.pdf') },
+        progress => {
+          updateProgress(progress);
+          setStatus(toLocalizedProgressMessage(progress));
+        },
+      ),
       filename: toOutputFilename(file.name, '.pdf'),
       pageCount: result.pageCount,
-      previewType: 'html',
-      previewContent: buildPrintableHtmlDocument(result.html, {
-        title: toOutputFilename(file.name, '.pdf'),
-      }),
+      previewType: 'pdf',
+      previewContent: '',
     };
   }
 
@@ -1678,6 +1697,21 @@ function renderPreview(conversion: PreparedConversion): void {
   previewField.classList.remove('preview-stale');
   previewField.classList.remove('preview-busy');
   previewPopoutButton.hidden = false;
+  if (conversion.previewType === 'pdf') {
+    previewMarkdownModeField.hidden = true;
+    previewMarkdown.hidden = true;
+    previewMarkdown.textContent = '';
+    previewVirtualPages = null;
+    previewCurrentPath = 'index.html';
+    previewFrame.hidden = false;
+    if (!conversion.previewContent && conversion.blob) {
+      conversion.previewContent = URL.createObjectURL(conversion.blob);
+    }
+    previewFrame.removeAttribute('srcdoc');
+    previewFrame.src = conversion.previewContent;
+    return;
+  }
+
   if (conversion.previewType === 'markdown') {
     previewMarkdownModeField.hidden = false;
     syncMarkdownPreviewModeButtons();
@@ -1732,6 +1766,10 @@ function openPreviewInWindow(conversion: PreparedConversion): void {
   }
 
   const htmlContent = (() => {
+    if (conversion.previewType === 'pdf') {
+      return `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(conversion.filename)}</title><style>html,body,iframe{margin:0;height:100%;width:100%;background:#525252}iframe{border:0;display:block}</style></head><body><iframe src="${escapeAttribute(conversion.previewContent)}" title="${escapeAttribute(conversion.filename)}"></iframe></body></html>`;
+    }
+
     if (conversion.previewType === 'markdown') {
       return buildMarkdownPreviewDocument(conversion.previewContent, conversion.filename, markdownPreviewMode);
     }
@@ -1750,34 +1788,6 @@ function openPreviewInWindow(conversion: PreparedConversion): void {
   previewWindow.document.open();
   previewWindow.document.write(htmlContent);
   previewWindow.document.close();
-}
-
-function openPdfPrintWindow(conversion: PreparedConversion): boolean {
-  const previewWindow = window.open('', '_blank', 'popup=yes,width=1100,height=760,resizable=yes,scrollbars=yes');
-  if (!previewWindow) {
-    return false;
-  }
-
-  const titleMatch = conversion.previewContent.match(/<title>([\s\S]*?)<\/title>/i);
-  const printTitle = titleMatch ? decodeHtmlEntities(titleMatch[1].trim()) : conversion.filename;
-  const htmlContent = conversion.previewContent.replace(
-    '</body>',
-    `<script>
-      try { document.title = ${JSON.stringify(printTitle)}; } catch {}
-      window.addEventListener('load', () => {
-        window.setTimeout(() => {
-          try { document.title = ${JSON.stringify(printTitle)}; } catch {}
-          try { window.print(); } catch {}
-        }, 180);
-      }, { once: true });
-    </script>
-  </body>`,
-  );
-
-  previewWindow.document.open();
-  previewWindow.document.write(htmlContent);
-  previewWindow.document.close();
-  return true;
 }
 
 function bindPreviewFrameNavigation(): void {
