@@ -25,12 +25,15 @@ import {
   type MathComponent,
   type ParagraphChild,
 } from 'docx';
-import html2canvas from 'html2canvas';
 import { unzipSync } from 'fflate';
-import { jsPDF } from 'jspdf';
+import htmlToPdfmake from 'html-to-pdfmake';
 import { mml2omml } from 'mathml2omml';
 import temml from 'temml';
 import mammoth from 'mammoth';
+// @ts-expect-error browser bundle import without stable typings
+import pdfMake from 'pdfmake/build/pdfmake';
+// @ts-expect-error virtual font bundle import without stable typings
+import pdfFonts from 'pdfmake/build/vfs_fonts';
 
 export interface ConvertProgress {
   phase: 'read' | 'parse' | 'filter' | 'render' | 'docx' | 'pdf';
@@ -49,6 +52,8 @@ export interface ConvertResult {
 export interface ElpxHtmlResult {
   html: string;
   pageCount: number;
+  title: string;
+  language: string;
 }
 
 export interface PrintableHtmlOptions {
@@ -128,6 +133,7 @@ interface MathJaxGlobal {
 const ASSET_DIRECTORIES = ['resources', 'images', 'media', 'files', 'attachments'];
 const SYSTEM_FILES = new Set(['content.xml', 'contentv3.xml', 'content.data', 'content.xsd', 'imsmanifest.xml']);
 const latexRenderCache = new Map<string, Promise<{ dataUrl: string; width: number; height: number }>>();
+let pdfMakeInitialized = false;
 
 export async function convertElpxToDocx(
   file: File,
@@ -147,19 +153,16 @@ export async function convertElpxToDocx(
   onProgress?.({ phase: 'render', message: 'Generando HTML intermedio...', messageKey: 'progress.renderHtml' });
   const html = await buildHtmlDocument(project, scopedProject, assets, entries);
 
-  onProgress?.({ phase: 'docx', message: 'Generando el documento .docx...', messageKey: 'progress.generateDocx' });
-  const blob = await buildCompatibleDocx(html);
-  const previewHtml = containsLatex(html)
-    ? buildMathEnabledSourcePreviewHtml(html, scopedProject.title, scopedProject.language)
-    : await buildDocxPreviewHtml(blob, scopedProject.title, scopedProject.language);
-
-  return {
-    blob,
-    filename: toOutputFilename(file.name),
+  return convertHtmlToDocxResult(
     html,
-    previewHtml,
-    pageCount: scopedProject.pages.length,
-  };
+    {
+      inputName: file.name,
+      title: scopedProject.title,
+      language: scopedProject.language,
+      pageCount: scopedProject.pages.length,
+    },
+    onProgress,
+  );
 }
 
 export async function convertElpxToHtml(
@@ -183,6 +186,33 @@ export async function convertElpxToHtml(
   return {
     html,
     pageCount: scopedProject.pages.length,
+    title: scopedProject.title,
+    language: scopedProject.language,
+  };
+}
+
+export async function convertHtmlToDocxResult(
+  html: string,
+  options: {
+    inputName: string;
+    title: string;
+    language: string;
+    pageCount: number;
+  },
+  onProgress?: (progress: ConvertProgress) => void,
+): Promise<ConvertResult> {
+  onProgress?.({ phase: 'docx', message: 'Generando el documento .docx...', messageKey: 'progress.generateDocx' });
+  const blob = await buildCompatibleDocx(html);
+  const previewHtml = containsLatex(html)
+    ? buildMathEnabledSourcePreviewHtml(html, options.title, options.language)
+    : await buildDocxPreviewHtml(blob, options.title, options.language);
+
+  return {
+    blob,
+    filename: toOutputFilename(options.inputName),
+    html,
+    previewHtml,
+    pageCount: options.pageCount,
   };
 }
 
@@ -233,7 +263,7 @@ export function buildPrintableHtmlDocument(htmlDocument: string, options?: Print
     }
     .pdf-preview * { box-sizing: border-box; max-width: 100%; }
     .pdf-preview table { border-collapse: collapse; width: 100%; margin: 10pt 0; }
-    .pdf-preview td, .pdf-preview th { border: 1px solid #c8c8c8; padding: 6px; vertical-align: top; }
+    .pdf-preview td, .pdf-preview th { border: 0.6px solid #d7ddd2; padding: 6px; vertical-align: top; }
     .pdf-preview img { height: auto; }
     @media print {
       html, body { background: #fff; }
@@ -264,179 +294,570 @@ export async function buildPdfBlobFromPrintableHtml(
   onProgress?: (progress: ConvertProgress) => void,
 ): Promise<Blob> {
   onProgress?.({ phase: 'pdf', message: 'Generando el documento .pdf...' });
+  ensurePdfMakeFonts();
 
-  const iframe = document.createElement('iframe');
-  iframe.setAttribute('aria-hidden', 'true');
-  iframe.tabIndex = -1;
-  Object.assign(iframe.style, {
-    position: 'fixed',
-    right: '100vw',
-    bottom: '100vh',
-    width: '900px',
-    height: '1200px',
-    border: '0',
-    opacity: '0',
-    pointerEvents: 'none',
+  const parsed = new DOMParser().parseFromString(htmlDocument, 'text/html');
+  const source = parsed.querySelector<HTMLElement>('.pdf-preview') || parsed.body;
+  const contentHtml = sanitizeHtmlForPdfMake(source?.innerHTML?.trim() || '<p>El proyecto no contiene contenido exportable.</p>');
+  const converted = htmlToPdfmake(contentHtml, {
+    window,
+    tableAutoSize: true,
+    removeExtraBlanks: true,
+    defaultStyles: {
+      p: { margin: [0, 0, 0, 10] },
+      table: { margin: [0, 8, 0, 12] },
+      th: { bold: true, fillColor: '#eeeeee' },
+      figure: { margin: [0, 8, 0, 12] },
+      figcaption: { italics: true, color: '#555555', margin: [0, 4, 0, 8] },
+      h1: { fontSize: 22, bold: true, margin: [0, 0, 0, 12] },
+      h2: { fontSize: 18, bold: true, margin: [0, 12, 0, 10] },
+      h3: { fontSize: 15, bold: true, margin: [0, 10, 0, 8] },
+      h4: { fontSize: 13, bold: true, margin: [0, 8, 0, 6] },
+      li: { margin: [0, 2, 0, 2] },
+      a: { color: '#1f4e79', decoration: 'underline' },
+    },
   });
 
-  iframe.srcdoc = htmlDocument;
-  document.body.appendChild(iframe);
+  onProgress?.({ phase: 'pdf', message: 'Componiendo el documento .pdf...' });
 
-  try {
-    await new Promise<void>((resolve, reject) => {
-      iframe.addEventListener('load', () => resolve(), { once: true });
-      iframe.addEventListener('error', () => reject(new Error('No se pudo preparar el documento imprimible.')), {
-        once: true,
-      });
-    });
+  const docDefinition = {
+    pageSize: 'A4',
+    pageMargins: [48, 48, 48, 48] as [number, number, number, number],
+    defaultStyle: {
+      font: 'Roboto',
+      fontSize: 11,
+      lineHeight: 1.25,
+    },
+    content: Array.isArray(converted) ? converted : [converted],
+    info: {
+      title: options?.title || parsed.title || 'Documento PDF',
+    },
+  };
+  applyPdfMakeTableLayout(docDefinition.content);
 
-    const frameDocument = iframe.contentDocument;
-    const frameWindow = iframe.contentWindow as (Window & {
-      MathJax?: { startup?: { promise?: Promise<unknown> } };
-    }) | null;
+  const pdf = pdfMake.createPdf(docDefinition);
+  return pdf.getBlob();
+}
 
-    if (!frameDocument || !frameWindow) {
-      throw new Error('No se pudo acceder a la vista imprimible del PDF.');
+function applyPdfMakeTableLayout(node: unknown): void {
+  if (Array.isArray(node)) {
+    for (const item of node) {
+      applyPdfMakeTableLayout(item);
     }
+    return;
+  }
 
-    if ('fonts' in frameDocument && frameDocument.fonts) {
-      try {
-        await frameDocument.fonts.ready;
-      } catch {
-        // Ignore font loading failures and continue with the best available render.
-      }
-    }
+  if (!node || typeof node !== 'object') {
+    return;
+  }
 
-    if (frameWindow.MathJax?.startup?.promise) {
-      try {
-        await frameWindow.MathJax.startup.promise;
-      } catch {
-        // MathJax failures should not block PDF generation.
-      }
-    }
+  const candidate = node as Record<string, unknown>;
+  if (candidate.table && typeof candidate.table === 'object') {
+    candidate.layout = {
+      hLineWidth: () => 0.6,
+      vLineWidth: () => 0.6,
+      hLineColor: () => '#d7ddd2',
+      vLineColor: () => '#d7ddd2',
+      paddingLeft: () => 6,
+      paddingRight: () => 6,
+      paddingTop: () => 4,
+      paddingBottom: () => 4,
+    };
+  }
 
-    await new Promise<void>(resolve => {
-      frameWindow.requestAnimationFrame(() => {
-        frameWindow.requestAnimationFrame(() => resolve());
-      });
-    });
-
-    const source = frameDocument.querySelector<HTMLElement>('.pdf-preview') || frameDocument.body;
-    const pdf = new jsPDF({
-      unit: 'pt',
-      format: 'a4',
-      orientation: 'portrait',
-      compress: true,
-    });
-    const pdfWidth = pdf.internal.pageSize.getWidth();
-    const pdfHeight = pdf.internal.pageSize.getHeight();
-    const horizontalPadding = 24;
-    const usableWidth = pdfWidth - horizontalPadding * 2;
-    const pageHeightPx = Math.floor((pdfHeight * source.clientWidth) / usableWidth);
-    const chunkTargets = buildPdfChunkTargets(frameDocument, source, pageHeightPx);
-
-    let firstPdfPage = true;
-    for (let index = 0; index < chunkTargets.length; index += 1) {
-      onProgress?.({
-        phase: 'pdf',
-        message: `Generando el documento .pdf... (${index + 1}/${chunkTargets.length})`,
-      });
-
-      const canvas = await html2canvas(chunkTargets[index], {
-        scale: 1.5,
-        useCORS: true,
-        backgroundColor: '#ffffff',
-        windowWidth: Math.max(source.scrollWidth, 1024),
-      });
-
-      const sliceHeight = Math.max(1, Math.floor((canvas.width * pdfHeight) / usableWidth));
-      let offsetY = 0;
-      while (offsetY < canvas.height) {
-        const currentSliceHeight = Math.min(sliceHeight, canvas.height - offsetY);
-        const sliceCanvas = document.createElement('canvas');
-        sliceCanvas.width = canvas.width;
-        sliceCanvas.height = currentSliceHeight;
-        const sliceContext = sliceCanvas.getContext('2d');
-        if (!sliceContext) {
-          throw new Error('No se pudo preparar el lienzo del PDF.');
-        }
-        sliceContext.fillStyle = '#ffffff';
-        sliceContext.fillRect(0, 0, sliceCanvas.width, sliceCanvas.height);
-        sliceContext.drawImage(
-          canvas,
-          0,
-          offsetY,
-          canvas.width,
-          currentSliceHeight,
-          0,
-          0,
-          sliceCanvas.width,
-          currentSliceHeight,
-        );
-
-        if (!firstPdfPage) {
-          pdf.addPage();
-        }
-        firstPdfPage = false;
-
-        const renderedHeight = (currentSliceHeight * usableWidth) / canvas.width;
-        pdf.addImage(sliceCanvas, 'JPEG', horizontalPadding, 0, usableWidth, renderedHeight, undefined, 'FAST');
-        offsetY += currentSliceHeight;
-      }
-    }
-
-    return pdf.output('blob');
-  } finally {
-    iframe.remove();
+  for (const value of Object.values(candidate)) {
+    applyPdfMakeTableLayout(value);
   }
 }
 
-function buildPdfChunkTargets(
-  frameDocument: Document,
-  source: HTMLElement,
-  targetPageHeightPx: number,
-): HTMLElement[] {
-  const blockElements = Array.from(source.children).filter((child): child is HTMLElement => child instanceof HTMLElement);
-  if (blockElements.length === 0) {
-    return [source];
-  }
+function sanitizeHtmlForPdfMake(html: string): string {
+  const parsed = new DOMParser().parseFromString(`<!doctype html><html><body>${html}</body></html>`, 'text/html');
+  normalizePdfMakeMarkup(parsed.body);
 
-  const chunks: HTMLElement[] = [];
-  let currentChunk = createPdfChunkContainer(frameDocument, source);
-  let currentHeight = 0;
-  const threshold = Math.max(targetPageHeightPx * 2, 1800);
+  for (const element of Array.from(parsed.body.querySelectorAll<HTMLElement>('*'))) {
+    element.removeAttribute('height');
 
-  for (const block of blockElements) {
-    const estimatedHeight = Math.max(block.offsetHeight, 80);
-    if (currentHeight > 0 && currentHeight + estimatedHeight > threshold) {
-      chunks.push(currentChunk);
-      currentChunk = createPdfChunkContainer(frameDocument, source);
-      currentHeight = 0;
+    const style = (element.getAttribute('style') || '').trim();
+    if (!style) {
+      continue;
     }
 
-    currentChunk.append(block.cloneNode(true));
-    currentHeight += estimatedHeight;
+    const cleanedStyle = style
+      .split(';')
+      .map(part => part.trim())
+      .filter(Boolean)
+      .filter(part => {
+        const lower = part.toLowerCase();
+        if (lower.includes('var(')) {
+          return false;
+        }
+        if (
+          lower.startsWith('height:') ||
+          lower.startsWith('font-family:') ||
+          lower.startsWith('font-size:') ||
+          lower.startsWith('font-weight:') ||
+          lower.startsWith('text-align:')
+        ) {
+          return false;
+        }
+        return true;
+      })
+      .join('; ');
+
+    if (cleanedStyle) {
+      element.setAttribute('style', cleanedStyle);
+    } else {
+      element.removeAttribute('style');
+    }
   }
 
-  if (currentChunk.childElementCount > 0) {
-    chunks.push(currentChunk);
-  }
-
-  return chunks;
+  return parsed.body.innerHTML;
 }
 
-function createPdfChunkContainer(frameDocument: Document, source: HTMLElement): HTMLElement {
-  const chunk = frameDocument.createElement('div');
-  chunk.className = source.className;
-  Object.assign(chunk.style, {
-    width: `${source.clientWidth}px`,
-    margin: '0',
-    padding: source.style.padding || '18mm 16mm',
-    background: '#ffffff',
-    boxSizing: 'border-box',
-    boxShadow: 'none',
+function normalizePdfMakeMarkup(root: HTMLElement): void {
+  removeEmptyPdfNodes(root);
+  normalizePdfDefinitionLists(root);
+  normalizePdfColumnLayouts(root);
+  normalizePdfTables(root);
+  normalizeLargePdfImages(root);
+  normalizeLeadingInlineImages(root);
+  normalizeLooseImageCaptions(root);
+  normalizePdfCaptions(root);
+  normalizeSplitInlineWords(root);
+  removeEmptyPdfNodes(root);
+}
+
+function removeEmptyPdfNodes(root: HTMLElement): void {
+  for (const element of Array.from(root.querySelectorAll<HTMLElement>('p, div, span, dd, dt'))) {
+    if (element.querySelector('img, svg, table, ul, ol, li, dl, figure, figcaption, blockquote, pre, iframe, object, embed')) {
+      continue;
+    }
+
+    const text = normalizeWhitespace(element.textContent || '').replace(/\u00a0/g, ' ').trim();
+    if (text) {
+      continue;
+    }
+
+    const html = (element.innerHTML || '').replace(/<br\s*\/?>/gi, '').trim();
+    if (!html) {
+      element.remove();
+    }
+  }
+}
+
+function normalizePdfDefinitionLists(root: HTMLElement): void {
+  for (const list of Array.from(root.querySelectorAll<HTMLElement>('dl'))) {
+    const rows = extractPdfDefinitionRows(list);
+    if (rows.length === 0) {
+      continue;
+    }
+
+    const doc = list.ownerDocument;
+    const wrapper = doc.createElement('div');
+    wrapper.className = 'pdf-definition-list';
+
+    for (const [term, description] of rows) {
+      const paragraph = doc.createElement('p');
+      const strong = doc.createElement('strong');
+      strong.textContent = `${normalizeWhitespace(term.textContent || '')}:`;
+      paragraph.append(strong);
+
+      const valueText = normalizeWhitespace(description.textContent || '');
+      if (valueText) {
+        paragraph.append(' ', valueText);
+      } else if (description.innerHTML.trim()) {
+        const span = doc.createElement('span');
+        span.innerHTML = description.innerHTML.trim();
+        paragraph.append(' ', span);
+      }
+
+      wrapper.append(paragraph);
+    }
+
+    list.replaceWith(wrapper);
+  }
+}
+
+function extractPdfDefinitionRows(list: HTMLElement): Array<[HTMLElement, HTMLElement]> {
+  const rows: Array<[HTMLElement, HTMLElement]> = [];
+  const wrappers = Array.from(list.children).filter(child => child instanceof HTMLElement);
+
+  if (wrappers.every(wrapper => wrapper.tagName.toLowerCase() === 'div')) {
+    for (const wrapper of wrappers) {
+      const term = wrapper.querySelector<HTMLElement>('dt');
+      const description = wrapper.querySelector<HTMLElement>('dd');
+      if (term && description) {
+        rows.push([term, description]);
+      }
+    }
+    return rows;
+  }
+
+  let currentTerm: HTMLElement | null = null;
+  for (const child of Array.from(list.children)) {
+    if (!(child instanceof HTMLElement)) {
+      continue;
+    }
+    const tag = child.tagName.toLowerCase();
+    if (tag === 'dt') {
+      currentTerm = child;
+      continue;
+    }
+    if (tag === 'dd' && currentTerm) {
+      rows.push([currentTerm, child]);
+      currentTerm = null;
+    }
+  }
+
+  return rows;
+}
+
+function normalizePdfColumnLayouts(root: HTMLElement): void {
+  for (const layout of Array.from(root.querySelectorAll<HTMLElement>('.exe-layout-2-cols, .exe-layout-3-cols, .exe-layout-4-cols'))) {
+    const columns = Array.from(layout.children).filter(
+      (child): child is HTMLElement => child instanceof HTMLElement && /\bexe-col\b/.test(child.className),
+    );
+    if (columns.length < 2) {
+      continue;
+    }
+
+    const doc = layout.ownerDocument;
+    const table = doc.createElement('table');
+    const tbody = doc.createElement('tbody');
+    const row = doc.createElement('tr');
+    table.append(tbody);
+    tbody.append(row);
+
+    for (const column of columns) {
+      const cell = doc.createElement('td');
+      while (column.firstChild) {
+        cell.append(column.firstChild);
+      }
+      row.append(cell);
+    }
+
+    layout.replaceWith(table);
+  }
+}
+
+function normalizePdfTables(root: HTMLElement): void {
+  for (const table of Array.from(root.querySelectorAll<HTMLTableElement>('table'))) {
+    const firstRow = table.querySelector('tr');
+    if (!firstRow) {
+      continue;
+    }
+
+    const cells = Array.from(firstRow.children).filter(
+      (child): child is HTMLElement => child instanceof HTMLElement && /^(td|th)$/i.test(child.tagName),
+    );
+    if (cells.length === 0) {
+      continue;
+    }
+
+    const widths = cells.map(cell => readPercentWidth(cell));
+    const tinyColumns = widths.filter(width => width !== null && width <= 8);
+    if (tinyColumns.length === 0) {
+      continue;
+    }
+
+    stripTableWidths(table);
+  }
+}
+
+function normalizeLeadingInlineImages(root: HTMLElement): void {
+  for (const paragraph of Array.from(root.querySelectorAll<HTMLElement>('p, li, dd'))) {
+    const nodes = Array.from(paragraph.childNodes).filter(node => !isIgnorableInlineWhitespace(node));
+    if (nodes.length < 2) {
+      continue;
+    }
+
+    const first = nodes[0];
+    if (!(first instanceof HTMLImageElement) || !isSmallInlineImage(first)) {
+      continue;
+    }
+
+    const doc = paragraph.ownerDocument;
+    const imageParagraph = doc.createElement('p');
+    const clonedImage = first.cloneNode(true);
+    imageParagraph.append(clonedImage);
+
+    first.remove();
+    paragraph.parentNode?.insertBefore(imageParagraph, paragraph);
+  }
+}
+
+function normalizeLargePdfImages(root: HTMLElement): void {
+  for (const image of Array.from(root.querySelectorAll<HTMLImageElement>('img'))) {
+    if (isSmallInlineImage(image)) {
+      continue;
+    }
+
+    const width = Number.parseInt(image.getAttribute('width') || '', 10) || image.width || 0;
+    if (width <= 0) {
+      continue;
+    }
+
+    if (width > 500) {
+      image.setAttribute('width', '500');
+    }
+
+    image.removeAttribute('height');
+
+    const style = (image.getAttribute('style') || '').trim();
+    const cleaned = style
+      .split(';')
+      .map(part => part.trim())
+      .filter(Boolean)
+      .filter(part => !/^width\s*:/i.test(part) && !/^height\s*:/i.test(part))
+      .join('; ');
+
+    if (cleaned) {
+      image.setAttribute('style', cleaned);
+    } else {
+      image.removeAttribute('style');
+    }
+  }
+}
+
+function isSmallInlineImage(image: HTMLImageElement): boolean {
+  const width = Number.parseInt(image.getAttribute('width') || '', 10) || image.width || 0;
+  const height = Number.parseInt(image.getAttribute('height') || '', 10) || image.height || 0;
+  return Math.max(width, height) > 0 && Math.max(width, height) <= 96;
+}
+
+function stripTableWidths(table: HTMLTableElement): void {
+  stripWidthDeclarations(table);
+  for (const element of Array.from(table.querySelectorAll<HTMLElement>('tr, td, th, col, colgroup, tbody, thead, tfoot, p, span, div'))) {
+    stripWidthDeclarations(element);
+  }
+}
+
+function stripWidthDeclarations(element: HTMLElement): void {
+  element.removeAttribute('width');
+
+  const style = (element.getAttribute('style') || '').trim();
+  if (!style) {
+    return;
+  }
+
+  const cleaned = style
+    .split(';')
+    .map(part => part.trim())
+    .filter(Boolean)
+    .filter(part => !/^width\s*:/i.test(part))
+    .join('; ');
+
+  if (cleaned) {
+    element.setAttribute('style', cleaned);
+  } else {
+    element.removeAttribute('style');
+  }
+}
+
+function readPercentWidth(element: HTMLElement): number | null {
+  const style = (element.getAttribute('style') || '').trim();
+  const styleMatch = style.match(/(?:^|;)\s*width\s*:\s*([\d.]+)%/i);
+  if (styleMatch) {
+    return Number.parseFloat(styleMatch[1]);
+  }
+
+  const widthAttr = (element.getAttribute('width') || '').trim();
+  if (/^[\d.]+%$/.test(widthAttr)) {
+    return Number.parseFloat(widthAttr.slice(0, -1));
+  }
+
+  return null;
+}
+
+function normalizeLooseImageCaptions(root: HTMLElement): void {
+  for (const container of Array.from(root.querySelectorAll<HTMLElement>('div, section, article'))) {
+    if (container.querySelector(':scope > figure')) {
+      continue;
+    }
+
+    const children = Array.from(container.childNodes).filter(node => !isIgnorableInlineWhitespace(node));
+    if (children.length < 2) {
+      continue;
+    }
+
+    const imageBlockIndex = children.findIndex(node => node instanceof HTMLElement && isImageOnlyBlock(node));
+    if (imageBlockIndex < 0 || imageBlockIndex === children.length - 1) {
+      continue;
+    }
+
+    const captionNodes = children.slice(imageBlockIndex + 1);
+    if (captionNodes.length === 0 || !captionNodes.every(isLooseCaptionNode)) {
+      continue;
+    }
+
+    const imageBlock = children[imageBlockIndex] as HTMLElement;
+    const doc = container.ownerDocument;
+    const figure = doc.createElement('figure');
+    const figcaption = doc.createElement('figcaption');
+
+    const image = imageBlock.querySelector('img');
+    if (image) {
+      figure.append(image);
+    } else {
+      while (imageBlock.firstChild) {
+        figure.append(imageBlock.firstChild);
+      }
+    }
+
+    for (const node of captionNodes) {
+      figcaption.append(node);
+    }
+
+    collapseCaptionContent(figcaption);
+    figure.append(figcaption);
+    imageBlock.replaceWith(figure);
+  }
+}
+
+function normalizePdfCaptions(root: HTMLElement): void {
+  for (const caption of Array.from(root.querySelectorAll<HTMLElement>('figcaption, .figcaption'))) {
+    collapseCaptionContent(caption);
+  }
+}
+
+function isImageOnlyBlock(node: HTMLElement): boolean {
+  const tag = node.tagName.toLowerCase();
+  if (!['p', 'div'].includes(tag)) {
+    return false;
+  }
+
+  const meaningfulChildren = Array.from(node.childNodes).filter(child => {
+    if (child instanceof Text) {
+      return normalizeWhitespace(child.textContent || '').length > 0;
+    }
+    return child instanceof HTMLElement && child.tagName.toLowerCase() !== 'br';
   });
-  return chunk;
+
+  if (meaningfulChildren.length !== 1) {
+    return false;
+  }
+
+  const onlyChild = meaningfulChildren[0];
+  if (!(onlyChild instanceof HTMLElement)) {
+    return false;
+  }
+
+  return onlyChild.tagName.toLowerCase() === 'img';
+}
+
+function isLooseCaptionNode(node: Node): boolean {
+  if (node instanceof Text) {
+    const text = normalizeWhitespace(node.textContent || '').replace(/\u00a0/g, ' ').trim();
+    return ['.', '(', ')'].includes(text) || text.length > 0;
+  }
+
+  if (!(node instanceof HTMLElement)) {
+    return false;
+  }
+
+  const tag = node.tagName.toLowerCase();
+  if (tag === 'br') {
+    return true;
+  }
+
+  if (tag === 'a') {
+    return true;
+  }
+
+  if (tag === 'span') {
+    const className = (node.getAttribute('class') || '').toLowerCase();
+    return /\b(author|title|license|sep|figcaption)\b/.test(className) || normalizeWhitespace(node.textContent || '').length > 0;
+  }
+
+  return false;
+}
+
+function collapseCaptionContent(caption: HTMLElement): void {
+  const text = normalizeCaptionText(caption.textContent || '');
+  if (!text) {
+    caption.remove();
+    return;
+  }
+
+  caption.textContent = text;
+}
+
+function normalizeCaptionText(value: string): string {
+  return value
+    .replace(/\u00a0/g, ' ')
+    .replace(/\s+/g, ' ')
+    .replace(/\s+([.,;:!?])/g, '$1')
+    .replace(/\(\s+/g, '(')
+    .replace(/\s+\)/g, ')')
+    .trim();
+}
+
+function normalizeSplitInlineWords(root: HTMLElement): void {
+  for (const parent of Array.from(root.querySelectorAll<HTMLElement>('p, li, dd, figcaption, span, div'))) {
+    const children = Array.from(parent.childNodes);
+    for (let index = 1; index < children.length; index += 1) {
+      const current = children[index];
+      const previous = children[index - 1];
+
+      if (!(current instanceof HTMLElement) || !(previous instanceof Text)) {
+        continue;
+      }
+
+      const firstTextNode = findFirstTextNode(current);
+      if (!firstTextNode) {
+        continue;
+      }
+
+      const previousText = previous.nodeValue || '';
+      const currentText = firstTextNode.nodeValue || '';
+      const previousMatch = previousText.match(/([A-Za-zÁÉÍÓÚÜÑáéíóúüñ0-9]+)$/u);
+      const currentMatch = currentText.match(/^([A-Za-zÁÉÍÓÚÜÑáéíóúüñ0-9]+)/u);
+
+      if (!previousMatch || !currentMatch) {
+        continue;
+      }
+
+      const trailingToken = previousMatch[1];
+      if (!trailingToken || /\s$/.test(previousText.slice(0, previousText.length - trailingToken.length))) {
+        continue;
+      }
+
+      previous.nodeValue = previousText.slice(0, previousText.length - trailingToken.length);
+      firstTextNode.nodeValue = `${trailingToken}${currentText}`;
+    }
+  }
+}
+
+function findFirstTextNode(root: Node): Text | null {
+  if (root instanceof Text) {
+    return root;
+  }
+
+  for (const child of Array.from(root.childNodes)) {
+    const match = findFirstTextNode(child);
+    if (match && (match.nodeValue || '').length > 0) {
+      return match;
+    }
+  }
+
+  return null;
+}
+
+function ensurePdfMakeFonts(): void {
+  if (pdfMakeInitialized) {
+    return;
+  }
+
+  pdfMake.addVirtualFileSystem(pdfFonts);
+  pdfMake.fonts = {
+    Roboto: {
+      normal: 'Roboto-Regular.ttf',
+      bold: 'Roboto-Medium.ttf',
+      italics: 'Roboto-Italic.ttf',
+      bolditalics: 'Roboto-MediumItalic.ttf',
+    },
+  };
+  pdfMakeInitialized = true;
 }
 
 export async function inspectElpxPages(file: File): Promise<ElpxPageInfo[]> {

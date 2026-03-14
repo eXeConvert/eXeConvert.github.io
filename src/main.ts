@@ -3,6 +3,7 @@ import {
   buildPdfBlobFromPrintableHtml,
   buildPrintableHtmlDocument,
   convertElpxToDocx,
+  convertHtmlToDocxResult,
   convertElpxToHtml,
   inspectElpxPages,
   type ConvertProgress,
@@ -77,13 +78,21 @@ interface PreparedConversion {
   intermediateElpx?: IntermediateElpxSave;
 }
 
+interface CachedElpxHtml {
+  signature: string;
+  html: string;
+  pageCount: number;
+  title: string;
+  language: string;
+}
+
 const app = document.querySelector<HTMLDivElement>('#app');
 
 if (!app) {
   throw new Error('No se ha encontrado el contenedor principal.');
 }
 
-const APP_VERSION = 'v0.1.0-beta.6';
+const APP_VERSION = 'v0.1.0-beta.7';
 const ANALYTICS_FALLBACK_ENDPOINT = 'https://bilateria.org/app/estadistica/execonvert/track.php';
 const ANALYTICS_FALLBACK_STATS_URL = 'https://bilateria.org/app/estadistica/execonvert/admin-stats.php';
 const ANALYTICS_VISIT_COOLDOWN_MS = 30 * 60 * 1000;
@@ -424,6 +433,7 @@ let pageInspectionSequence = 0;
 let autoPreviewSequence = 0;
 let preparedConversion: PreparedConversion | null = null;
 let legacyIntermediateElpx: IntermediateElpxSave | null = null;
+let cachedElpxHtml: CachedElpxHtml | null = null;
 let previewVirtualPages: Record<string, string> | null = null;
 let previewCurrentPath = 'index.html';
 let markdownPreviewMode: MarkdownPreviewMode = 'formatted';
@@ -1106,9 +1116,8 @@ function setStatus(message: string, isError = false): void {
 
 function setBusyState(isBusy: boolean): void {
   previewButton.classList.toggle('is-loading', isBusy);
-  submitButton.classList.toggle('is-loading', isBusy);
   setButtonLabel(previewButton, isBusy ? t('button.working') : idlePreviewLabel);
-  setButtonLabel(submitButton, isBusy ? t('button.working') : getSaveButtonLabel());
+  setButtonLabel(submitButton, getSaveButtonLabel());
   previewButton.disabled = isBusy;
   submitButton.disabled = isBusy;
   statusSpinner.hidden = !isBusy;
@@ -1461,6 +1470,51 @@ function computeConversionSignature(): string {
   return [filePart, kindPart, outputPart, headingsPart, markdownPart, pagesPart].join('::');
 }
 
+function computeElpxHtmlSignature(file: File, kind: InputKind): string {
+  const filePart = `${file.name}:${file.size}:${file.lastModified}`;
+  const selectedPages = getSelectedElpxPageIds();
+  const pagesPart =
+    !selectedPages || selectedPages.length === availableElpxPages.length
+      ? 'all'
+      : selectedPages.slice().sort().join(',');
+  return [filePart, kind, 'html-base', pagesPart].join('::');
+}
+
+async function getCachedElpxHtml(
+  file: File,
+  kind: 'elpx' | 'elp',
+  selectedPageIds: string[] | undefined,
+  intermediateElpx?: IntermediateElpxSave,
+): Promise<CachedElpxHtml> {
+  const signature = computeElpxHtmlSignature(file, kind);
+  if (cachedElpxHtml?.signature === signature) {
+    return cachedElpxHtml;
+  }
+
+  const sourceFile =
+    intermediateElpx
+      ? new File([intermediateElpx.blob], intermediateElpx.filename, { type: 'application/zip' })
+      : file;
+
+  const result = await convertElpxToHtml(
+    sourceFile,
+    { selectedPageIds },
+    progress => {
+      updateProgress(progress);
+      setStatus(toLocalizedProgressMessage(progress));
+    },
+  );
+
+  cachedElpxHtml = {
+    signature,
+    html: result.html,
+    pageCount: result.pageCount,
+    title: result.title,
+    language: result.language,
+  };
+  return cachedElpxHtml;
+}
+
 async function prepareCurrentConversion(file: File, kind: InputKind): Promise<PreparedConversion> {
   const signature = computeConversionSignature();
   const selectedPageIds = getSelectedElpxPageIds();
@@ -1573,14 +1627,7 @@ async function prepareCurrentConversion(file: File, kind: InputKind): Promise<Pr
     }
 
     if (outputKind === 'pdf') {
-      const result = await convertElpxToHtml(
-        elpxFile,
-        { selectedPageIds },
-        progress => {
-          updateProgress(progress);
-          setStatus(toLocalizedProgressMessage(progress));
-        },
-      );
+      const result = await getCachedElpxHtml(file, 'elp', selectedPageIds, intermediateElpx);
 
       return {
         signature,
@@ -1603,10 +1650,20 @@ async function prepareCurrentConversion(file: File, kind: InputKind): Promise<Pr
       };
     }
 
-    const result = await convertElpxToDocx(elpxFile, { selectedPageIds }, progress => {
-      updateProgress(progress);
-      setStatus(toLocalizedProgressMessage(progress));
-    });
+    const htmlResult = await getCachedElpxHtml(file, 'elp', selectedPageIds, intermediateElpx);
+    const result = await convertHtmlToDocxResult(
+      htmlResult.html,
+      {
+        inputName: file.name,
+        title: htmlResult.title,
+        language: htmlResult.language,
+        pageCount: htmlResult.pageCount,
+      },
+      progress => {
+        updateProgress(progress);
+        setStatus(toLocalizedProgressMessage(progress));
+      },
+    );
 
     return {
       signature,
@@ -1643,14 +1700,7 @@ async function prepareCurrentConversion(file: File, kind: InputKind): Promise<Pr
   }
 
   if (outputKind === 'pdf') {
-    const result = await convertElpxToHtml(
-      file,
-      { selectedPageIds },
-      progress => {
-        updateProgress(progress);
-        setStatus(toLocalizedProgressMessage(progress));
-      },
-    );
+    const result = await getCachedElpxHtml(file, 'elpx', selectedPageIds);
 
     return {
       signature,
@@ -1672,9 +1722,15 @@ async function prepareCurrentConversion(file: File, kind: InputKind): Promise<Pr
     };
   }
 
-  const result = await convertElpxToDocx(
-    file,
-    { selectedPageIds },
+  const htmlResult = await getCachedElpxHtml(file, 'elpx', selectedPageIds);
+  const result = await convertHtmlToDocxResult(
+    htmlResult.html,
+    {
+      inputName: file.name,
+      title: htmlResult.title,
+      language: htmlResult.language,
+      pageCount: htmlResult.pageCount,
+    },
     progress => {
       updateProgress(progress);
       setStatus(toLocalizedProgressMessage(progress));
