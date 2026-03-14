@@ -12,7 +12,9 @@
   "dependencies": {
     "docx": "^9.6.0",
     "fflate": "^0.8.2",
+    "html2canvas": "^1.4.1",
     "html2pdf.js": "^0.14.0",
+    "jspdf": "^4.2.0",
     "katex": "^0.16.33",
     "mammoth": "^1.11.0",
     "markdown-it": "^14.1.1",

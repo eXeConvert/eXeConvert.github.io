@@ -25,8 +25,9 @@ import {
   type MathComponent,
   type ParagraphChild,
 } from 'docx';
-import html2pdf from 'html2pdf.js';
+import html2canvas from 'html2canvas';
 import { unzipSync } from 'fflate';
+import { jsPDF } from 'jspdf';
 import { mml2omml } from 'mathml2omml';
 import temml from 'temml';
 import mammoth from 'mammoth';
@@ -320,34 +321,122 @@ export async function buildPdfBlobFromPrintableHtml(
       });
     });
 
-    const source = frameDocument.body;
-    const worker = new html2pdf.Worker();
-    worker.set({
-      filename: options?.title || frameDocument.title || 'document.pdf',
-      margin: 0,
-      image: { type: 'jpeg', quality: 0.98 },
-      html2canvas: {
-        scale: 2,
+    const source = frameDocument.querySelector<HTMLElement>('.pdf-preview') || frameDocument.body;
+    const pdf = new jsPDF({
+      unit: 'pt',
+      format: 'a4',
+      orientation: 'portrait',
+      compress: true,
+    });
+    const pdfWidth = pdf.internal.pageSize.getWidth();
+    const pdfHeight = pdf.internal.pageSize.getHeight();
+    const horizontalPadding = 24;
+    const usableWidth = pdfWidth - horizontalPadding * 2;
+    const pageHeightPx = Math.floor((pdfHeight * source.clientWidth) / usableWidth);
+    const chunkTargets = buildPdfChunkTargets(frameDocument, source, pageHeightPx);
+
+    let firstPdfPage = true;
+    for (let index = 0; index < chunkTargets.length; index += 1) {
+      onProgress?.({
+        phase: 'pdf',
+        message: `Generando el documento .pdf... (${index + 1}/${chunkTargets.length})`,
+      });
+
+      const canvas = await html2canvas(chunkTargets[index], {
+        scale: 1.5,
         useCORS: true,
         backgroundColor: '#ffffff',
         windowWidth: Math.max(source.scrollWidth, 1024),
-      },
-      jsPDF: {
-        unit: 'pt',
-        format: 'a4',
-        orientation: 'portrait',
-      },
-      pagebreak: {
-        mode: ['css', 'legacy'],
-      },
-    } as Parameters<typeof worker.set>[0] & {
-      pagebreak: { mode: string[] };
-    });
+      });
 
-    return worker.from(source).outputPdf('blob');
+      const sliceHeight = Math.max(1, Math.floor((canvas.width * pdfHeight) / usableWidth));
+      let offsetY = 0;
+      while (offsetY < canvas.height) {
+        const currentSliceHeight = Math.min(sliceHeight, canvas.height - offsetY);
+        const sliceCanvas = document.createElement('canvas');
+        sliceCanvas.width = canvas.width;
+        sliceCanvas.height = currentSliceHeight;
+        const sliceContext = sliceCanvas.getContext('2d');
+        if (!sliceContext) {
+          throw new Error('No se pudo preparar el lienzo del PDF.');
+        }
+        sliceContext.fillStyle = '#ffffff';
+        sliceContext.fillRect(0, 0, sliceCanvas.width, sliceCanvas.height);
+        sliceContext.drawImage(
+          canvas,
+          0,
+          offsetY,
+          canvas.width,
+          currentSliceHeight,
+          0,
+          0,
+          sliceCanvas.width,
+          currentSliceHeight,
+        );
+
+        if (!firstPdfPage) {
+          pdf.addPage();
+        }
+        firstPdfPage = false;
+
+        const renderedHeight = (currentSliceHeight * usableWidth) / canvas.width;
+        pdf.addImage(sliceCanvas, 'JPEG', horizontalPadding, 0, usableWidth, renderedHeight, undefined, 'FAST');
+        offsetY += currentSliceHeight;
+      }
+    }
+
+    return pdf.output('blob');
   } finally {
     iframe.remove();
   }
+}
+
+function buildPdfChunkTargets(
+  frameDocument: Document,
+  source: HTMLElement,
+  targetPageHeightPx: number,
+): HTMLElement[] {
+  const blockElements = Array.from(source.children).filter((child): child is HTMLElement => child instanceof HTMLElement);
+  if (blockElements.length === 0) {
+    return [source];
+  }
+
+  const chunks: HTMLElement[] = [];
+  let currentChunk = createPdfChunkContainer(frameDocument, source);
+  let currentHeight = 0;
+  const threshold = Math.max(targetPageHeightPx * 2, 1800);
+
+  for (const block of blockElements) {
+    const estimatedHeight = Math.max(block.offsetHeight, 80);
+    if (currentHeight > 0 && currentHeight + estimatedHeight > threshold) {
+      chunks.push(currentChunk);
+      currentChunk = createPdfChunkContainer(frameDocument, source);
+      currentHeight = 0;
+    }
+
+    currentChunk.append(block.cloneNode(true));
+    currentHeight += estimatedHeight;
+  }
+
+  if (currentChunk.childElementCount > 0) {
+    chunks.push(currentChunk);
+  }
+
+  return chunks;
+}
+
+function createPdfChunkContainer(frameDocument: Document, source: HTMLElement): HTMLElement {
+  const chunk = frameDocument.createElement('div');
+  chunk.className = source.className;
+  Object.assign(chunk.style, {
+    width: `${source.clientWidth}px`,
+    margin: '0',
+    padding: source.style.padding || '18mm 16mm',
+    background: '#ffffff',
+    boxSizing: 'border-box',
+    boxShadow: 'none',
+  });
+  return chunk;
 }
 
 export async function inspectElpxPages(file: File): Promise<ElpxPageInfo[]> {
