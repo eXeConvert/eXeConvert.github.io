@@ -31,7 +31,7 @@ jobs:
       - name: Pack npm package
         id: pack
         run: |
-          PACKAGE_FILE=$(npm pack)
+          PACKAGE_FILE=$(npm pack | tail -n 1)
           echo "package_file=${PACKAGE_FILE}" >> "$GITHUB_OUTPUT"
 
       - name: Upload package artifact
