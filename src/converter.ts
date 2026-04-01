@@ -2980,7 +2980,10 @@ function convertBlockNode(
   }
 
   const heading = getHeadingLevel(tag);
-  const paragraphChildren = inlineChildrenFromNode(node);
+  const paragraphChildren =
+    tag === 'p' && containsPotentialMultilineLatex(node)
+      ? parseInlineText(collectInlineTextWithLineBreaks(node), {})
+      : inlineChildrenFromNode(node);
   const alignment = getParagraphAlignment(node);
 
   if (tag === 'hr') {
@@ -3013,6 +3016,32 @@ function convertBlockNode(
       spacing: { after: tag.startsWith('h') ? 180 : 120 },
     }),
   ];
+}
+
+function containsPotentialMultilineLatex(node: HTMLElement): boolean {
+  const text = collectInlineTextWithLineBreaks(node);
+  return (
+    (text.includes('\\[') || text.includes('\\(') || text.includes('$$') || /\\begin\{[a-z*]+\}/i.test(text)) &&
+    node.querySelector('br') !== null
+  );
+}
+
+function collectInlineTextWithLineBreaks(node: Node): string {
+  if (node.nodeType === Node.TEXT_NODE) {
+    return node.textContent || '';
+  }
+
+  if (!(node instanceof HTMLElement)) {
+    return '';
+  }
+
+  if (node.tagName.toLowerCase() === 'br') {
+    return '\n';
+  }
+
+  return Array.from(node.childNodes)
+    .map(child => collectInlineTextWithLineBreaks(child))
+    .join('');
 }
 
 function isStructuralBlockContainer(tag: string): boolean {

@@ -93,7 +93,7 @@ if (!app) {
   throw new Error('No se ha encontrado el contenedor principal.');
 }
 
-const APP_VERSION = 'v0.1.0';
+const APP_VERSION = 'v0.1.1';
 const ANALYTICS_FALLBACK_ENDPOINT = 'https://bilateria.org/app/estadistica/execonvert/track.php';
 const ANALYTICS_FALLBACK_STATS_URL = 'https://bilateria.org/app/estadistica/execonvert/admin-stats.php';
 const ANALYTICS_VISIT_COOLDOWN_MS = 30 * 60 * 1000;

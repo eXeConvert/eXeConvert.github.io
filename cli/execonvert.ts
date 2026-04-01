@@ -35,7 +35,7 @@ type StructureOptions = {
 };
 
 type ParsedArgs = {
-  command: 'convert' | 'inspect' | 'help';
+  command: 'convert' | 'inspect' | 'help' | 'version';
   inputPath?: string;
   outputPath?: string;
   locale: Locale;
@@ -49,6 +49,8 @@ type ParsedArgs = {
   pageIds: string[];
 };
 
+const CLI_VERSION = '0.1.1';
+
 type ProgressLike = {
   phase: string;
   message: string;
@@ -60,9 +62,12 @@ type CliTranslator = {
   t: (key: string, vars?: Record<string, string | number>) => string;
 };
 
+type ConsoleMethod = (...args: unknown[]) => void;
+
 const cliMessages: Record<Locale, Record<string, string>> = {
   es: {
     'help.title': 'CLI de eXeConvert',
+    'help.versionLine': 'Versión: {version}',
     'help.usage': 'Uso',
     'help.inputs': 'Entradas compatibles',
     'help.outputs': 'Salidas compatibles',
@@ -87,6 +92,7 @@ const cliMessages: Record<Locale, Record<string, string>> = {
     'help.option.h4': 'idevice | subpage',
     'help.option.lang': 'es | ca | en',
     'help.option.help': 'Muestra esta ayuda',
+    'help.option.version': 'Muestra la versión',
     'error.inspectArity': 'inspect espera exactamente un archivo de entrada.',
     'error.convertArity': 'convert espera exactamente un archivo de entrada y uno de salida.',
     'error.unknownOption': 'Opción desconocida: {value}',
@@ -104,6 +110,7 @@ const cliMessages: Record<Locale, Record<string, string>> = {
   },
   ca: {
     'help.title': 'CLI d’eXeConvert',
+    'help.versionLine': 'Versió: {version}',
     'help.usage': 'Ús',
     'help.inputs': 'Entrades compatibles',
     'help.outputs': 'Sortides compatibles',
@@ -128,6 +135,7 @@ const cliMessages: Record<Locale, Record<string, string>> = {
     'help.option.h4': 'idevice | subpage',
     'help.option.lang': 'es | ca | en',
     'help.option.help': 'Mostra aquesta ajuda',
+    'help.option.version': 'Mostra la versió',
     'error.inspectArity': 'inspect espera exactament un fitxer d’entrada.',
     'error.convertArity': 'convert espera exactament un fitxer d’entrada i un de sortida.',
     'error.unknownOption': 'Opció desconeguda: {value}',
@@ -145,6 +153,7 @@ const cliMessages: Record<Locale, Record<string, string>> = {
   },
   en: {
     'help.title': 'eXeConvert CLI',
+    'help.versionLine': 'Version: {version}',
     'help.usage': 'Usage',
     'help.inputs': 'Supported inputs',
     'help.outputs': 'Supported outputs',
@@ -169,6 +178,7 @@ const cliMessages: Record<Locale, Record<string, string>> = {
     'help.option.h4': 'idevice | subpage',
     'help.option.lang': 'es | ca | en',
     'help.option.help': 'Show this help',
+    'help.option.version': 'Show the version',
     'error.inspectArity': 'inspect expects exactly one input file.',
     'error.convertArity': 'convert expects exactly one input file and one output file.',
     'error.unknownOption': 'Unknown option: {value}',
@@ -244,6 +254,7 @@ function resolveCliLocale(argv: string[]): Locale {
 
 function printHelp(t: CliTranslator['t']): void {
   stdout.write(`${t('help.title')}
+${t('help.versionLine', { version: CLI_VERSION })}
 
 ${t('help.usage')}:
   execonvert <input> <output> [options]
@@ -273,6 +284,7 @@ ${t('help.options')}:
   --h4 <mode>             ${t('help.option.h4')}
   --lang <code>           ${t('help.option.lang')}
   --help                  ${t('help.option.help')}
+  --version               ${t('help.option.version')}
 
 ${t('help.examples')}:
   execonvert notes.md notes.elpx --h1 resource-title --h2 subpage --h3 idevice
@@ -297,6 +309,10 @@ function parseArgs(argv: string[], t: CliTranslator['t'], locale: Locale): Parse
   };
 
   const args = [...argv];
+  if (args.includes('--version') || args.includes('-V')) {
+    return { ...defaults, command: 'version' };
+  }
+
   if (args.length === 0 || args.includes('--help') || args.includes('-h')) {
     return { ...defaults, command: 'help' };
   }
@@ -489,6 +505,11 @@ function progressLogger(progress: ProgressLike, i18n: CliTranslator): void {
     'Componiendo el documento .pdf...': i18n.t('progress.composePdf'),
   };
   const localizedMessage = progress.messageKey ? i18n.t(progress.messageKey) : (phaseMessages[progress.message] || progress.message);
+  const signature = `${progress.phase}:${localizedMessage}`;
+  if (signature === lastProgressSignature) {
+    return;
+  }
+  lastProgressSignature = signature;
   stderr.write(`[${progress.phase}] ${localizedMessage}\n`);
 }
 
@@ -786,13 +807,48 @@ function printConvertResult(json: boolean, payload: Record<string, unknown>, t: 
 }
 
 let currentCliTranslator = createCliTranslator('en');
+let lastProgressSignature = '';
+
+function formatConsoleArgs(args: unknown[]): string {
+  return args.map(value => (typeof value === 'string' ? value : String(value))).join(' ');
+}
+
+function shouldSuppressCliConsoleMessage(message: string): boolean {
+  const normalized = message.trim();
+  return (
+    normalized.startsWith('[SharedImporters]') ||
+    normalized.startsWith('[SharedExporters]') ||
+    normalized.startsWith('[BrowserAssetProvider]') ||
+    normalized.startsWith('[BaseExporter] Internal link target not found:')
+  );
+}
+
+function installCliConsoleFilter(): void {
+  const wrap = (original: ConsoleMethod): ConsoleMethod =>
+    (...args: unknown[]) => {
+      const message = formatConsoleArgs(args);
+      if (shouldSuppressCliConsoleMessage(message)) {
+        return;
+      }
+      original(...args);
+    };
+
+  console.log = wrap(console.log.bind(console));
+  console.warn = wrap(console.warn.bind(console));
+}
 
 async function main(): Promise<void> {
   const locale = resolveCliLocale(process.argv.slice(2));
   currentCliTranslator = createCliTranslator(locale);
+  installCliConsoleFilter();
   const args = parseArgs(process.argv.slice(2), currentCliTranslator.t, locale);
+  lastProgressSignature = '';
   if (args.command === 'help') {
     printHelp(currentCliTranslator.t);
+    return;
+  }
+  if (args.command === 'version') {
+    stdout.write(`${CLI_VERSION}\n`);
     return;
   }
   if (args.command === 'inspect') {

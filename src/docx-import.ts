@@ -62,7 +62,7 @@ interface PreviewPageInfo {
   parentIndex: number | null;
 }
 
-const EXECONVERT_SIGNATURE = 'eXeConvert v0.1.0';
+const EXECONVERT_SIGNATURE = 'eXeConvert v0.1.1';
 
 type OmmlToMathMl = (element: Element) => Element;
 
