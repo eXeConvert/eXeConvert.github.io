@@ -136,7 +136,7 @@ const dictionaries: Record<Locale, Record<string, string>> = {
     'save.type.pdf': 'Documento PDF',
     'save.type.docx': 'Documento de Word',
 
-    'footer.version': 'Versión beta · {version} · ©',
+    'footer.version': 'Versión {version} · ©',
     'footer.license': 'Licencia AGPLv3',
     'footer.repo': 'Repositorio GitHub',
     'footer.issues': 'Problemas y sugerencias',
@@ -299,7 +299,7 @@ const dictionaries: Record<Locale, Record<string, string>> = {
     'save.type.pdf': 'Document PDF',
     'save.type.docx': 'Document de Word',
 
-    'footer.version': 'Versió beta · {version} · ©',
+    'footer.version': 'Versió {version} · ©',
     'footer.license': 'Llicència AGPLv3',
     'footer.repo': 'Repositori GitHub',
     'footer.issues': 'Problemes i suggeriments',
@@ -462,7 +462,7 @@ const dictionaries: Record<Locale, Record<string, string>> = {
     'save.type.pdf': 'PDF document',
     'save.type.docx': 'Word document',
 
-    'footer.version': 'Beta version · {version} · ©',
+    'footer.version': 'Version {version} · ©',
     'footer.license': 'AGPLv3 License',
     'footer.repo': 'GitHub repository',
     'footer.issues': 'Issues and suggestions',

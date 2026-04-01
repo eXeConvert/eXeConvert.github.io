@@ -3323,6 +3323,13 @@ function inlineChildrenFromNode(node: Node, style: InlineStyle = {}): ParagraphC
     return [new TextRun({ break: 1, ...style })];
   }
 
+  if (tag === 'math') {
+    const mathComponent = buildMathMlComponent(node);
+    if (mathComponent) {
+      return [mathComponent];
+    }
+  }
+
   if (tag === 'img') {
     const imageRun = buildImageRun(node);
     if (imageRun) {
@@ -3698,6 +3705,85 @@ function sanitizeLatexMathExpression(expression: string): string {
     .trim();
 }
 
+function normalizeMathMlForOmml(mathMl: string): string {
+  const stripped = mathMl
+    .replace(/<\/?mpadded\b[^>]*>/g, '')
+    .replace(/<annotation(?:-xml)?\b[\s\S]*?<\/annotation(?:-xml)?>/g, '');
+
+  try {
+    const parser = new DOMParser();
+    const document = parser.parseFromString(stripped, 'application/xml');
+    const mpaddedNodes = Array.from(document.getElementsByTagName('mpadded'));
+
+    for (const node of mpaddedNodes) {
+      const parent = node.parentNode;
+      if (!parent) {
+        continue;
+      }
+
+      while (node.firstChild) {
+        parent.insertBefore(node.firstChild, node);
+      }
+
+      parent.removeChild(node);
+    }
+
+    const semanticsNodes = Array.from(document.getElementsByTagName('semantics'));
+    for (const node of semanticsNodes) {
+      const parent = node.parentNode;
+      if (!parent) {
+        continue;
+      }
+
+      while (node.firstChild) {
+        parent.insertBefore(node.firstChild, node);
+      }
+
+      parent.removeChild(node);
+    }
+
+    const annotationNodes = [
+      ...Array.from(document.getElementsByTagName('annotation')),
+      ...Array.from(document.getElementsByTagName('annotation-xml')),
+    ];
+    for (const node of annotationNodes) {
+      const parent = node.parentNode;
+      if (!parent) {
+        continue;
+      }
+      parent.removeChild(node);
+    }
+
+    return new XMLSerializer().serializeToString(document);
+  } catch {
+    return stripped;
+  }
+}
+
+function buildMathMlComponent(mathNode: Element): ParagraphChild | null {
+  try {
+    const mathMl = new XMLSerializer().serializeToString(mathNode);
+    const normalizedMathMl = normalizeMathMlForOmml(mathMl);
+    const omml = mml2omml(normalizedMathMl);
+    if (!omml.includes('<m:oMath')) {
+      return null;
+    }
+
+    const imported = ImportedXmlComponent.fromXmlString(omml) as ImportedXmlComponent & {
+      rootKey?: string;
+      root?: ParagraphChild[];
+    };
+
+    if (imported.rootKey) {
+      return imported as unknown as ParagraphChild;
+    }
+
+    return imported.root?.[0] ?? null;
+  } catch {
+    return null;
+  }
+}
+
 function buildLatexMathComponent(expression: string, displayMode: boolean): ParagraphChild | null {
   try {
     const mathMl = temml.renderToString(expression.trim(), {
@@ -3716,22 +3802,10 @@ function buildLatexMathComponent(expression: string, displayMode: boolean): Para
       return null;
     }
 
-    const omml = mml2omml(mathMl);
-    if (!omml.includes('<m:oMath')) {
-      return null;
-    }
-
-    const imported = ImportedXmlComponent.fromXmlString(omml) as ImportedXmlComponent & {
-      rootKey?: string;
-      root?: ParagraphChild[];
-    };
-
-    if (imported.rootKey) {
-      return imported as unknown as ParagraphChild;
-    }
-
-    const firstChild = imported.root?.[0];
-    return firstChild ?? null;
+    const container = document.createElement('div');
+    container.innerHTML = mathMl;
+    const mathNode = container.querySelector('math');
+    return mathNode ? buildMathMlComponent(mathNode) : null;
   } catch {
     return null;
   }

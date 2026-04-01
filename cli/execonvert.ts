@@ -64,8 +64,18 @@ const cliMessages: Record<Locale, Record<string, string>> = {
   es: {
     'help.title': 'CLI de eXeConvert',
     'help.usage': 'Uso',
+    'help.inputs': 'Entradas compatibles',
+    'help.outputs': 'Salidas compatibles',
     'help.options': 'Opciones',
     'help.examples': 'Ejemplos',
+    'help.input.elp': '.elp',
+    'help.input.elpx': '.elpx',
+    'help.input.docx': '.docx',
+    'help.input.markdown': '.md, .txt',
+    'help.output.elp': 'desde .elp: .elpx, .md, .docx, .pdf',
+    'help.output.elpx': 'desde .elpx: .md, .docx, .pdf',
+    'help.output.docx': 'desde .docx: .elpx',
+    'help.output.markdown': 'desde .md/.txt: .elpx',
     'help.option.json': 'Imprime JSON legible por máquina',
     'help.option.pages': 'Exporta solo las referencias de página seleccionadas de un .elpx',
     'help.option.pageId': 'Exporta solo el identificador interno de página indicado (repetible)',
@@ -95,8 +105,18 @@ const cliMessages: Record<Locale, Record<string, string>> = {
   ca: {
     'help.title': 'CLI d’eXeConvert',
     'help.usage': 'Ús',
+    'help.inputs': 'Entrades compatibles',
+    'help.outputs': 'Sortides compatibles',
     'help.options': 'Opcions',
     'help.examples': 'Exemples',
+    'help.input.elp': '.elp',
+    'help.input.elpx': '.elpx',
+    'help.input.docx': '.docx',
+    'help.input.markdown': '.md, .txt',
+    'help.output.elp': 'des de .elp: .elpx, .md, .docx, .pdf',
+    'help.output.elpx': 'des de .elpx: .md, .docx, .pdf',
+    'help.output.docx': 'des de .docx: .elpx',
+    'help.output.markdown': 'des de .md/.txt: .elpx',
     'help.option.json': 'Imprimeix JSON llegible per màquines',
     'help.option.pages': 'Exporta només les referències de pàgina seleccionades d’un .elpx',
     'help.option.pageId': 'Exporta només l’identificador intern de pàgina indicat (repetible)',
@@ -126,8 +146,18 @@ const cliMessages: Record<Locale, Record<string, string>> = {
   en: {
     'help.title': 'eXeConvert CLI',
     'help.usage': 'Usage',
+    'help.inputs': 'Supported inputs',
+    'help.outputs': 'Supported outputs',
     'help.options': 'Options',
     'help.examples': 'Examples',
+    'help.input.elp': '.elp',
+    'help.input.elpx': '.elpx',
+    'help.input.docx': '.docx',
+    'help.input.markdown': '.md, .txt',
+    'help.output.elp': 'from .elp: .elpx, .md, .docx, .pdf',
+    'help.output.elpx': 'from .elpx: .md, .docx, .pdf',
+    'help.output.docx': 'from .docx: .elpx',
+    'help.output.markdown': 'from .md/.txt: .elpx',
     'help.option.json': 'Print machine-readable JSON',
     'help.option.pages': 'Export only selected page refs from an .elpx input',
     'help.option.pageId': 'Export only the given internal page id (repeatable)',
@@ -218,6 +248,18 @@ function printHelp(t: CliTranslator['t']): void {
 ${t('help.usage')}:
   execonvert <input> <output> [options]
   execonvert inspect <input> [--json]
+
+${t('help.inputs')}:
+  ${t('help.input.elp')}
+  ${t('help.input.elpx')}
+  ${t('help.input.docx')}
+  ${t('help.input.markdown')}
+
+${t('help.outputs')}:
+  ${t('help.output.elp')}
+  ${t('help.output.elpx')}
+  ${t('help.output.docx')}
+  ${t('help.output.markdown')}
 
 ${t('help.options')}:
   --json                  ${t('help.option.json')}
