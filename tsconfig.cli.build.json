@@ -1,0 +1,15 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "types": ["node", "vite/client"],
+    "noEmit": false,
+    "outDir": "./dist/cli",
+    "rootDir": ".",
+    "declaration": false,
+    "sourceMap": false,
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext"
+  },
+  "include": ["cli/**/*.ts", "src/**/*.ts"],
+  "exclude": ["src/main.ts", "app/**/*.ts", "vite.config.ts"]
+}

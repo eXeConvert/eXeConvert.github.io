@@ -1,6 +1,6 @@
 import { unzipSync } from 'fflate';
 import * as Y from 'yjs';
-import type { DocxImportProgress, ImportToElpxResult } from './docx-import';
+import type { DocxImportProgress, ImportToElpxResult } from './docx-import.js';
 
 interface ExelearningImportResult {
   pages: number;
@@ -146,6 +146,7 @@ const IDEVICE_TYPE_MAP: Record<string, string> = {
 
 let bundleLoadPromise: Promise<void> | null = null;
 let previewObjectUrls: string[] = [];
+const loadedScriptUrls = new Set<string>();
 
 export async function convertElpToElpx(
   file: File,
@@ -241,10 +242,28 @@ function windowProxy(): WindowWithExelearning {
 }
 
 function resolvePublicUrl(path: string): string {
-  return new URL(path, document.baseURI).toString();
+  const normalizedPath = path.replace(/^\/+/, '');
+  const baseUrl = import.meta.env?.BASE_URL ?? '/';
+  return new URL(normalizedPath, new URL(baseUrl, 'http://localhost/')).pathname;
 }
 
 function loadScript(src: string): Promise<void> {
+  if (isNodeLikeRuntime()) {
+    if (loadedScriptUrls.has(src)) {
+      return Promise.resolve();
+    }
+
+    return (async () => {
+      const response = await fetch(src);
+      if (!response.ok) {
+        throw new Error(`No se ha podido cargar ${src}`);
+      }
+      const code = await response.text();
+      globalThis.eval(`${code}\n//# sourceURL=${src}`);
+      loadedScriptUrls.add(src);
+    })();
+  }
+
   const existing = document.querySelector<HTMLScriptElement>(`script[data-exe-src="${src}"]`);
   if (existing) {
     if (existing.dataset.loaded === 'true') {
@@ -268,6 +287,10 @@ function loadScript(src: string): Promise<void> {
     script.addEventListener('error', () => reject(new Error(`No se ha podido cargar ${src}`)), { once: true });
     document.head.append(script);
   });
+}
+
+function isNodeLikeRuntime(): boolean {
+  return typeof process !== 'undefined' && !!process.versions?.node;
 }
 
 class MemoryDocumentManager {

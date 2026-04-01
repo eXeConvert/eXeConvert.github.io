@@ -6,7 +6,7 @@ import {
   type DocxImportOptions,
   type DocxImportProgress,
   type ImportToElpxResult,
-} from './docx-import';
+} from './docx-import.js';
 
 const markdown = new MarkdownIt({
   html: false,

@@ -31,9 +31,9 @@ import { mml2omml } from 'mathml2omml';
 import temml from 'temml';
 import mammoth from 'mammoth';
 // @ts-expect-error browser bundle import without stable typings
-import pdfMake from 'pdfmake/build/pdfmake';
+import pdfMake from 'pdfmake/build/pdfmake.js';
 // @ts-expect-error virtual font bundle import without stable typings
-import pdfFonts from 'pdfmake/build/vfs_fonts';
+import pdfFonts from 'pdfmake/build/vfs_fonts.js';
 
 export interface ConvertProgress {
   phase: 'read' | 'parse' | 'filter' | 'render' | 'docx' | 'pdf';
@@ -303,11 +303,11 @@ export async function buildPdfBlobFromPrintableHtml(
 
   const parsed = new DOMParser().parseFromString(htmlDocument, 'text/html');
   const source = parsed.querySelector<HTMLElement>('.pdf-preview') || parsed.body;
-  const contentHtml = await sanitizeHtmlForPdfMake(
-    source?.innerHTML?.trim() || '<p>El proyecto no contiene contenido exportable.</p>',
-  );
+  const rawContentHtml = source?.innerHTML?.trim() || '<p>El proyecto no contiene contenido exportable.</p>';
+  const contentHtml = await sanitizeHtmlForPdfMake(rawContentHtml);
+  const pdfWindow = await resolvePdfMakeWindow();
   const converted = htmlToPdfmake(contentHtml, {
-    window,
+    window: pdfWindow,
     tableAutoSize: false,
     removeExtraBlanks: true,
     defaultStyles: {
@@ -324,6 +324,10 @@ export async function buildPdfBlobFromPrintableHtml(
       a: { color: '#1f4e79', decoration: 'underline' },
     },
   });
+  const fallbackSourceHtml = contentHtml.trim() ? contentHtml : rawContentHtml;
+  const normalizedContent = Array.isArray(converted) && converted.length === 0
+    ? buildResilientFallbackPdfContent(source, fallbackSourceHtml)
+    : converted;
 
   onProgress?.({ phase: 'pdf', message: 'Componiendo el documento .pdf...' });
 
@@ -335,7 +339,7 @@ export async function buildPdfBlobFromPrintableHtml(
       fontSize: 11,
       lineHeight: 1.25,
     },
-    content: Array.isArray(converted) ? converted : [converted],
+    content: Array.isArray(normalizedContent) ? normalizedContent : [normalizedContent],
     info: {
       title: options?.title || parsed.title || 'Documento PDF',
     },
@@ -363,6 +367,340 @@ export async function buildPdfBlobFromPrintableHtml(
       }
     }
     throw error;
+  }
+}
+
+async function resolvePdfMakeWindow(): Promise<Window & typeof globalThis> {
+  const createPdfWindow = (globalThis as {
+    __execonvertCreatePdfWindow?: () => Window & typeof globalThis;
+  }).__execonvertCreatePdfWindow;
+  if (typeof createPdfWindow === 'function') {
+    return createPdfWindow();
+  }
+  return window;
+}
+
+export async function buildPdfBlobFromMarkdownText(
+  markdown: string,
+  options?: PrintableHtmlOptions,
+  onProgress?: (progress: ConvertProgress) => void,
+): Promise<Blob> {
+  onProgress?.({ phase: 'pdf', message: 'Generando el documento .pdf...' });
+  ensurePdfMakeFonts();
+
+  const content = markdownToPdfMakeContent(markdown);
+
+  onProgress?.({ phase: 'pdf', message: 'Componiendo el documento .pdf...' });
+
+  const docDefinition = {
+    pageSize: 'A4',
+    pageMargins: [48, 48, 48, 48] as [number, number, number, number],
+    defaultStyle: {
+      font: 'Roboto',
+      fontSize: 11,
+      lineHeight: 1.25,
+    },
+    content,
+    info: {
+      title: options?.title || 'Documento PDF',
+    },
+  };
+
+  const pdf = pdfMake.createPdf(docDefinition);
+  return await pdf.getBlob();
+}
+
+function markdownToPdfMakeContent(markdown: string): unknown[] {
+  const content: unknown[] = [];
+  const lines = markdown.replace(/\r/g, '').split('\n');
+  const headingSizes = [0, 22, 18, 15, 13, 12, 11];
+  let paragraph: string[] = [];
+  let codeBlock: string[] = [];
+  let inCodeBlock = false;
+  let index = 0;
+
+  const flushParagraph = () => {
+    const text = normalizeWhitespace(paragraph.join(' '));
+    if (text) {
+      content.push({ text, margin: [0, 0, 0, 10] });
+    }
+    paragraph = [];
+  };
+
+  const flushCodeBlock = () => {
+    const text = codeBlock.join('\n').trimEnd();
+    if (text) {
+      content.push({ text, margin: [0, 0, 0, 10] });
+    }
+    codeBlock = [];
+  };
+
+  while (index < lines.length) {
+    const line = lines[index];
+    const trimmed = line.trim();
+
+    if (trimmed.startsWith('```')) {
+      flushParagraph();
+      if (inCodeBlock) {
+        flushCodeBlock();
+      }
+      inCodeBlock = !inCodeBlock;
+      index += 1;
+      continue;
+    }
+
+    if (inCodeBlock) {
+      codeBlock.push(line);
+      index += 1;
+      continue;
+    }
+
+    if (!trimmed) {
+      flushParagraph();
+      index += 1;
+      continue;
+    }
+
+    const imageMatch = trimmed.match(/^!\[([^\]]*)\]\((.+)\)$/);
+    if (imageMatch) {
+      flushParagraph();
+      const alt = normalizeWhitespace(imageMatch[1]) || 'Imagen';
+      const src = imageMatch[2].trim();
+      if (src.startsWith('data:image/')) {
+        content.push({ image: src, fit: [495, 680], margin: [0, 0, 0, 10] });
+        if (alt && alt !== 'Imagen') {
+          content.push({ text: alt, italics: true, color: '#555555', margin: [0, 0, 0, 10] });
+        }
+      } else {
+        content.push({ text: `${alt}: ${src}`, italics: true, color: '#555555', margin: [0, 0, 0, 10] });
+      }
+      index += 1;
+      continue;
+    }
+
+    const headingMatch = trimmed.match(/^(#{1,6})\s+(.*)$/);
+    if (headingMatch) {
+      flushParagraph();
+      const level = headingMatch[1].length;
+      const text = normalizeWhitespace(headingMatch[2]);
+      if (text) {
+        content.push({
+          text,
+          bold: true,
+          fontSize: headingSizes[level] || 11,
+          margin: [0, level === 1 ? 0 : 10, 0, 8],
+        });
+      }
+      index += 1;
+      continue;
+    }
+
+    const listMatch = trimmed.match(/^[-*]\s+(.*)$/);
+    if (listMatch) {
+      flushParagraph();
+      const items: string[] = [];
+      while (index < lines.length) {
+        const candidate = lines[index].trim();
+        const match = candidate.match(/^[-*]\s+(.*)$/);
+        if (!match) {
+          break;
+        }
+        const item = normalizeWhitespace(match[1]);
+        if (item) {
+          items.push(item);
+        }
+        index += 1;
+      }
+      if (items.length > 0) {
+        content.push({ ul: items, margin: [0, 0, 0, 10] });
+      }
+      continue;
+    }
+
+    paragraph.push(trimmed.replace(/!\[([^\]]*)\]\((.+?)\)/g, (_full, alt: string) => `[${normalizeWhitespace(alt) || 'Imagen'}]`));
+    index += 1;
+  }
+
+  flushParagraph();
+  if (inCodeBlock) {
+    flushCodeBlock();
+  }
+
+  return content.length > 0 ? content : [{ text: 'El proyecto no contiene contenido exportable.' }];
+}
+
+function buildFallbackPdfContent(html: string): unknown[] {
+  const parsed = new DOMParser().parseFromString(html, 'text/html');
+  const content: unknown[] = [];
+  appendFallbackPdfNodes(parsed.body, content);
+  if (content.length > 0) {
+    return content;
+  }
+
+  const text = normalizeWhitespace((parsed.body?.textContent || '').replace(/\u00a0/g, ' ')).replace(/\s+([.,;:!?])/g, '$1');
+  if (text) {
+    return [{ text, margin: [0, 0, 0, 10] }];
+  }
+
+  return [{ text: 'El proyecto no contiene contenido exportable.' }];
+}
+
+function buildResilientFallbackPdfContent(root: HTMLElement, html: string): unknown[] {
+  const structured = buildFallbackPdfContent(html);
+  if (!isEmptyPdfPlaceholderContent(structured)) {
+    return structured;
+  }
+
+  const text = normalizeWhitespace((root.textContent || '').replace(/\u00a0/g, ' ')).replace(/\s+([.,;:!?])/g, '$1');
+  if (text) {
+    return [{ text, margin: [0, 0, 0, 10] }];
+  }
+
+  return structured;
+}
+
+function isEmptyPdfPlaceholderContent(content: unknown[]): boolean {
+  return (
+    content.length === 1 &&
+    typeof content[0] === 'object' &&
+    content[0] !== null &&
+    !Array.isArray(content[0]) &&
+    (content[0] as Record<string, unknown>).text === 'El proyecto no contiene contenido exportable.'
+  );
+}
+
+function appendFallbackPdfNodes(root: ParentNode, content: unknown[]): void {
+  for (const node of Array.from(root.childNodes)) {
+    if (node instanceof Text) {
+      const text = normalizeWhitespace(node.textContent || '');
+      if (text) {
+        content.push({ text, margin: [0, 0, 0, 10] });
+      }
+      continue;
+    }
+
+    if (!(node instanceof HTMLElement)) {
+      continue;
+    }
+
+    const tag = node.tagName.toLowerCase();
+    if (/^h[1-6]$/.test(tag)) {
+      const level = Number.parseInt(tag.slice(1), 10) || 1;
+      const sizeByLevel = [0, 22, 18, 15, 13, 12, 11];
+      const text = collectFallbackPdfText(node);
+      if (text) {
+        content.push({
+          text,
+          bold: true,
+          fontSize: sizeByLevel[level] || 11,
+          margin: [0, level === 1 ? 0 : 10, 0, 8],
+        });
+      }
+      continue;
+    }
+
+    if (tag === 'p' || tag === 'figcaption') {
+      const text = collectFallbackPdfText(node);
+      if (text) {
+        content.push({ text, margin: [0, 0, 0, 10] });
+      }
+      continue;
+    }
+
+    if (tag === 'ul' || tag === 'ol') {
+      const items = Array.from(node.children)
+        .filter((child): child is HTMLElement => child instanceof HTMLElement && child.tagName.toLowerCase() === 'li')
+        .map(item => collectFallbackPdfText(item))
+        .filter(Boolean);
+      if (items.length > 0) {
+        content.push({ ul: items, margin: [0, 0, 0, 10] });
+      }
+      continue;
+    }
+
+    if (tag === 'pre') {
+      const text = node.textContent?.replace(/\r/g, '').trim();
+      if (text) {
+        content.push({ text, font: 'Roboto', margin: [0, 0, 0, 10] });
+      }
+      continue;
+    }
+
+    if (tag === 'table') {
+      const rowParents = Array.from(node.children).filter(
+        (child): child is HTMLElement =>
+          child instanceof HTMLElement && ['thead', 'tbody', 'tfoot'].includes(child.tagName.toLowerCase()),
+      );
+      const rows = (rowParents.length > 0
+        ? rowParents.flatMap(parent => Array.from(parent.children))
+        : Array.from(node.children)
+      )
+        .filter((row): row is HTMLElement => row instanceof HTMLElement && row.tagName.toLowerCase() === 'tr')
+        .map(row =>
+          Array.from(row.children)
+            .filter((child): child is HTMLElement => child instanceof HTMLElement && /^(td|th)$/i.test(child.tagName))
+            .map(cell => collectFallbackPdfText(cell))
+            .filter(Boolean),
+        )
+        .filter(row => row.length > 0);
+      for (const row of rows) {
+        content.push({ text: row.join(' | '), margin: [0, 0, 0, 6] });
+      }
+      continue;
+    }
+
+    if (tag === 'img') {
+      const alt = normalizeWhitespace(node.getAttribute('alt') || '') || 'Imagen';
+      content.push({ text: `[${alt}]`, italics: true, color: '#555555', margin: [0, 0, 0, 10] });
+      continue;
+    }
+
+    appendFallbackPdfNodes(node, content);
+  }
+}
+
+function collectFallbackPdfText(root: HTMLElement): string {
+  const parts: string[] = [];
+  appendFallbackInlineText(root, parts);
+  return normalizeWhitespace(parts.join(' ').replace(/\s+([.,;:!?])/g, '$1'));
+}
+
+function appendFallbackInlineText(node: Node, parts: string[]): void {
+  if (node instanceof Text) {
+    const text = normalizeWhitespace(node.textContent || '');
+    if (text) {
+      parts.push(text);
+    }
+    return;
+  }
+
+  if (!(node instanceof HTMLElement)) {
+    return;
+  }
+
+  const tag = node.tagName.toLowerCase();
+  if (tag === 'br') {
+    parts.push('\n');
+    return;
+  }
+
+  if (tag === 'img') {
+    const alt = normalizeWhitespace(node.getAttribute('alt') || '') || 'Imagen';
+    parts.push(`[${alt}]`);
+    return;
+  }
+
+  if (tag === 'a') {
+    const label = normalizeWhitespace(node.textContent || '');
+    const href = normalizeWhitespace(node.getAttribute('href') || '');
+    if (label && href && label !== href) {
+      parts.push(`${label} (${href})`);
+      return;
+    }
+  }
+
+  for (const child of Array.from(node.childNodes)) {
+    appendFallbackInlineText(child, parts);
   }
 }
 
@@ -477,6 +815,17 @@ function normalizePdfMakeTableRow(row: unknown, columnCount: number): unknown[] 
 }
 
 function sanitizePdfMakeNumbers(node: unknown): void {
+  const sanitizeArrayItem = (item: unknown, fallback: number | string): unknown => {
+    if (typeof item === 'number') {
+      return Number.isFinite(item) ? item : fallback;
+    }
+    if (typeof item === 'string') {
+      const sanitized = sanitizePdfMakeNumericString(item);
+      return sanitized === null ? fallback : sanitized;
+    }
+    return item;
+  };
+
   if (Array.isArray(node)) {
     for (let index = 0; index < node.length; index += 1) {
       const value = node[index];
@@ -525,22 +874,12 @@ function sanitizePdfMakeNumbers(node: unknown): void {
 
     if (Array.isArray(value)) {
       if (key === 'widths') {
-        candidate[key] = value.map(item => {
-          if (typeof item === 'number') {
-            return Number.isFinite(item) ? item : '*';
-          }
-          return item;
-        });
+        candidate[key] = value.map(item => sanitizeArrayItem(item, '*'));
         continue;
       }
 
       if (key === 'heights' || key === 'margin' || key === 'fit') {
-        candidate[key] = value.map(item => {
-          if (typeof item === 'number') {
-            return Number.isFinite(item) ? item : 0;
-          }
-          return item;
-        });
+        candidate[key] = value.map(item => sanitizeArrayItem(item, 0));
         continue;
       }
 
@@ -748,7 +1087,18 @@ async function sanitizePdfMakeImages(node: unknown, path = 'docDefinition'): Pro
   }
 
   for (const [key, value] of Object.entries(candidate)) {
+    if (key === 'image' && (value == null || value === '')) {
+      delete candidate[key];
+      if (typeof candidate.text !== 'string' || !candidate.text.trim()) {
+        candidate.text = '[Imagen omitida]';
+      }
+      continue;
+    }
+
     if (key === 'image' && typeof value === 'string' && value.startsWith('data:')) {
+      if (!canRasterizeEmbeddedImages()) {
+        continue;
+      }
       try {
         const normalized = await normalizePdfDataUrlImage(value);
         if (!normalized) {
@@ -864,13 +1214,17 @@ function stripUnsafePdfInlineStyles(root: HTMLElement): void {
 async function normalizePdfImageSources(root: HTMLElement): Promise<void> {
   const images = Array.from(root.querySelectorAll<HTMLImageElement>('img'));
   for (const image of images) {
-    if (image.dataset.pdfDecorative === 'true') {
+    const decorativeFlag = image.getAttribute('data-pdf-decorative') || image.dataset?.pdfDecorative;
+    if (decorativeFlag === 'true') {
       image.remove();
       continue;
     }
 
     const src = (image.getAttribute('src') || '').trim();
     if (src.startsWith('data:')) {
+      if (!canRasterizeEmbeddedImages()) {
+        continue;
+      }
       try {
         const normalized = await normalizePdfDataUrlImage(src);
         if (!normalized) {
@@ -895,6 +1249,18 @@ function replacePdfImageWithPlaceholder(image: HTMLImageElement): void {
   const alt = normalizeWhitespace(image.getAttribute('alt') || '') || 'Imagen omitida en PDF';
   replacement.textContent = `[${alt}]`;
   image.replaceWith(replacement);
+}
+
+function canRasterizeEmbeddedImages(): boolean {
+  try {
+    if (typeof Image !== 'function') {
+      return false;
+    }
+    const canvas = document.createElement('canvas');
+    return typeof canvas.getContext === 'function' && canvas.getContext('2d') != null;
+  } catch {
+    return false;
+  }
 }
 
 async function normalizePdfDataUrlImage(
@@ -1321,7 +1687,7 @@ function readPercentWidth(element: HTMLElement): number | null {
 
 function normalizeLooseImageCaptions(root: HTMLElement): void {
   for (const container of Array.from(root.querySelectorAll<HTMLElement>('div, section, article'))) {
-    if (container.querySelector(':scope > figure')) {
+    if (Array.from(container.children).some(child => child instanceof HTMLElement && child.tagName.toLowerCase() === 'figure')) {
       continue;
     }
 
@@ -1683,16 +2049,34 @@ function parsePageNode(node: Element): ParsedPage | null {
 
   const fragments: string[] = [];
   for (const pageStructure of pageStructures) {
+    const blockTitle = normalizeWhitespace(getDirectText(pageStructure, 'blockName') || '');
     const components = getDirectChildren(pageStructure, 'odeComponents')
       .flatMap(group => getDirectChildren(group, 'odeComponent'))
       .sort((a, b) => getOrder(a, 'odeComponentsOrder') - getOrder(b, 'odeComponentsOrder'));
 
+    const blockFragments: string[] = [];
     for (const component of components) {
       const htmlView = getDirectText(component, 'htmlView');
       if (htmlView) {
-        fragments.push(htmlView);
+        blockFragments.push(htmlView);
       }
     }
+
+    if (blockFragments.length === 0) {
+      continue;
+    }
+
+    const blockHtml = blockFragments.join('\n').trim();
+    if (!blockHtml) {
+      continue;
+    }
+
+    if (blockTitle) {
+      fragments.push(`<h1 class="idevice-title">${escapeHtml(blockTitle)}</h1>\n${blockHtml}`);
+      continue;
+    }
+
+    fragments.push(blockHtml);
   }
 
   return {
@@ -1959,7 +2343,20 @@ function extractExportedPageContent(html: string): string {
 
   const boxContents = Array.from(clone.querySelectorAll<HTMLElement>('article.box > .box-content'));
   if (boxContents.length > 0) {
-    return boxContents.map(box => box.innerHTML.trim()).filter(Boolean).join('\n');
+    return boxContents
+      .map(box => {
+        const article = box.closest('article.box');
+        const title = normalizeWhitespace(
+          article?.querySelector<HTMLElement>('.box-title, .idevice-title, h1, h2, h3, h4, h5, h6')?.textContent || '',
+        );
+        const contentHtml = box.innerHTML.trim();
+        if (!title) {
+          return contentHtml;
+        }
+        return `<h1 class="idevice-title">${escapeHtml(title)}</h1>\n${contentHtml}`;
+      })
+      .filter(Boolean)
+      .join('\n');
   }
 
   return clone.innerHTML.trim();
@@ -4100,14 +4497,17 @@ function sanitizeHtmlFragment(sourceHtml: string, assets: Map<string, AssetEntry
     return '';
   }
 
-  const template = document.createElement('template');
-  template.innerHTML = sourceHtml;
-  markDecorativeImages(template.content);
-  replaceEmbeddedResourceElements(template.content, assets);
-  revealExportableHiddenSections(template.content);
-  template.innerHTML = rewriteAssetReferences(template.innerHTML, assets);
+  sourceHtml = stripEmbeddedArtifactMarkup(sourceHtml);
+  sourceHtml = rewriteEmbeddedResourceMarkup(sourceHtml, assets);
 
-  for (const element of Array.from(template.content.querySelectorAll('*'))) {
+  const container = document.createElement('div');
+  container.innerHTML = sourceHtml;
+  markDecorativeImages(container);
+  replaceEmbeddedResourceElements(container, assets);
+  revealExportableHiddenSections(container);
+  container.innerHTML = rewriteAssetReferences(container.innerHTML, assets);
+
+  for (const element of Array.from(container.querySelectorAll('*'))) {
     for (const attribute of Array.from(element.attributes)) {
       if (attribute.name.startsWith('on')) {
         element.removeAttribute(attribute.name);
@@ -4119,28 +4519,31 @@ function sanitizeHtmlFragment(sourceHtml: string, assets: Map<string, AssetEntry
   }
 
   for (const removable of Array.from(
-    template.content.querySelectorAll('script, noscript, iframe, button, form, input, select, textarea'),
+    container.querySelectorAll('script, style, noscript, template, iframe, button, form, input, select, textarea'),
   )) {
     removable.remove();
   }
 
-  for (const hidden of Array.from(template.content.querySelectorAll<HTMLElement>('*'))) {
+  for (const hidden of Array.from(container.querySelectorAll<HTMLElement>('*'))) {
     if (shouldDropHiddenElement(hidden)) {
       hidden.remove();
     }
   }
 
-  for (const candidate of Array.from(template.content.querySelectorAll<HTMLElement>('div, img, a, p'))) {
+  normalizeInteractiveDetails(container);
+  removeUiScaffolding(container);
+
+  for (const candidate of Array.from(container.querySelectorAll<HTMLElement>('div, img, a, p'))) {
     if (shouldRemovePrintExtraElement(candidate)) {
       candidate.remove();
     }
   }
 
-  for (const details of Array.from(template.content.querySelectorAll('details'))) {
+  for (const details of Array.from(container.querySelectorAll('details'))) {
     details.setAttribute('open', 'open');
   }
 
-  for (const anchor of Array.from(template.content.querySelectorAll('a'))) {
+  for (const anchor of Array.from(container.querySelectorAll('a'))) {
     const href = anchor.getAttribute('href') || '';
     const normalizedHref = href.trim().toLowerCase();
     if (href.startsWith('asset://')) {
@@ -4164,7 +4567,7 @@ function sanitizeHtmlFragment(sourceHtml: string, assets: Map<string, AssetEntry
     }
   }
 
-  for (const image of Array.from(template.content.querySelectorAll('img'))) {
+  for (const image of Array.from(container.querySelectorAll('img'))) {
     const src = image.getAttribute('src') || '';
     const alt = (image.getAttribute('alt') || '').trim();
 
@@ -4184,17 +4587,18 @@ function sanitizeHtmlFragment(sourceHtml: string, assets: Map<string, AssetEntry
     }
   }
 
-  for (const media of Array.from(template.content.querySelectorAll('audio, video'))) {
+  for (const media of Array.from(container.querySelectorAll('audio, video'))) {
     const source = media.getAttribute('src') || media.querySelector('source')?.getAttribute('src') || '';
     const replacement = document.createElement('p');
     replacement.textContent = describeOmittedMedia(source);
     media.replaceWith(replacement);
   }
 
-  flattenFxBlocks(template.content);
+  flattenFxBlocks(container);
+  removeEmbeddedArtifactBlocks(container);
 
   const textNodes: Text[] = [];
-  const walker = document.createTreeWalker(template.content, NodeFilter.SHOW_TEXT);
+  const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
   while (walker.nextNode()) {
     const current = walker.currentNode;
     if (current instanceof Text) {
@@ -4210,12 +4614,13 @@ function sanitizeHtmlFragment(sourceHtml: string, assets: Map<string, AssetEntry
     }
   }
 
-  normalizeHeadingLevels(template.content, pageDepth);
+  normalizeHeadingLevels(container, pageDepth);
+  normalizeMarkdownFriendlyImages(container);
 
-  return template.innerHTML.trim();
+  return stripEmbeddedArtifactMarkup(container.innerHTML.trim());
 }
 
-function markDecorativeImages(root: DocumentFragment): void {
+function markDecorativeImages(root: ParentNode): void {
   for (const image of Array.from(root.querySelectorAll<HTMLImageElement>('img'))) {
     const src = (image.getAttribute('src') || '').trim().toLowerCase();
     if (!src) {
@@ -4236,7 +4641,7 @@ function markDecorativeImages(root: DocumentFragment): void {
   }
 }
 
-function revealExportableHiddenSections(root: DocumentFragment): void {
+function revealExportableHiddenSections(root: ParentNode): void {
   for (const element of Array.from(root.querySelectorAll<HTMLElement>('.feedback, .js-feedback'))) {
     element.classList.remove('js-hidden');
     element.removeAttribute('hidden');
@@ -4261,7 +4666,7 @@ function revealExportableHiddenSections(root: DocumentFragment): void {
   }
 }
 
-function replaceEmbeddedResourceElements(root: DocumentFragment, assets: Map<string, AssetEntry>): void {
+function replaceEmbeddedResourceElements(root: ParentNode, assets: Map<string, AssetEntry>): void {
   for (const element of Array.from(root.querySelectorAll<HTMLElement>('iframe, object, embed'))) {
     element.replaceWith(buildEmbeddedResourcePlaceholder(element, assets));
   }
@@ -4316,14 +4721,64 @@ function buildEmbeddedResourcePlaceholder(element: HTMLElement, assets: Map<stri
   return placeholder;
 }
 
+function rewriteEmbeddedResourceMarkup(sourceHtml: string, assets: Map<string, AssetEntry>): string {
+  return sourceHtml.replace(/<(iframe|object|embed)\b([^>]*)>(?:[\s\S]*?<\/\1>)?/gi, (_full, _tagName: string, attributes: string) =>
+    buildEmbeddedResourcePlaceholderHtml(parseHtmlAttributes(attributes), assets),
+  );
+}
+
+function parseHtmlAttributes(attributes: string): Record<string, string> {
+  const parsed: Record<string, string> = {};
+  const pattern = /([A-Za-z_:][-A-Za-z0-9_:.]*)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/g;
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(attributes)) !== null) {
+    const [, name, doubleQuoted, singleQuoted, unquoted] = match;
+    parsed[name.toLowerCase()] = doubleQuoted ?? singleQuoted ?? unquoted ?? '';
+  }
+  return parsed;
+}
+
+function buildEmbeddedResourcePlaceholderHtml(
+  attributes: Record<string, string>,
+  assets: Map<string, AssetEntry>,
+): string {
+  const source = (attributes.src || attributes.data || '').trim();
+  const kind = classifyEmbeddedResource(source);
+  const label = getEmbeddedResourceLabel(kind);
+  const title = normalizeWhitespace(attributes.title || attributes['aria-label'] || attributes.name || '');
+  const resolvedSource = resolveEmbeddedResourceLink(source, assets);
+
+  if (resolvedSource?.href) {
+    const heading = title ? `${escapeHtml(title)} ` : '';
+    return `<p class="embedded-resource embedded-resource-${kind}"><strong>${escapeHtml(label)}:</strong> ${heading}<a href="${escapeAttribute(resolvedSource.href)}">${escapeHtml(resolvedSource.label)}</a></p>`;
+  }
+
+  if (resolvedSource?.label) {
+    const description = title && title !== resolvedSource.label ? `${escapeHtml(title)} ${escapeHtml(resolvedSource.label)}` : escapeHtml(resolvedSource.label);
+    return `<p class="embedded-resource embedded-resource-${kind}"><strong>${escapeHtml(label)}:</strong> ${description}</p>`;
+  }
+
+  if (title) {
+    return `<p class="embedded-resource embedded-resource-${kind}"><strong>${escapeHtml(label)}:</strong> ${escapeHtml(title)}</p>`;
+  }
+
+  return `<p class="embedded-resource embedded-resource-${kind}"><strong>${escapeHtml(label)}:</strong> Recurso no disponible</p>`;
+}
+
 function getEmbeddedResourceSource(element: HTMLElement): string {
   if (element instanceof HTMLObjectElement) {
     return (element.getAttribute('data') || '').trim();
   }
 
+  const elementWithProperties = element as HTMLElement & { src?: unknown; data?: unknown };
+  const propertySource =
+    (typeof elementWithProperties.src === 'string' ? elementWithProperties.src || '' : '') ||
+    (typeof elementWithProperties.data === 'string' ? elementWithProperties.data || '' : '');
+
   return (
     element.getAttribute('src') ||
     element.getAttribute('data') ||
+    propertySource ||
     element.querySelector('source')?.getAttribute('src') ||
     ''
   ).trim();
@@ -4426,7 +4881,7 @@ function shouldDropHiddenElement(element: HTMLElement): boolean {
   return /\b(js-hidden|sr-av|screen-reader-text|visually-hidden)\b/.test(className);
 }
 
-function flattenFxBlocks(root: DocumentFragment): void {
+function flattenFxBlocks(root: ParentNode): void {
   for (const fxBlock of Array.from(root.querySelectorAll<HTMLElement>('.exe-fx'))) {
     const fragment = document.createDocumentFragment();
     let pendingText = '';
@@ -4474,6 +4929,45 @@ function flattenFxBlocks(root: DocumentFragment): void {
   }
 }
 
+function normalizeInteractiveDetails(root: ParentNode): void {
+  for (const details of Array.from(root.querySelectorAll<HTMLElement>('details'))) {
+    const summary = Array.from(details.children).find(
+      (child): child is HTMLElement => child instanceof HTMLElement && child.tagName.toLowerCase() === 'summary',
+    );
+    if (!summary) {
+      continue;
+    }
+
+    const headingText = extractDetailsHeadingText(summary);
+    if (!headingText) {
+      summary.remove();
+      continue;
+    }
+
+    const heading = details.ownerDocument.createElement('h4');
+    heading.textContent = headingText;
+    summary.replaceWith(heading);
+  }
+}
+
+function extractDetailsHeadingText(summary: HTMLElement): string {
+  const prioritySelectors = ['.acc-h3', '.tab-title', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'strong'];
+  for (const selector of prioritySelectors) {
+    const candidate = summary.querySelector<HTMLElement>(selector);
+    const text = normalizeWhitespace(candidate?.textContent || '');
+    if (text) {
+      return text;
+    }
+  }
+
+  const clone = summary.cloneNode(true) as HTMLElement;
+  for (const removable of Array.from(clone.querySelectorAll('.acc-icon, .acc-arrow, .acc-badge, .nav-num'))) {
+    removable.remove();
+  }
+
+  return normalizeWhitespace(clone.textContent || '');
+}
+
 function describeOmittedMedia(source: string): string {
   if (!source) {
     return 'Recurso multimedia omitido.';
@@ -4489,7 +4983,75 @@ function describeOmittedMedia(source: string): string {
 function sanitizeEmbeddedDataText(value: string): string {
   return value
     .replace(/data:(?:audio|video)\/[a-z0-9.+-]+;base64,[A-Za-z0-9+/=\s]{120,}/gi, '[Recurso multimedia embebido omitido]')
-    .replace(/data:application\/[a-z0-9.+-]+;base64,[A-Za-z0-9+/=\s]{120,}/gi, '[Adjunto embebido omitido]');
+    .replace(/data:application\/[a-z0-9.+-]+;base64,[A-Za-z0-9+/=\s]{120,}/gi, '[Adjunto embebido omitido]')
+    .replace(/%(?:[0-9A-F]{2}){40,}/gi, '[Datos embebidos omitidos]')
+    .replace(/Su navegador no es compatible con esta herramienta\./gi, '');
+}
+
+function stripEmbeddedArtifactMarkup(html: string): string {
+  return html
+    .replace(
+      /<div[^>]+class="[^"]*(?:quext-DataGame|quext-version|quext-bns|game-evaluation-ids|quext-feedback-game)[^"]*"[^>]*>[\s\S]*?<\/div>/gi,
+      '',
+    )
+    .replace(/document\.addEventListener\(['"]DOMContentLoaded['"][^<]+/gi, '')
+    .replace(/\/\*\s*---\s*ESTILOS[\s\S]*?(?=<)/gi, '')
+    .replace(/%(?:[0-9A-F]{2}){40,}/gi, '')
+    .replace(/Su navegador no es compatible con esta herramienta\./gi, '');
+}
+
+function removeEmbeddedArtifactBlocks(root: ParentNode): void {
+  for (const candidate of Array.from(
+    root.querySelectorAll<HTMLElement>(
+      [
+        '.quext-DataGame',
+        '.quext-version',
+        '.quext-bns',
+        '.game-evaluation-ids',
+        '.quext-feedback-game',
+        '.exe-mindmap-code',
+      ].join(', '),
+    ),
+  )) {
+    candidate.remove();
+  }
+
+  for (const candidate of Array.from(root.querySelectorAll<HTMLElement>('div, p, section, article, pre, code'))) {
+    if (containsMeaningfulContent(candidate)) {
+      continue;
+    }
+
+    const text = normalizeWhitespace(candidate.textContent || '');
+    if (!looksLikeEmbeddedArtifact(text)) {
+      continue;
+    }
+
+    candidate.remove();
+  }
+}
+
+function containsMeaningfulContent(element: HTMLElement): boolean {
+  return Boolean(element.querySelector('img, table, ul, ol, dl, figure, blockquote, h1, h2, h3, h4, h5, h6, p'));
+}
+
+function looksLikeEmbeddedArtifact(text: string): boolean {
+  if (text.length < 80) {
+    return false;
+  }
+
+  if (/\/\*\s*---\s*ESTILOS/i.test(text)) {
+    return true;
+  }
+
+  if (/document\.addEventListener\(['"]DOMContentLoaded/i.test(text)) {
+    return true;
+  }
+
+  if (/%(?:[0-9A-F]{2}){40,}/i.test(text)) {
+    return true;
+  }
+
+  return false;
 }
 
 function shouldRemovePrintExtraElement(element: HTMLElement): boolean {
@@ -4532,7 +5094,7 @@ function shouldRemovePrintExtraElement(element: HTMLElement): boolean {
   return false;
 }
 
-function normalizeHeadingLevels(fragment: DocumentFragment, pageDepth: number): void {
+function normalizeHeadingLevels(fragment: ParentNode, pageDepth: number): void {
   const headings = Array.from(fragment.querySelectorAll('h1, h2, h3, h4, h5, h6'));
 
   for (const heading of headings) {
@@ -4548,6 +5110,50 @@ function normalizeHeadingLevels(fragment: DocumentFragment, pageDepth: number): 
     }
     replacement.innerHTML = heading.innerHTML;
     heading.replaceWith(replacement);
+  }
+}
+
+function removeUiScaffolding(root: ParentNode): void {
+  for (const removable of Array.from(
+    root.querySelectorAll<HTMLElement>(
+      [
+        'nav.edu-nav-grid',
+        '.edu-nav-btn',
+        '.nav-num',
+        '.prep-number',
+        '.acc-arrow',
+        '.acc-icon',
+        '.acc-badge',
+        '.kit-section-number',
+        '.exe-dialog-link',
+        '.exe-dialog-text',
+      ].join(', '),
+    ),
+  )) {
+    removable.remove();
+  }
+
+  for (const container of Array.from(root.querySelectorAll<HTMLElement>('.edu-nav-grid, .kit-section-header'))) {
+    if (!normalizeWhitespace(container.textContent || '')) {
+      container.remove();
+    }
+  }
+}
+
+function normalizeMarkdownFriendlyImages(root: ParentNode): void {
+  for (const image of Array.from(root.querySelectorAll<HTMLImageElement>('img'))) {
+    const alt = normalizeWhitespace(image.getAttribute('alt') || '');
+    const title = normalizeWhitespace(image.getAttribute('title') || '');
+    if (alt) {
+      continue;
+    }
+
+    if (title) {
+      image.setAttribute('alt', title);
+      continue;
+    }
+
+    image.setAttribute('alt', 'Imagen');
   }
 }
 
@@ -4573,9 +5179,18 @@ function resolveAssetValue(rawValue: string, assets: Map<string, AssetEntry>): s
   }
 
   const normalized = normalizeAssetPath(rawValue.replace(/^\{\{context_path\}\}\//, ''));
-  const directAsset = assets.get(normalized);
-  if (directAsset) {
-    return toDataUrl(directAsset);
+  const candidates = [
+    normalized,
+    normalizeAssetPath(`resources/${normalized}`),
+    normalizeAssetPath(`content/${normalized}`),
+    normalizeAssetPath(`content/resources/${normalized}`),
+  ];
+
+  for (const candidate of candidates) {
+    const asset = assets.get(candidate);
+    if (asset) {
+      return toDataUrl(asset);
+    }
   }
 
   if (rawValue.startsWith('asset://')) {

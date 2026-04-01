@@ -1,7 +1,7 @@
 import TurndownService from 'turndown';
 // @ts-expect-error turndown-plugin-gfm does not ship TypeScript declarations.
 import { gfm } from 'turndown-plugin-gfm';
-import { convertElpxToHtml, type ConvertProgress } from './converter';
+import { convertElpxToHtml, type ConvertProgress } from './converter.js';
 
 export interface MarkdownExportOptions {
   includeImages: boolean;
@@ -19,16 +19,31 @@ export async function convertElpxToMarkdown(
   options: MarkdownExportOptions,
   onProgress?: (progress: ConvertProgress) => void,
 ): Promise<MarkdownExportResult> {
-  const htmlResult = await convertElpxToHtml(file, { selectedPageIds: options.selectedPageIds }, onProgress);
+  const htmlResult = await convertElpxToHtml(
+    file,
+    {
+      selectedPageIds: options.selectedPageIds,
+      // Markdown should be generated from the stable exported source, not from rendered browser output.
+      useRenderedPages: false,
+    },
+    onProgress,
+  );
 
   onProgress?.({ phase: 'render', message: 'Convirtiendo HTML a Markdown...', messageKey: 'progress.htmlToMarkdown' });
-  const markdown = convertHtmlDocumentToMarkdown(htmlResult.html, options);
+  const markdown = normalizeGeneratedMarkdown(convertHtmlDocumentToMarkdown(htmlResult.html, options));
 
   return {
     blob: new Blob([markdown], { type: 'text/markdown;charset=utf-8' }),
     filename: toMarkdownFilename(file.name),
     pageCount: htmlResult.pageCount,
   };
+}
+
+function normalizeGeneratedMarkdown(markdown: string): string {
+  return markdown
+    .replace(/\n{2,}\d+\n{2,}(?=#{3,6}\s)/g, '\n\n')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n');
 }
 
 function convertHtmlDocumentToMarkdown(html: string, options: MarkdownExportOptions): string {
@@ -159,18 +174,20 @@ function tableElementToMarkdown(table: HTMLTableElement, cellTurndown: TurndownS
 }
 
 function extractTableRows(table: HTMLTableElement, cellTurndown: TurndownService): string[][] {
-  const rowGroups = [
-    ...Array.from(table.querySelectorAll(':scope > thead')),
-    ...Array.from(table.querySelectorAll(':scope > tbody')),
-    ...Array.from(table.querySelectorAll(':scope > tfoot')),
-  ];
+  const rowGroups = Array.from(table.children).filter(
+    (child): child is HTMLElement =>
+      child instanceof HTMLElement && ['thead', 'tbody', 'tfoot'].includes(child.tagName.toLowerCase()),
+  );
   const directRows =
     rowGroups.length > 0
-      ? rowGroups.flatMap(group => Array.from(group.querySelectorAll(':scope > tr')))
-      : Array.from(table.querySelectorAll(':scope > tr'));
+      ? rowGroups.flatMap(group => Array.from(group.children))
+      : Array.from(table.children);
+  const tableRows = directRows.filter(
+    (row): row is HTMLTableRowElement => row instanceof HTMLTableRowElement,
+  );
 
   const grid: string[][] = [];
-  for (const rowElement of directRows) {
+  for (const rowElement of tableRows) {
     const rowIndex = grid.length;
     const row = grid[rowIndex] || [];
     let columnIndex = 0;

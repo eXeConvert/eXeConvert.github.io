@@ -1,7 +1,5 @@
 import { unzipSync, zipSync } from 'fflate';
 import mammoth from 'mammoth';
-// @ts-expect-error omml2mathml does not ship TypeScript declarations.
-import omml2mathml from 'omml2mathml';
 import { MathMLToLaTeX } from 'mathml-to-latex';
 import temml from 'temml';
 
@@ -65,6 +63,10 @@ interface PreviewPageInfo {
 }
 
 const EXECONVERT_SIGNATURE = 'eXeConvert v0.1.0-beta.7';
+
+type OmmlToMathMl = (element: Element) => Element;
+
+let cachedOmml2mathml: OmmlToMathMl | null = null;
 
 export async function convertDocxToElpx(
   file: File,
@@ -137,9 +139,13 @@ export async function convertProjectToElpx(
 }
 
 async function extractDocxHtml(inputBuffer: ArrayBuffer): Promise<string> {
-  const { arrayBuffer: patchedBuffer, formulas } = preprocessDocxMath(inputBuffer);
+  const { arrayBuffer: patchedBuffer, formulas } = await preprocessDocxMath(inputBuffer);
+  const mammothInput =
+    typeof Buffer !== 'undefined'
+      ? { buffer: Buffer.from(patchedBuffer) }
+      : { arrayBuffer: patchedBuffer };
   const result = await mammoth.convertToHtml(
-    { arrayBuffer: patchedBuffer },
+    mammothInput,
     {
       includeEmbeddedStyleMap: true,
       includeDefaultStyleMap: true,
@@ -304,7 +310,7 @@ function buildProjectFromHtml(htmlValue: string, filename: string, options: Docx
   };
 }
 
-function preprocessDocxMath(inputBuffer: ArrayBuffer): { arrayBuffer: ArrayBuffer; formulas: Map<string, string> } {
+async function preprocessDocxMath(inputBuffer: ArrayBuffer): Promise<{ arrayBuffer: ArrayBuffer; formulas: Map<string, string> }> {
   const entries = unzipSync(new Uint8Array(inputBuffer));
   const documentXml = decodeUtf8(entries['word/document.xml']);
   if (!documentXml) {
@@ -318,7 +324,7 @@ function preprocessDocxMath(inputBuffer: ArrayBuffer): { arrayBuffer: ArrayBuffe
   const blockMathNodes = Array.from(document.getElementsByTagNameNS(M_NS, 'oMathPara'));
   for (const mathNode of blockMathNodes) {
     const placeholder = createMathPlaceholder(formulaIndex++);
-    const latex = convertOmmlElementToLatex(mathNode);
+    const latex = await convertOmmlElementToLatex(mathNode);
     formulas.set(placeholder, `\\[${latex}\\]`);
     replaceMathNodeWithPlaceholder(document, mathNode, placeholder);
   }
@@ -330,7 +336,7 @@ function preprocessDocxMath(inputBuffer: ArrayBuffer): { arrayBuffer: ArrayBuffe
     }
 
     const placeholder = createMathPlaceholder(formulaIndex++);
-    const latex = convertOmmlElementToLatex(mathNode);
+    const latex = await convertOmmlElementToLatex(mathNode);
     formulas.set(placeholder, `\\(${latex}\\)`);
     replaceMathNodeWithPlaceholder(document, mathNode, placeholder);
   }
@@ -347,15 +353,67 @@ function preprocessDocxMath(inputBuffer: ArrayBuffer): { arrayBuffer: ArrayBuffe
   return { arrayBuffer: patchedBuffer, formulas };
 }
 
-function convertOmmlElementToLatex(element: Element): string {
+async function convertOmmlElementToLatex(element: Element): Promise<string> {
   try {
-    const mathElement = omml2mathml(element) as Element;
+    const mathElement = (await loadOmml2MathMl())(element) as Element;
     const mathMl = new XMLSerializer().serializeToString(mathElement);
     const latex = normalizeLatexValue(MathMLToLaTeX.convert(mathMl));
     return latex || '?';
   } catch {
     return '?';
   }
+}
+
+async function loadOmml2MathMl(): Promise<OmmlToMathMl> {
+  if (cachedOmml2mathml) {
+    return cachedOmml2mathml;
+  }
+
+  const cliRequire = (globalThis as typeof globalThis & {
+    __execonvertRequire?: (id: string) => unknown;
+  }).__execonvertRequire;
+
+  if (typeof cliRequire === 'function') {
+    const loaded = cliRequire('omml2mathml') as { default?: OmmlToMathMl } | OmmlToMathMl;
+    cachedOmml2mathml = typeof loaded === 'function' ? loaded : loaded.default ?? null;
+  }
+
+  if (cachedOmml2mathml) {
+    return cachedOmml2mathml;
+  }
+
+  try {
+    // @ts-expect-error omml2mathml does not ship TypeScript declarations.
+    const loaded = await import('omml2mathml') as { default?: OmmlToMathMl } | OmmlToMathMl;
+    cachedOmml2mathml = typeof loaded === 'function' ? loaded : loaded.default ?? null;
+  } catch (error) {
+    if (typeof process !== 'undefined' && typeof process.emitWarning === 'function') {
+      const originalEmitWarning = process.emitWarning.bind(process);
+      process.emitWarning = ((warning: string | Error, ...args: unknown[]) => {
+        const warningCode = typeof args[0] === 'string' ? args[0] : undefined;
+        const warningMessage = typeof warning === 'string' ? warning : warning.message;
+        if (warningCode === 'DEP0040' && warningMessage.includes('`punycode` module is deprecated')) {
+          return;
+        }
+        return originalEmitWarning(warning as never, ...(args as []));
+      }) as typeof process.emitWarning;
+      try {
+        // @ts-expect-error omml2mathml does not ship TypeScript declarations.
+        const loaded = await import('omml2mathml') as { default?: OmmlToMathMl } | OmmlToMathMl;
+        cachedOmml2mathml = typeof loaded === 'function' ? loaded : loaded.default ?? null;
+      } finally {
+        process.emitWarning = originalEmitWarning;
+      }
+    } else {
+      throw error;
+    }
+  }
+
+  if (!cachedOmml2mathml) {
+    throw new Error('No se ha podido cargar omml2mathml.');
+  }
+
+  return cachedOmml2mathml;
 }
 
 function replaceMathNodeWithPlaceholder(document: XMLDocument, mathNode: Element, placeholder: string): void {
@@ -507,7 +565,8 @@ function hasMeaningfulHtml(html: string): boolean {
 }
 
 async function loadBaseTemplate(): Promise<TemplateParts> {
-  const response = await fetch(`${import.meta.env.BASE_URL}base.elpx`);
+  const baseUrl = import.meta.env?.BASE_URL ?? '/';
+  const response = await fetch(`${baseUrl}base.elpx`);
   if (!response.ok) {
     throw new Error('No se ha podido cargar la plantilla base integrada.');
   }
@@ -519,7 +578,7 @@ async function loadBaseTemplate(): Promise<TemplateParts> {
 
   await Promise.all(
     TEXT_IDEVICE_ASSETS.map(async assetPath => {
-      const assetResponse = await fetch(`${import.meta.env.BASE_URL}${assetPath}`);
+      const assetResponse = await fetch(`${baseUrl}${assetPath}`);
       if (!assetResponse.ok) {
         throw new Error(`No se ha podido cargar el recurso ${assetPath}.`);
       }
@@ -527,7 +586,7 @@ async function loadBaseTemplate(): Promise<TemplateParts> {
     }),
   );
 
-  const mathAssetsResponse = await fetch(`${import.meta.env.BASE_URL}${EXE_MATH_ASSET_ARCHIVE}`);
+  const mathAssetsResponse = await fetch(`${baseUrl}${EXE_MATH_ASSET_ARCHIVE}`);
   if (!mathAssetsResponse.ok) {
     throw new Error('No se ha podido cargar el paquete de MathJax integrado.');
   }

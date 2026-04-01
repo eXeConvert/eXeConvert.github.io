@@ -1,0 +1,144 @@
+name: Build Native CLI Packages
+
+on:
+  release:
+    types:
+      - published
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build CLI
+        run: npm run build:cli
+
+      - name: Prepare portable bundle
+        run: node ./scripts/package-cli/prepare-bundle.mjs --output ./dist/native/linux-bundle --node-binary "$(command -v node)" --platform linux
+
+      - name: Build .deb
+        run: |
+          chmod +x ./scripts/package-cli/build-deb.sh
+          VERSION=$(node -p "require('./package.json').version")
+          ./scripts/package-cli/build-deb.sh ./dist/native/linux-bundle "$VERSION" ./dist/releases
+
+      - name: Download appimagetool
+        run: |
+          curl -L https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage -o ./appimagetool.AppImage
+          chmod +x ./appimagetool.AppImage
+
+      - name: Build AppImage
+        run: |
+          chmod +x ./scripts/package-cli/build-appimage.sh
+          VERSION=$(node -p "require('./package.json').version")
+          APPIMAGE_EXTRACT_AND_RUN=1 ./scripts/package-cli/build-appimage.sh ./dist/native/linux-bundle "$VERSION" ./dist/releases ./appimagetool.AppImage
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: execonvert-linux-packages
+          path: dist/releases/*
+
+      - name: Attach to release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/releases/*
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build CLI
+        run: npm run build:cli
+
+      - name: Prepare portable bundle
+        shell: pwsh
+        run: node ./scripts/package-cli/prepare-bundle.mjs --output ./dist/native/windows-bundle --node-binary "$((Get-Command node).Source)" --platform win32
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup --no-progress -y
+
+      - name: Build installer
+        shell: pwsh
+        run: |
+          $version = node -p "require('./package.json').version"
+          ./scripts/package-cli/build-windows-installer.ps1 -BundleDir ./dist/native/windows-bundle -Version $version -OutputDir ./dist/releases
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: execonvert-windows-packages
+          path: dist/releases/*
+
+      - name: Attach to release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/releases/*
+
+  macos:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build CLI
+        run: npm run build:cli
+
+      - name: Prepare portable bundle
+        run: node ./scripts/package-cli/prepare-bundle.mjs --output ./dist/native/macos-bundle --node-binary "$(command -v node)" --platform darwin
+
+      - name: Build .pkg
+        run: |
+          chmod +x ./scripts/package-cli/build-macos-pkg.sh
+          VERSION=$(node -p "require('./package.json').version")
+          ./scripts/package-cli/build-macos-pkg.sh ./dist/native/macos-bundle "$VERSION" ./dist/releases
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: execonvert-macos-packages
+          path: dist/releases/*
+
+      - name: Attach to release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/releases/*
