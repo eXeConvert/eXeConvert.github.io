@@ -45,6 +45,7 @@ function run(command, args, cwd) {
       cwd,
       stdio: 'inherit',
       env: process.env,
+      shell: process.platform === 'win32' && /\.cmd$/i.test(command),
     });
     child.on('error', rejectPromise);
     child.on('exit', code => {
