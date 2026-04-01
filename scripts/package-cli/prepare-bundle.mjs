@@ -57,6 +57,10 @@ function run(command, args, cwd) {
   });
 }
 
+function resolveNpmCommand() {
+  return process.platform === 'win32' ? 'npm.cmd' : 'npm';
+}
+
 function shellWrapper() {
   return `#!/bin/sh
 set -eu
@@ -102,7 +106,7 @@ if (!isWindows) {
   await chmod(nodeTargetPath, 0o755);
 }
 
-await run('npm', ['ci', '--omit=dev', '--ignore-scripts'], outputDir);
+await run(resolveNpmCommand(), ['ci', '--omit=dev', '--ignore-scripts'], outputDir);
 
 const shellScriptPath = resolve(outputDir, 'execonvert');
 await cp(resolve(rootDir, 'bin/execonvert.js'), resolve(outputDir, 'bin/execonvert.js'));
