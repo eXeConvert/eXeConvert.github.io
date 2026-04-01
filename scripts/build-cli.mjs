@@ -7,6 +7,7 @@ const rootDir = dirname(fileURLToPath(new URL('../package.json', import.meta.url
 const distDir = resolve(rootDir, 'dist/cli');
 const publicSourceDir = resolve(rootDir, 'app/public');
 const publicTargetDir = resolve(distDir, 'app/public');
+const tscPath = fileURLToPath(new URL('../node_modules/typescript/bin/tsc', import.meta.url));
 
 function run(command, args) {
   return new Promise((resolvePromise, rejectPromise) => {
@@ -27,7 +28,7 @@ function run(command, args) {
 }
 
 await rm(distDir, { recursive: true, force: true });
-await run('npx', ['tsc', '-p', 'tsconfig.cli.build.json']);
+await run(process.execPath, [tscPath, '-p', 'tsconfig.cli.build.json']);
 await mkdir(publicTargetDir, { recursive: true });
 await cp(publicSourceDir, publicTargetDir, { recursive: true });
 await writeFile(
