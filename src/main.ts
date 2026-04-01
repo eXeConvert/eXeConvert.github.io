@@ -93,7 +93,7 @@ if (!app) {
   throw new Error('No se ha encontrado el contenedor principal.');
 }
 
-const APP_VERSION = 'v0.1.1';
+const APP_VERSION = 'v0.1.2';
 const ANALYTICS_FALLBACK_ENDPOINT = 'https://bilateria.org/app/estadistica/execonvert/track.php';
 const ANALYTICS_FALLBACK_STATS_URL = 'https://bilateria.org/app/estadistica/execonvert/admin-stats.php';
 const ANALYTICS_VISIT_COOLDOWN_MS = 30 * 60 * 1000;
@@ -801,6 +801,15 @@ form.addEventListener('submit', async event => {
   }
 
   try {
+    if (preparedConversion.kind === 'pdf' && !preparedConversion.blob) {
+      openPrintWindowForPdf(preparedConversion);
+      setStatus(t('done.export.withDialog', {
+        format: t('format.pdf'),
+        pages: preparedConversion.pageCount,
+      }));
+      return;
+    }
+
     const saveTarget = await prepareSaveTargetForKind(selectedFile.name, preparedConversion.kind);
     const savedWithDialog = await saveBlobToTarget(preparedConversion.blob!, preparedConversion.filename, saveTarget);
 
@@ -1631,24 +1640,18 @@ async function prepareCurrentConversion(file: File, kind: InputKind): Promise<Pr
 
     if (outputKind === 'pdf') {
       const result = await getCachedElpxHtml(file, 'elp', selectedPageIds, 'static', intermediateElpx);
+      const printableHtml = buildPrintableHtmlDocument(result.html, {
+        title: toOutputFilename(file.name, '.pdf'),
+      });
 
       return {
         signature,
         kind: 'pdf',
-        blob: await buildPdfBlobFromPrintableHtml(
-          buildPrintableHtmlDocument(result.html, {
-            title: toOutputFilename(file.name, '.pdf'),
-          }),
-          { title: toOutputFilename(file.name, '.pdf') },
-          progress => {
-            updateProgress(progress);
-            setStatus(toLocalizedProgressMessage(progress));
-          },
-        ),
+        blob: null,
         filename: toOutputFilename(file.name, '.pdf'),
         pageCount: result.pageCount,
-        previewType: 'pdf',
-        previewContent: '',
+        previewType: 'html',
+        previewContent: printableHtml,
         intermediateElpx,
       };
     }
@@ -1704,24 +1707,18 @@ async function prepareCurrentConversion(file: File, kind: InputKind): Promise<Pr
 
   if (outputKind === 'pdf') {
     const result = await getCachedElpxHtml(file, 'elpx', selectedPageIds, 'static');
+    const printableHtml = buildPrintableHtmlDocument(result.html, {
+      title: toOutputFilename(file.name, '.pdf'),
+    });
 
     return {
       signature,
       kind: 'pdf',
-      blob: await buildPdfBlobFromPrintableHtml(
-        buildPrintableHtmlDocument(result.html, {
-          title: toOutputFilename(file.name, '.pdf'),
-        }),
-        { title: toOutputFilename(file.name, '.pdf') },
-        progress => {
-          updateProgress(progress);
-          setStatus(toLocalizedProgressMessage(progress));
-        },
-      ),
+      blob: null,
       filename: toOutputFilename(file.name, '.pdf'),
       pageCount: result.pageCount,
-      previewType: 'pdf',
-      previewContent: '',
+      previewType: 'html',
+      previewContent: printableHtml,
     };
   }
 
@@ -1847,6 +1844,40 @@ function openPreviewInWindow(conversion: PreparedConversion): void {
   previewWindow.document.open();
   previewWindow.document.write(htmlContent);
   previewWindow.document.close();
+}
+
+function openPrintWindowForPdf(conversion: PreparedConversion): void {
+  const printWindow = window.open('', '_blank', 'popup=yes,width=1100,height=760,resizable=yes,scrollbars=yes');
+  if (!printWindow) {
+    setStatus(t('status.popupBlocked'), true);
+    return;
+  }
+
+  const title = escapeHtml(conversion.filename);
+  const printableHtml = conversion.previewContent;
+  const shell = `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>${title}</title>
+</head>
+<body>
+${printableHtml}
+<script>
+  window.addEventListener('load', () => {
+    window.setTimeout(() => {
+      window.focus();
+      window.print();
+    }, 500);
+  }, { once: true });
+</script>
+</body>
+</html>`;
+
+  printWindow.document.open();
+  printWindow.document.write(shell);
+  printWindow.document.close();
 }
 
 function bindPreviewFrameNavigation(): void {

@@ -27,6 +27,7 @@ import {
 } from 'docx';
 import { unzipSync } from 'fflate';
 import htmlToPdfmake from 'html-to-pdfmake';
+import { MathMLToLaTeX } from 'mathml-to-latex';
 import { mml2omml } from 'mathml2omml';
 import temml from 'temml';
 import mammoth from 'mammoth';
@@ -109,14 +110,30 @@ interface RenderedImageData {
   height: number;
 }
 
-interface MathJaxApi {
+interface MathJaxSvgEngine {
+  convert(expression: string, options: { display: boolean }): string;
+}
+
+interface RenderedLatexImage {
+  dataUrl: string;
+  width: number;
+  height: number;
+}
+
+interface PdfLatexPlaceholder {
+  key: string;
+  svg: string;
+  display: boolean;
+}
+
+interface BrowserMathJaxApi {
   tex2svgPromise(expression: string, options?: { display?: boolean }): Promise<HTMLElement>;
   startup?: {
     defaultReady?: () => void;
   };
 }
 
-interface MathJaxGlobal {
+interface BrowserMathJaxGlobal {
   tex2svgPromise?: (expression: string, options?: { display?: boolean }) => Promise<HTMLElement>;
   tex?: {
     inlineMath?: string[][];
@@ -133,8 +150,10 @@ interface MathJaxGlobal {
 
 const ASSET_DIRECTORIES = ['resources', 'images', 'media', 'files', 'attachments'];
 const SYSTEM_FILES = new Set(['content.xml', 'contentv3.xml', 'content.data', 'content.xsd', 'imsmanifest.xml']);
-const latexRenderCache = new Map<string, Promise<{ dataUrl: string; width: number; height: number }>>();
+const latexRenderCache = new Map<string, string>();
 let pdfMakeInitialized = false;
+let sharedMathJaxSvgEnginePromise: Promise<MathJaxSvgEngine> | null = null;
+let browserMathJaxPromise: Promise<BrowserMathJaxApi> | null = null;
 
 export async function convertElpxToDocx(
   file: File,
@@ -299,14 +318,15 @@ export async function buildPdfBlobFromPrintableHtml(
   onProgress?: (progress: ConvertProgress) => void,
 ): Promise<Blob> {
   onProgress?.({ phase: 'pdf', message: 'Generando el documento .pdf...' });
+
   ensurePdfMakeFonts();
 
   const parsed = new DOMParser().parseFromString(htmlDocument, 'text/html');
   const source = parsed.querySelector<HTMLElement>('.pdf-preview') || parsed.body;
   const rawContentHtml = source?.innerHTML?.trim() || '<p>El proyecto no contiene contenido exportable.</p>';
-  const contentHtml = await sanitizeHtmlForPdfMake(rawContentHtml);
+  const { html: contentHtml, placeholders: latexPlaceholders } = await sanitizeHtmlForPdfMake(rawContentHtml);
   const pdfWindow = await resolvePdfMakeWindow();
-  const converted = htmlToPdfmake(contentHtml, {
+  const converted = htmlToPdfmake(`<!doctype html><html><body>${contentHtml}</body></html>`, {
     window: pdfWindow,
     tableAutoSize: false,
     removeExtraBlanks: true,
@@ -328,6 +348,7 @@ export async function buildPdfBlobFromPrintableHtml(
   const normalizedContent = Array.isArray(converted) && converted.length === 0
     ? buildResilientFallbackPdfContent(source, fallbackSourceHtml)
     : converted;
+  const contentWithMath = replacePdfMakeLatexPlaceholders(normalizedContent, latexPlaceholders);
 
   onProgress?.({ phase: 'pdf', message: 'Componiendo el documento .pdf...' });
 
@@ -339,7 +360,7 @@ export async function buildPdfBlobFromPrintableHtml(
       fontSize: 11,
       lineHeight: 1.25,
     },
-    content: Array.isArray(normalizedContent) ? normalizedContent : [normalizedContent],
+    content: Array.isArray(contentWithMath) ? contentWithMath : [contentWithMath],
     info: {
       title: options?.title || parsed.title || 'Documento PDF',
     },
@@ -368,6 +389,113 @@ export async function buildPdfBlobFromPrintableHtml(
     }
     throw error;
   }
+}
+
+async function buildPdfBlobFromChromium(
+  htmlDocument: string,
+  options?: PrintableHtmlOptions,
+  onProgress?: (progress: ConvertProgress) => void,
+): Promise<Blob> {
+  const dynamicImport = new Function('specifier', 'return import(specifier)') as <T>(specifier: string) => Promise<T>;
+  const [{ mkdtemp, readFile, writeFile, rm }, os, path, childProcess] = await Promise.all([
+    dynamicImport<typeof import('node:fs/promises')>('node:fs/promises'),
+    dynamicImport<typeof import('node:os')>('node:os'),
+    dynamicImport<typeof import('node:path')>('node:path'),
+    dynamicImport<typeof import('node:child_process')>('node:child_process'),
+  ]);
+
+  const execFile = childProcess.execFile;
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), 'execonvert-pdf-'));
+  const inputPath = path.join(tempDir, 'document.html');
+  const outputPath = path.join(tempDir, 'document.pdf');
+  const browserPath = await findChromiumExecutable();
+  const title = options?.title || 'Documento PDF';
+  const htmlWithPrintHints = injectChromiumPrintHints(htmlDocument, title);
+
+  try {
+    await writeFile(inputPath, htmlWithPrintHints, 'utf8');
+    onProgress?.({ phase: 'pdf', message: 'Componiendo el documento .pdf...' });
+
+    await new Promise<void>((resolve, reject) => {
+      execFile(
+        browserPath,
+        [
+          '--headless=new',
+          '--disable-gpu',
+          '--no-pdf-header-footer',
+          '--run-all-compositor-stages-before-draw',
+          '--virtual-time-budget=12000',
+          `--print-to-pdf=${outputPath}`,
+          `file://${inputPath}`,
+        ],
+        { maxBuffer: 10 * 1024 * 1024 },
+        error => {
+          if (error) {
+            reject(error);
+            return;
+          }
+          resolve();
+        },
+      );
+    });
+
+    const pdfBuffer = await readFile(outputPath);
+    return new Blob([pdfBuffer], { type: 'application/pdf' });
+  } finally {
+    await rm(tempDir, { recursive: true, force: true });
+  }
+}
+
+async function findChromiumExecutable(): Promise<string> {
+  const dynamicImport = new Function('specifier', 'return import(specifier)') as <T>(specifier: string) => Promise<T>;
+  const [{ access, constants }] = await Promise.all([
+    dynamicImport<typeof import('node:fs/promises')>('node:fs/promises'),
+  ]);
+
+  const candidates = [
+    process.env.CHROMIUM_PATH,
+    '/usr/bin/chromium',
+    '/usr/bin/chromium-browser',
+    '/usr/bin/google-chrome',
+    '/usr/bin/google-chrome-stable',
+  ].filter((value): value is string => Boolean(value));
+
+  for (const candidate of candidates) {
+    try {
+      await access(candidate, constants.X_OK);
+      return candidate;
+    } catch {
+      continue;
+    }
+  }
+
+  throw new Error('No se ha encontrado Chromium para generar el PDF vectorial.');
+}
+
+function injectChromiumPrintHints(htmlDocument: string, title: string): string {
+  const safeTitle = escapeHtml(title);
+  const mathWaitScript = `
+  <script>
+    window.addEventListener('load', () => {
+      const done = () => {
+        document.documentElement.setAttribute('data-execonvert-pdf-ready', 'true');
+      };
+      const mj = window.MathJax;
+      if (mj && mj.startup && typeof mj.startup.promise?.then === 'function') {
+        mj.startup.promise.then(() => setTimeout(done, 250)).catch(done);
+        return;
+      }
+      setTimeout(done, 500);
+    });
+  </script>`;
+
+  if (/<\/head>/i.test(htmlDocument)) {
+    return htmlDocument
+      .replace(/<title>.*?<\/title>/i, `<title>${safeTitle}</title>`)
+      .replace(/<\/head>/i, `${mathWaitScript}</head>`);
+  }
+
+  return `<!doctype html><html><head><meta charset="utf-8"><title>${safeTitle}</title>${mathWaitScript}</head><body>${htmlDocument}</body></html>`;
 }
 
 async function resolvePdfMakeWindow(): Promise<Window & typeof globalThis> {
@@ -1069,16 +1197,7 @@ async function sanitizePdfMakeImages(node: unknown, path = 'docDefinition'): Pro
   const candidate = node as Record<string, unknown>;
   const svgValue = candidate.svg;
   if (typeof svgValue === 'string') {
-    try {
-      const pngDataUrl = await svgToPngDataUrl(svgValue);
-      const normalized = await rasterizeDataUrlImage(pngDataUrl.dataUrl, 'image/jpeg');
-      delete candidate.svg;
-      candidate.image = normalized.dataUrl;
-    } catch {
-      console.warn('[PDF] SVG descartado antes de pdfmake', {
-        path: `${path}.svg`,
-        prefix: svgValue.slice(0, 80),
-      });
+    if (!svgValue.trim()) {
       delete candidate.svg;
       if (typeof candidate.text !== 'string' || !candidate.text.trim()) {
         candidate.text = '[Grafico omitido]';
@@ -1124,8 +1243,12 @@ async function sanitizePdfMakeImages(node: unknown, path = 'docDefinition'): Pro
   }
 }
 
-async function sanitizeHtmlForPdfMake(html: string): Promise<string> {
-  const parsed = new DOMParser().parseFromString(`<!doctype html><html><body>${html}</body></html>`, 'text/html');
+async function sanitizeHtmlForPdfMake(html: string): Promise<{
+  html: string;
+  placeholders: Map<string, PdfLatexPlaceholder>;
+}> {
+  const { html: latexReadyHtml, placeholders } = await renderLatexInHtml(html);
+  const parsed = new DOMParser().parseFromString(`<!doctype html><html><body>${latexReadyHtml}</body></html>`, 'text/html');
   normalizePdfMakeMarkup(parsed.body);
   await normalizePdfImageSources(parsed.body);
 
@@ -1197,7 +1320,10 @@ async function sanitizeHtmlForPdfMake(html: string): Promise<string> {
 
   stripUnsafePdfInlineStyles(parsed.body);
 
-  return parsed.body.innerHTML;
+  return {
+    html: parsed.body.innerHTML,
+    placeholders,
+  };
 }
 
 function stripUnsafePdfInlineStyles(root: HTMLElement): void {
@@ -1209,6 +1335,117 @@ function stripUnsafePdfInlineStyles(root: HTMLElement): void {
     }
     element.removeAttribute('style');
   }
+}
+
+function replacePdfMakeLatexPlaceholders(node: unknown, placeholders: Map<string, PdfLatexPlaceholder>): unknown {
+  if (Array.isArray(node)) {
+    return node.flatMap(item => {
+      const transformed = replacePdfMakeLatexPlaceholders(item, placeholders);
+      return Array.isArray(transformed) ? transformed : [transformed];
+    });
+  }
+
+  if (typeof node === 'string') {
+    return replaceLatexTokensInText(node, placeholders);
+  }
+
+  if (!node || typeof node !== 'object') {
+    return node;
+  }
+
+  const candidate = node as Record<string, unknown>;
+  const clone: Record<string, unknown> = { ...candidate };
+
+  if (typeof clone.text === 'string') {
+    const fragments = replaceLatexTokensInText(clone.text, placeholders);
+    if (fragments.length === 1 && isPdfLatexInline(fragments[0]) && fragments[0].display) {
+      delete clone.text;
+      clone.svg = fragments[0].svg;
+      return clone;
+    }
+    clone.text = fragments;
+  } else if (Array.isArray(clone.text)) {
+    clone.text = clone.text.flatMap(item => {
+      const transformed = replacePdfMakeLatexPlaceholders(item, placeholders);
+      return Array.isArray(transformed) ? transformed : [transformed];
+    });
+  }
+
+  for (const [key, value] of Object.entries(clone)) {
+    if (key === 'text') {
+      continue;
+    }
+    clone[key] = replacePdfMakeLatexPlaceholders(value, placeholders);
+  }
+
+  return clone;
+}
+
+function replaceLatexTokensInText(
+  text: string,
+  placeholders: Map<string, PdfLatexPlaceholder>,
+): Array<string | { svg: string; display: boolean }> {
+  const regex = /@@EXE_LATEX_\d+@@/g;
+  const matches = Array.from(text.matchAll(regex));
+  if (matches.length === 0) {
+    return [text];
+  }
+
+  const fragments: Array<string | { svg: string; display: boolean }> = [];
+  let lastIndex = 0;
+
+  for (const match of matches) {
+    const start = match.index ?? 0;
+    const before = text.slice(lastIndex, start);
+    if (before) {
+      fragments.push(before);
+    }
+
+    const placeholder = placeholders.get(match[0]);
+    if (placeholder) {
+      fragments.push({ svg: placeholder.svg, display: placeholder.display });
+    } else {
+      fragments.push(match[0]);
+    }
+
+    lastIndex = start + match[0].length;
+  }
+
+  const after = text.slice(lastIndex);
+  if (after) {
+    fragments.push(after);
+  }
+
+  return fragments;
+}
+
+function isPdfLatexInline(
+  value: string | { svg: string; display: boolean },
+): value is { svg: string; display: boolean } {
+  return typeof value === 'object' && value !== null && typeof value.svg === 'string';
+}
+
+function normalizeLatexValue(value: string): string {
+  let output = value.normalize('NFC').replace(/\u00a0/g, ' ').replace(/\r/g, '');
+  output = output.replace(/[\uFFFD\uFEFF\u00AD\u2066-\u2069\u200B-\u200F\u202A-\u202E\uFFF9-\uFFFB]/g, '');
+  output = output.replace(/[\uD800-\uDFFF]/g, '');
+  output = output.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
+  output = output.replace(/[ \t]*\n[ \t]*/g, '\n');
+  output = output.replace(/\\\s+([A-Za-z])/g, '\\$1');
+  output = output.replace(/\\ext\{/g, '\\text{');
+  output = output.replace(/\bL\s+A\s+T\s+E\s+X\b\\?/g, '\\LaTeX');
+  output = output.replace(/(^|[^\\])\.{2}\s+\\\\/g, '$1\\ldots ');
+  output = output.replace(/\\\\backslash\b/g, '\\\\');
+  output = output.replace(/\\backslash\b/g, '\\\\');
+  output = output.replace(/[ \t]+/g, ' ');
+  output = output.replace(/ ?\n ?/g, '\n');
+  output = output.trim();
+
+  while (output.endsWith('\\')) {
+    output = output.slice(0, -1).trimEnd();
+  }
+
+  return output;
 }
 
 async function normalizePdfImageSources(root: HTMLElement): Promise<void> {
@@ -1421,6 +1658,10 @@ function normalizePdfEmbeds(root: HTMLElement): void {
 
 function normalizeInlineSvgElements(root: HTMLElement): void {
   for (const svg of Array.from(root.querySelectorAll<SVGElement>('svg'))) {
+    if (svg.closest('.execonvert-math, .exe-math-rendered')) {
+      continue;
+    }
+
     const doc = svg.ownerDocument;
     const image = doc.createElement('img');
     const serialized = new XMLSerializer().serializeToString(svg);
@@ -2153,6 +2394,10 @@ ${content}
 }
 
 function choosePreferredPageSource(originalHtml: string, renderedHtml: string): string {
+  if (hasRenderedMathSource(renderedHtml) && hasRawMathSource(originalHtml)) {
+    return renderedHtml;
+  }
+
   if (hasMeaningfulPageSource(originalHtml)) {
     return originalHtml;
   }
@@ -2162,6 +2407,31 @@ function choosePreferredPageSource(originalHtml: string, renderedHtml: string): 
   }
 
   return originalHtml || renderedHtml;
+}
+
+function hasRawMathSource(html: string): boolean {
+  if (!html.trim()) {
+    return false;
+  }
+
+  return (
+    containsLatex(html) ||
+    /\\begin\{(?:equation\*?|align\*?|aligned|gather\*?|array|matrix|pmatrix|bmatrix|vmatrix|Vmatrix)\}/i.test(html) ||
+    /\bexe-math\b/i.test(html)
+  );
+}
+
+function hasRenderedMathSource(html: string): boolean {
+  if (!html.trim()) {
+    return false;
+  }
+
+  const template = document.createElement('template');
+  template.innerHTML = html;
+
+  return Boolean(
+    template.content.querySelector('.exe-math-rendered, svg, math, mjx-container, mjx-assistive-mml'),
+  );
 }
 
 function hasMeaningfulPageSource(html: string): boolean {
@@ -2546,55 +2816,314 @@ function freezeCanvasElements(doc: Document): void {
   }
 }
 
-async function renderLatexInHtml(contentHtml: string): Promise<string> {
-  if (!containsLatex(contentHtml)) {
-    return contentHtml;
+async function renderLatexInHtml(contentHtml: string): Promise<{
+  html: string;
+  placeholders: Map<string, PdfLatexPlaceholder>;
+}> {
+  if (!containsLatex(contentHtml) && !/<math[\s>]/i.test(contentHtml)) {
+    return {
+      html: contentHtml,
+      placeholders: new Map(),
+    };
   }
 
-  const htmlDoc = new DOMParser().parseFromString(`<body>${contentHtml}</body>`, 'text/html');
-  const textNodes: Text[] = [];
-  const walker = document.createTreeWalker(htmlDoc.body, NodeFilter.SHOW_TEXT);
+  const htmlDoc = new DOMParser().parseFromString(`<!doctype html><html><body>${contentHtml}</body></html>`, 'text/html');
+  const placeholders = new Map<string, PdfLatexPlaceholder>();
+  let placeholderIndex = 0;
+  const nextKey = (): string => `@@EXE_LATEX_${placeholderIndex += 1}@@`;
+  const registerSvg = (svg: string, display: boolean): string => {
+    const key = nextKey();
+    placeholders.set(key, { key, svg, display });
+    return key;
+  };
 
-  while (walker.nextNode()) {
-    const current = walker.currentNode;
-    if (current instanceof Text) {
-      textNodes.push(current);
-    }
-  }
+  await replaceMathMlNodesWithPlaceholders(htmlDoc.body, registerSvg);
+  await replaceDisplayLatexBlocksWithPlaceholders(htmlDoc.body, registerSvg);
+  await replaceInlineLatexWithPlaceholders(htmlDoc.body, registerSvg);
 
-  for (const textNode of textNodes) {
-    const source = textNode.nodeValue || '';
-    const parts = await splitTextWithRenderedLatex(source);
-    if (!parts) {
-      continue;
-    }
-
-    const fragment = htmlDoc.createDocumentFragment();
-    for (const part of parts) {
-      if (typeof part === 'string') {
-        if (part) {
-          fragment.appendChild(htmlDoc.createTextNode(part));
-        }
-        continue;
-      }
-
-      const image = htmlDoc.createElement('img');
-      image.setAttribute('src', part.dataUrl);
-      image.setAttribute('alt', part.alt);
-      image.setAttribute('width', String(part.width));
-      image.setAttribute('height', String(part.height));
-      image.setAttribute('data-latex-rendered', 'true');
-      fragment.appendChild(image);
-    }
-
-    textNode.replaceWith(fragment);
-  }
-
-  return htmlDoc.body.innerHTML;
+  return {
+    html: htmlDoc.body.innerHTML,
+    placeholders,
+  };
 }
 
 function containsLatex(value: string): boolean {
   return /\\\(|\\\[|\$\$|\$[^$\s]/.test(value);
+}
+
+async function replaceMathMlNodesWithPlaceholders(
+  root: HTMLElement,
+  registerSvg: (svg: string, display: boolean) => string,
+): Promise<void> {
+  const mathNodes = Array.from(root.querySelectorAll('math'));
+  for (const mathNode of mathNodes) {
+    const mathMl = new XMLSerializer().serializeToString(mathNode);
+    let latex: string;
+    try {
+      latex = normalizeLatexValue(MathMLToLaTeX.convert(mathMl));
+    } catch {
+      continue;
+    }
+
+    if (!latex) {
+      continue;
+    }
+
+    const display = mathNode.getAttribute('display') === 'block' || mathNode.classList.contains('tml-display');
+    const svg = await renderLatexToSvgMarkup(latex, display);
+    mathNode.replaceWith(root.ownerDocument.createTextNode(registerSvg(svg, display)));
+  }
+}
+
+async function replaceDisplayLatexBlocksWithPlaceholders(
+  root: HTMLElement,
+  registerSvg: (svg: string, display: boolean) => string,
+): Promise<void> {
+  const candidates = Array.from(root.querySelectorAll<HTMLElement>('p, div, li, td, th, figcaption, blockquote'));
+  for (const element of candidates) {
+    if (!isSimpleLatexContainer(element)) {
+      continue;
+    }
+
+    const blockExpression = extractDisplayLatexFromElement(element);
+    if (!blockExpression) {
+      continue;
+    }
+
+    const svg = await renderLatexToSvgMarkup(blockExpression, true);
+    element.textContent = registerSvg(svg, true);
+  }
+}
+
+async function replaceInlineLatexWithPlaceholders(
+  root: HTMLElement,
+  registerSvg: (svg: string, display: boolean) => string,
+): Promise<void> {
+  const textNodes: Text[] = [];
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+
+  while (walker.nextNode()) {
+    const current = walker.currentNode;
+    if (!(current instanceof Text)) {
+      continue;
+    }
+    if (current.parentElement?.closest('script, style, svg, math')) {
+      continue;
+    }
+    textNodes.push(current);
+  }
+
+  for (const textNode of textNodes) {
+    const source = textNode.nodeValue || '';
+    const parts = await splitTextWithLatexPlaceholders(source, registerSvg);
+    if (!parts) {
+      continue;
+    }
+
+    const fragment = root.ownerDocument.createDocumentFragment();
+    for (const part of parts) {
+      fragment.appendChild(root.ownerDocument.createTextNode(part));
+    }
+    textNode.replaceWith(fragment);
+  }
+}
+
+function isSimpleLatexContainer(element: HTMLElement): boolean {
+  const descendants = Array.from(element.querySelectorAll('*'));
+  return descendants.every(node => ['BR', 'SPAN', 'WBR'].includes(node.tagName));
+}
+
+function extractDisplayLatexFromElement(element: HTMLElement): string | null {
+  const raw = normalizeLatexValue(readLatexTextFromHtml(element.innerHTML));
+  if (!raw) {
+    return null;
+  }
+
+  const bracketMatch = raw.match(/^\\\[(?<expr>[\s\S]*?)\\\]$/);
+  if (bracketMatch?.groups?.expr) {
+    return normalizeLatexValue(bracketMatch.groups.expr);
+  }
+
+  const dollarsMatch = raw.match(/^\$\$(?<expr>[\s\S]*?)\$\$$/);
+  if (dollarsMatch?.groups?.expr) {
+    return normalizeLatexValue(dollarsMatch.groups.expr);
+  }
+
+  return null;
+}
+
+function readLatexTextFromHtml(html: string): string {
+  const withLineBreaks = html.replace(/<br\s*\/?>/gi, '\n');
+  const parsed = new DOMParser().parseFromString(`<!doctype html><html><body>${withLineBreaks}</body></html>`, 'text/html');
+  return parsed.body.textContent || '';
+}
+
+async function splitTextWithLatexPlaceholders(
+  value: string,
+  registerSvg: (svg: string, display: boolean) => string,
+): Promise<string[] | null> {
+  const regex = /\\\((.+?)\\\)|\$([^$\n]+)\$/g;
+  const matches = Array.from(value.matchAll(regex));
+  if (matches.length === 0) {
+    return null;
+  }
+
+  const parts: string[] = [];
+  let lastIndex = 0;
+
+  for (const match of matches) {
+    const start = match.index ?? 0;
+    const before = value.slice(lastIndex, start);
+    if (before) {
+      parts.push(before);
+    }
+
+    const expression = normalizeLatexValue((match[1] ?? match[2] ?? '').trim());
+    if (!expression) {
+      parts.push(match[0]);
+    } else {
+      const svg = await renderLatexToSvgMarkup(expression, false);
+      parts.push(registerSvg(svg, false));
+    }
+
+    lastIndex = start + match[0].length;
+  }
+
+  const after = value.slice(lastIndex);
+  if (after) {
+    parts.push(after);
+  }
+
+  return parts;
+}
+
+function isNodeRuntime(): boolean {
+  return typeof process !== 'undefined' && Boolean(process.versions?.node);
+}
+
+async function getMathJaxSvgEngine(): Promise<MathJaxSvgEngine> {
+  if (!sharedMathJaxSvgEnginePromise) {
+    sharedMathJaxSvgEnginePromise = createMathJaxSvgEngine();
+  }
+
+  return sharedMathJaxSvgEnginePromise;
+}
+
+async function renderLatexToSvgMarkup(expression: string, display: boolean): Promise<string> {
+  const cacheKey = `${display ? 'block' : 'inline'}:${expression}`;
+  const cached = latexRenderCache.get(cacheKey);
+  if (cached) {
+    return cached;
+  }
+
+  let svgMarkup: string;
+  if (isNodeRuntime()) {
+    const engine = await getMathJaxSvgEngine();
+    svgMarkup = engine.convert(expression, { display });
+  } else {
+    const mathJax = await ensureBrowserMathJaxReady();
+    const renderedNode = await mathJax.tex2svgPromise(expression, { display });
+    const svg = renderedNode.querySelector('svg');
+    if (!svg) {
+      throw new Error(`No se ha podido renderizar la fórmula: ${expression}`);
+    }
+    svgMarkup = new XMLSerializer().serializeToString(svg);
+  }
+
+  latexRenderCache.set(cacheKey, svgMarkup);
+  return svgMarkup;
+}
+
+async function createMathJaxSvgEngine(): Promise<MathJaxSvgEngine> {
+  const dynamicImport = new Function('specifier', 'return import(specifier)') as <T>(specifier: string) => Promise<T>;
+  const [{ mathjax }, { TeX }, { SVG }, { liteAdaptor }, { RegisterHTMLHandler }, { AllPackages }] = await Promise.all([
+    dynamicImport<typeof import('mathjax-full/js/mathjax.js')>('mathjax-full/js/mathjax.js'),
+    dynamicImport<typeof import('mathjax-full/js/input/tex.js')>('mathjax-full/js/input/tex.js'),
+    dynamicImport<typeof import('mathjax-full/js/output/svg.js')>('mathjax-full/js/output/svg.js'),
+    dynamicImport<typeof import('mathjax-full/js/adaptors/liteAdaptor.js')>('mathjax-full/js/adaptors/liteAdaptor.js'),
+    dynamicImport<typeof import('mathjax-full/js/handlers/html.js')>('mathjax-full/js/handlers/html.js'),
+    dynamicImport<typeof import('mathjax-full/js/input/tex/AllPackages.js')>('mathjax-full/js/input/tex/AllPackages.js'),
+  ]);
+
+  const adaptor = liteAdaptor();
+  RegisterHTMLHandler(adaptor);
+  const tex = new TeX({
+    packages: AllPackages,
+    inlineMath: [['\\(', '\\)'], ['$', '$']],
+    displayMath: [['\\[', '\\]'], ['$$', '$$']],
+  });
+  const svg = new SVG({ fontCache: 'none' });
+  const document = mathjax.document('', {
+    InputJax: tex,
+    OutputJax: svg,
+  });
+
+  return {
+    convert(expression: string, options: { display: boolean }) {
+      const renderedNode = document.convert(expression, options);
+      const renderedHtml = adaptor.outerHTML(renderedNode);
+      const renderedDoc = new DOMParser().parseFromString(renderedHtml, 'text/html');
+      const svgNode = renderedDoc.querySelector('svg');
+      if (!svgNode) {
+        throw new Error(`No se ha podido renderizar la fórmula: ${expression}`);
+      }
+      return new XMLSerializer().serializeToString(svgNode);
+    },
+  };
+}
+
+async function ensureBrowserMathJaxReady(): Promise<BrowserMathJaxApi> {
+  const win = window as Window & {
+    __execonvertBrowserMathJaxPromise?: Promise<BrowserMathJaxApi>;
+    MathJax?: BrowserMathJaxGlobal;
+  };
+
+  if (browserMathJaxPromise) {
+    return browserMathJaxPromise;
+  }
+
+  if (win.MathJax?.tex2svgPromise) {
+    browserMathJaxPromise = Promise.resolve(win.MathJax as BrowserMathJaxApi);
+    return browserMathJaxPromise;
+  }
+
+  browserMathJaxPromise = new Promise<BrowserMathJaxApi>((resolve, reject) => {
+    win.MathJax = {
+      tex: {
+        inlineMath: [['\\(', '\\)'], ['$', '$']],
+        displayMath: [['\\[', '\\]'], ['$$', '$$']],
+      },
+      svg: {
+        fontCache: 'none',
+      },
+      startup: {
+        ready: () => {
+          const runtime = win.MathJax;
+          runtime?.startup?.defaultReady?.();
+          if (runtime?.tex2svgPromise) {
+            resolve(runtime as BrowserMathJaxApi);
+          } else {
+            reject(new Error('MathJax no expone tex2svgPromise en el navegador.'));
+          }
+        },
+      },
+    };
+
+    const existing = document.querySelector<HTMLScriptElement>('script[data-mathjax-loader="execonvert-browser"]');
+    if (existing) {
+      existing.addEventListener('error', () => reject(new Error('No se ha podido cargar MathJax.')), { once: true });
+      return;
+    }
+
+    const script = document.createElement('script');
+    script.src = 'https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js';
+    script.async = true;
+    script.dataset.mathjaxLoader = 'execonvert-browser';
+    script.onerror = () => reject(new Error('No se ha podido cargar MathJax desde el CDN.'));
+    document.head.appendChild(script);
+  });
+
+  return browserMathJaxPromise;
 }
 
 async function splitTextWithRenderedLatex(
@@ -2644,81 +3173,16 @@ async function splitTextWithRenderedLatex(
 async function renderLatexToPngDataUrl(
   expression: string,
   display: boolean,
-): Promise<{ dataUrl: string; width: number; height: number }> {
-  const cacheKey = `${display ? 'block' : 'inline'}:${expression}`;
-  const cached = latexRenderCache.get(cacheKey);
-  if (cached) {
-    return cached;
-  }
-
-  const promise = (async () => {
-    const mathJax = await ensureMathJaxReady();
-    const renderedNode = await mathJax.tex2svgPromise(expression, { display });
-    const svg = renderedNode.querySelector('svg');
-    if (!svg) {
-      throw new Error(`No se ha podido renderizar la fórmula: ${expression}`);
-    }
-
-    const svgMarkup = new XMLSerializer().serializeToString(svg);
-    return svgToPngDataUrl(svgMarkup);
-  })();
-
-  latexRenderCache.set(cacheKey, promise);
-  return promise;
-}
-
-async function ensureMathJaxReady(): Promise<MathJaxApi> {
-  const win = window as Window & { __elpxDocxMathJaxPromise?: Promise<MathJaxApi>; MathJax?: MathJaxGlobal };
-
-  if (win.__elpxDocxMathJaxPromise) {
-    return win.__elpxDocxMathJaxPromise;
-  }
-
-  win.__elpxDocxMathJaxPromise = new Promise<MathJaxApi>((resolve, reject) => {
-    if (win.MathJax?.tex2svgPromise) {
-      resolve(win.MathJax as MathJaxApi);
-      return;
-    }
-
-    win.MathJax = {
-      tex: {
-        inlineMath: [['\\(', '\\)'], ['$', '$']],
-        displayMath: [['\\[', '\\]'], ['$$', '$$']],
-      },
-      svg: {
-        fontCache: 'none',
-      },
-      startup: {
-        ready: () => {
-          const runtime = win.MathJax;
-          runtime?.startup?.defaultReady?.();
-          if (runtime?.tex2svgPromise) {
-            resolve(runtime as MathJaxApi);
-          } else {
-            reject(new Error('MathJax no expone tex2svgPromise.'));
-          }
-        },
-      },
-    } as MathJaxGlobal;
-
-    const existing = document.querySelector<HTMLScriptElement>('script[data-mathjax-loader="execonvert"]');
-    if (existing) {
-      existing.addEventListener('error', () => reject(new Error('No se ha podido cargar MathJax.')), { once: true });
-      return;
-    }
-
-    const script = document.createElement('script');
-    script.src = 'https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js';
-    script.async = true;
-    script.dataset.mathjaxLoader = 'execonvert';
-    script.onerror = () => reject(new Error('No se ha podido cargar MathJax desde el CDN.'));
-    document.head.appendChild(script);
-  });
-
-  return win.__elpxDocxMathJaxPromise;
+): Promise<RenderedLatexImage> {
+  const svgMarkup = await renderLatexToSvgMarkup(expression, display);
+  return svgToPngDataUrl(svgMarkup);
 }
 
 async function svgToPngDataUrl(svgMarkup: string): Promise<{ dataUrl: string; width: number; height: number }> {
+  if (!canRasterizeEmbeddedImages()) {
+    return rasterizeSvgWithResvg(svgMarkup);
+  }
+
   const svgBlob = new Blob([svgMarkup], { type: 'image/svg+xml' });
   const objectUrl = URL.createObjectURL(svgBlob);
 
@@ -2753,6 +3217,58 @@ async function svgToPngDataUrl(svgMarkup: string): Promise<{ dataUrl: string; wi
   } finally {
     URL.revokeObjectURL(objectUrl);
   }
+}
+
+async function rasterizeSvgWithResvg(
+  svgMarkup: string,
+): Promise<RenderedLatexImage> {
+  const dimensions = readSvgDimensions(svgMarkup);
+  const fallbackWidth = Math.max(1, dimensions?.width || 128);
+  const fallbackHeight = Math.max(1, dimensions?.height || 32);
+  const { Resvg } = await loadResvgModule();
+  let rendered;
+
+  try {
+    rendered = new Resvg(svgMarkup, {
+      background: 'rgba(255,255,255,0)',
+      fitTo: { mode: 'width', value: fallbackWidth },
+    }).render();
+  } catch {
+    const normalizedSvg = forceSvgPixelDimensions(svgMarkup, fallbackWidth, fallbackHeight);
+    rendered = new Resvg(normalizedSvg, {
+      background: 'rgba(255,255,255,0)',
+      fitTo: { mode: 'width', value: fallbackWidth },
+    }).render();
+  }
+
+  const pngData = rendered.asPng();
+  const width = Math.max(1, rendered.width || fallbackWidth);
+  const height = Math.max(1, rendered.height || fallbackHeight);
+
+  return {
+    dataUrl: `data:image/png;base64,${Buffer.from(pngData).toString('base64')}`,
+    width,
+    height,
+  };
+}
+
+async function loadResvgModule(): Promise<{ Resvg: typeof import('@resvg/resvg-js').Resvg }> {
+  const dynamicImport = new Function('specifier', 'return import(specifier)') as (
+    specifier: string,
+  ) => Promise<{ Resvg: typeof import('@resvg/resvg-js').Resvg }>;
+
+  return dynamicImport('@resvg/resvg-js');
+}
+
+function forceSvgPixelDimensions(svgMarkup: string, width: number, height: number): string {
+  const normalized = svgMarkup
+    .replace(/\swidth="[^"]*"/i, '')
+    .replace(/\sheight="[^"]*"/i, '');
+
+  return normalized.replace(
+    /<svg\b/i,
+    `<svg width="${Math.max(1, Math.round(width))}px" height="${Math.max(1, Math.round(height))}px"`,
+  );
 }
 
 async function rasterizeDataUrlImage(
@@ -3643,12 +4159,12 @@ function inspectDataUrlMime(value: string): string | null {
 }
 
 function readSvgDimensions(markup: string): { width: number; height: number } | null {
-  const widthMatch = markup.match(/\bwidth="([\d.]+)(px)?"/i);
-  const heightMatch = markup.match(/\bheight="([\d.]+)(px)?"/i);
+  const widthMatch = markup.match(/\bwidth="([\d.]+)(px|pt|pc|mm|cm|in|em|ex)?"/i);
+  const heightMatch = markup.match(/\bheight="([\d.]+)(px|pt|pc|mm|cm|in|em|ex)?"/i);
   if (widthMatch && heightMatch) {
     return {
-      width: Math.round(Number.parseFloat(widthMatch[1])),
-      height: Math.round(Number.parseFloat(heightMatch[1])),
+      width: Math.round(convertSvgLengthToPx(Number.parseFloat(widthMatch[1]), widthMatch[2] || 'px')),
+      height: Math.round(convertSvgLengthToPx(Number.parseFloat(heightMatch[1]), heightMatch[2] || 'px')),
     };
   }
 
@@ -3661,6 +4177,29 @@ function readSvgDimensions(markup: string): { width: number; height: number } | 
   }
 
   return null;
+}
+
+function convertSvgLengthToPx(value: number, unit: string): number {
+  switch (unit.toLowerCase()) {
+    case 'px':
+      return value;
+    case 'pt':
+      return value * (96 / 72);
+    case 'pc':
+      return value * 16;
+    case 'mm':
+      return value * (96 / 25.4);
+    case 'cm':
+      return value * (96 / 2.54);
+    case 'in':
+      return value * 96;
+    case 'em':
+      return value * 16;
+    case 'ex':
+      return value * 8;
+    default:
+      return value;
+  }
 }
 
 function clampImageDimension(value: number): number {
