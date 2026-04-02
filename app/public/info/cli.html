@@ -95,6 +95,22 @@
         color: var(--brand-dark);
       }
 
+      .title-row {
+        display: flex;
+        align-items: flex-end;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+
+      .cli-version {
+        color: var(--muted);
+        font-size: 0.95rem;
+        font-weight: 700;
+        line-height: 1.2;
+        letter-spacing: 0;
+        white-space: nowrap;
+      }
+
       .subtitle {
         margin: 0;
         font-size: 1.14rem;
@@ -114,19 +130,6 @@
         flex-wrap: wrap;
         gap: 12px;
         margin-top: 18px;
-      }
-
-      .release-badge {
-        display: inline-flex;
-        flex-wrap: wrap;
-        align-items: center;
-        gap: 8px;
-        margin-top: 16px;
-        padding: 10px 14px;
-        border-radius: 999px;
-        background: var(--brand-soft);
-        color: var(--brand-dark);
-        font-weight: 700;
       }
 
       .button {
@@ -310,6 +313,10 @@
           height: 56px;
           flex-basis: 56px;
         }
+
+        .title-row {
+          gap: 6px;
+        }
       }
     </style>
   </head>
@@ -321,7 +328,10 @@
             <div class="hero-top">
               <img src="./execonvert-cli-icon.svg" alt="" />
               <div>
-                <h1 id="cli-title">eXeConvert CLI</h1>
+                <div class="title-row">
+                  <h1 id="cli-title">eXeConvert CLI</h1>
+                  <span id="release-value" class="cli-version">...</span>
+                </div>
                 <p id="cli-subtitle" class="subtitle">La versión para usar desde un terminal o para automatizar conversiones</p>
               </div>
             </div>
@@ -339,11 +349,6 @@
           Esta es la versión de terminal o consola de eXeConvert. Se usa desde una ventana de Terminal, PowerShell o cmd y
           es útil para convertir muchos archivos o automatizar tareas.
         </p>
-
-        <div class="release-badge">
-          <span id="release-label">Última versión publicada:</span>
-          <span id="release-value">v0.1.2</span>
-        </div>
 
         <div class="cta-row">
           <a id="cli-download-button" class="button primary" href="https://github.com/eXeConvert/eXeConvert.github.io/releases/latest" target="_blank" rel="noopener">Descargar la última versión</a>
@@ -496,7 +501,6 @@ done</pre>
     <script>
       const STORAGE_KEY = "execonvert.locale";
       const SUPPORTED_LOCALES = ["es", "ca", "en"];
-      const FALLBACK_VERSION = "v0.1.2";
       const RELEASES_API_URL = "https://api.github.com/repos/eXeConvert/eXeConvert.github.io/releases/latest";
 
       const translations = {
@@ -781,7 +785,7 @@ done</pre>
         setText("faq-3-title", copy.faq3Title);
         setHtml("faq-3-text", copy.faq3Text);
         setText("back-link", copy.backLink);
-        setText("footer-version", copy.footerVersion.replace("{version}", document.getElementById("release-value")?.textContent || FALLBACK_VERSION));
+        setText("footer-version", copy.footerVersion.replace("{version}", document.getElementById("release-value")?.textContent || "..."));
         setText("footer-license", copy.footerLicense);
         setText("footer-repo", copy.footerRepo);
         setText("footer-issues", copy.footerIssues);
@@ -809,7 +813,7 @@ done</pre>
             throw new Error(`HTTP ${response.status}`);
           }
           const data = await response.json();
-          const version = data.tag_name || data.name || FALLBACK_VERSION;
+          const version = data.tag_name || data.name || "...";
           const releaseValue = document.getElementById("release-value");
           if (releaseValue) {
             releaseValue.textContent = version;
@@ -818,8 +822,9 @@ done</pre>
         } catch {
           const releaseValue = document.getElementById("release-value");
           if (releaseValue) {
-            releaseValue.textContent = FALLBACK_VERSION;
+            releaseValue.textContent = "...";
           }
+          applyTranslations(document.documentElement.lang || activeLocale);
         }
       }
 
