@@ -59,7 +59,7 @@ interface WindowWithExelearning extends Window {
 }
 
 const EXELEARNING_BASE_PATH = 'exelearning';
-const APP_VERSION = 'v0.1.2';
+const APP_VERSION = 'v0.2.0';
 const MIME_TYPES: Record<string, string> = {
   png: 'image/png',
   jpg: 'image/jpeg',

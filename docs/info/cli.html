@@ -1,0 +1,849 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>eXeConvert CLI</title>
+    <link rel="icon" href="./execonvert-cli-icon.svg" type="image/svg+xml" />
+    <style>
+      :root {
+        --bg: #f3f7ef;
+        --panel: rgba(255, 255, 255, 0.96);
+        --line: #bfd0b7;
+        --ink: #243024;
+        --muted: #5b685a;
+        --brand-dark: #2f5d2f;
+        --brand-soft: #e5f1de;
+        --accent: #184c7c;
+        --shadow: 0 18px 44px rgba(53, 77, 47, 0.1);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: Candara, "Trebuchet MS", "Gill Sans", sans-serif;
+        color: var(--ink);
+        background:
+          radial-gradient(circle at 86% 10%, rgba(95, 155, 61, 0.14), transparent 18rem),
+          radial-gradient(circle at 10% 90%, rgba(24, 76, 124, 0.08), transparent 18rem),
+          linear-gradient(180deg, #f8fbf6 0%, var(--bg) 100%);
+      }
+
+      a {
+        color: var(--accent);
+      }
+
+      code,
+      pre {
+        font-family: "Cascadia Code", "Fira Code", Consolas, monospace;
+      }
+
+      .wrap {
+        width: min(1120px, calc(100% - 40px));
+        margin: 0 auto;
+        padding: 30px 0 46px;
+      }
+
+      .hero {
+        padding: 26px 28px;
+        border: 2px solid var(--line);
+        border-radius: 30px;
+        background: var(--panel);
+        box-shadow: var(--shadow);
+      }
+
+      .hero-head {
+        display: flex;
+        justify-content: space-between;
+        gap: 18px;
+        align-items: flex-start;
+      }
+
+      .hero-top {
+        display: flex;
+        align-items: center;
+        gap: 18px;
+        margin-bottom: 10px;
+      }
+
+      .hero-top img {
+        width: 72px;
+        height: 72px;
+        flex: 0 0 72px;
+      }
+
+      .locale-picker select {
+        min-width: 140px;
+        border-radius: 999px;
+        border: 1px solid rgba(47, 93, 47, 0.16);
+        background: rgba(255, 255, 255, 0.92);
+        color: var(--brand-dark);
+        padding: 10px 16px;
+        font: inherit;
+        font-weight: 700;
+      }
+
+      h1 {
+        margin: 0;
+        font-size: clamp(2.4rem, 4vw, 4rem);
+        line-height: 0.96;
+        letter-spacing: -0.05em;
+        color: var(--brand-dark);
+      }
+
+      .subtitle {
+        margin: 0;
+        font-size: 1.14rem;
+        color: var(--muted);
+      }
+
+      .intro {
+        margin: 14px 0 0;
+        font-size: 1.12rem;
+        line-height: 1.45;
+        color: var(--muted);
+        max-width: 52rem;
+      }
+
+      .cta-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        margin-top: 18px;
+      }
+
+      .release-badge {
+        display: inline-flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 8px;
+        margin-top: 16px;
+        padding: 10px 14px;
+        border-radius: 999px;
+        background: var(--brand-soft);
+        color: var(--brand-dark);
+        font-weight: 700;
+      }
+
+      .button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+        min-height: 48px;
+        padding: 0 18px;
+        border-radius: 999px;
+        border: 1px solid transparent;
+        font-weight: 700;
+        text-decoration: none;
+      }
+
+      .button.primary {
+        background: linear-gradient(135deg, #6aa844 0%, #48792e 100%);
+        color: white;
+        box-shadow: 0 12px 24px rgba(72, 121, 46, 0.22);
+      }
+
+      .meta {
+        margin-top: 14px;
+        font-size: 0.98rem;
+        color: var(--muted);
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: 1.3fr 0.9fr;
+        gap: 20px;
+        margin-top: 22px;
+      }
+
+      .panel {
+        padding: 24px;
+        border: 2px solid var(--line);
+        border-radius: 26px;
+        background: var(--panel);
+        box-shadow: var(--shadow);
+      }
+
+      .panel h2 {
+        margin: 0 0 12px;
+        font-size: 1.45rem;
+        color: var(--brand-dark);
+      }
+
+      .panel p,
+      .panel li {
+        font-size: 1rem;
+        line-height: 1.46;
+        color: var(--muted);
+      }
+
+      .downloads {
+        display: grid;
+        gap: 12px;
+      }
+
+      .download-card {
+        padding: 16px 16px 18px;
+        border-radius: 20px;
+        border: 1px solid rgba(47, 93, 47, 0.12);
+        background: linear-gradient(180deg, rgba(255, 255, 255, 0.96) 0%, #f7fbf4 100%);
+      }
+
+      .download-card strong {
+        display: block;
+        margin-bottom: 4px;
+        font-size: 1.02rem;
+        color: var(--brand-dark);
+      }
+
+      .download-card p {
+        margin: 0;
+      }
+
+      pre {
+        margin: 12px 0 0;
+        padding: 14px 16px;
+        overflow-x: auto;
+        border-radius: 18px;
+        background: #182117;
+        color: #eef7eb;
+        font-size: 0.95rem;
+        line-height: 1.45;
+      }
+
+      .note {
+        margin-top: 14px;
+        padding: 14px 16px;
+        border-radius: 18px;
+        background: var(--brand-soft);
+        color: var(--ink);
+      }
+
+      .step-list,
+      .faq {
+        display: grid;
+        gap: 12px;
+        margin-top: 12px;
+      }
+
+      .step,
+      .faq-item {
+        padding: 14px 16px;
+        border-radius: 18px;
+        background: #f8fbf6;
+        border: 1px solid rgba(47, 93, 47, 0.08);
+      }
+
+      .step strong,
+      .faq-item strong {
+        display: block;
+        margin-bottom: 5px;
+        color: var(--brand-dark);
+      }
+
+      .back {
+        margin-top: 20px;
+        font-size: 0.98rem;
+      }
+
+      .footer {
+        margin-top: 20px;
+        padding: 18px 24px;
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        background: linear-gradient(180deg, var(--panel) 0%, #f6faf4 100%);
+        box-shadow: var(--shadow);
+        text-align: center;
+      }
+
+      .footer p {
+        margin: 8px 0;
+        color: var(--muted);
+        line-height: 1.5;
+      }
+
+      .footer-links {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: center;
+        gap: 8px;
+      }
+
+      .footer a {
+        font-weight: 700;
+      }
+
+      @media (max-width: 920px) {
+        .grid {
+          grid-template-columns: 1fr;
+        }
+      }
+
+      @media (max-width: 640px) {
+        .wrap {
+          width: min(100% - 24px, 1120px);
+          padding-top: 18px;
+        }
+
+        .hero,
+        .panel {
+          padding: 20px;
+          border-radius: 22px;
+        }
+
+        .hero-head {
+          flex-direction: column;
+          align-items: stretch;
+        }
+
+        .hero-top {
+          align-items: flex-start;
+        }
+
+        .hero-top img {
+          width: 56px;
+          height: 56px;
+          flex-basis: 56px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <section class="hero">
+        <div class="hero-head">
+          <div>
+            <div class="hero-top">
+              <img src="./execonvert-cli-icon.svg" alt="" />
+              <div>
+                <h1 id="cli-title">eXeConvert CLI</h1>
+                <p id="cli-subtitle" class="subtitle">La versión para usar desde un terminal o para automatizar conversiones</p>
+              </div>
+            </div>
+          </div>
+          <div class="locale-picker">
+            <select id="language-select" aria-label="Idioma">
+              <option value="es">Español</option>
+              <option value="ca">Català</option>
+              <option value="en">English</option>
+            </select>
+          </div>
+        </div>
+
+        <p id="cli-intro" class="intro">
+          Esta es la versión de terminal o consola de eXeConvert. Se usa desde una ventana de Terminal, PowerShell o cmd y
+          es útil para convertir muchos archivos o automatizar tareas.
+        </p>
+
+        <div class="release-badge">
+          <span id="release-label">Última versión publicada:</span>
+          <span id="release-value">v0.2.0</span>
+        </div>
+
+        <div class="cta-row">
+          <a id="cli-download-button" class="button primary" href="https://github.com/eXeConvert/eXeConvert.github.io/releases/latest" target="_blank" rel="noopener">Descargar la última versión</a>
+        </div>
+
+      </section>
+
+      <div class="grid">
+        <section class="panel">
+          <h2 id="downloads-title">Qué descargar</h2>
+          <div class="downloads">
+            <div class="download-card">
+              <strong id="download-deb-title">Ubuntu y otros sistemas basados en Debian</strong>
+              <p id="download-deb-text">Descarga el paquete <code>.deb</code> desde la última release y ábrelo con el instalador del sistema.</p>
+            </div>
+            <div class="download-card">
+              <strong id="download-appimage-title">Linux genérico</strong>
+              <p id="download-appimage-text">Usa el archivo <code>.AppImage</code> si no quieres instalar un paquete del sistema.</p>
+            </div>
+            <div class="download-card">
+              <strong id="download-windows-title">Windows</strong>
+              <p id="download-windows-text">Descarga el instalador <code>.exe</code> y sigue el asistente.</p>
+            </div>
+            <div class="download-card">
+              <strong id="download-macos-title">macOS</strong>
+              <p id="download-macos-text">Descarga el instalador <code>.pkg</code> y sigue el proceso habitual de instalación.</p>
+            </div>
+          </div>
+
+          <div id="cli-note" class="note">
+            <strong>Importante:</strong> la CLI está pensada para terminal. Si prefieres trabajar con una interfaz gráfica, usa <a href="../index.html">la página principal de eXeConvert</a>.
+          </div>
+        </section>
+
+        <section class="panel">
+          <h2 id="first-use-title">Primer uso</h2>
+          <div class="step-list">
+            <div class="step">
+              <strong id="step-1-title">1. Instala la versión adecuada para tu sistema</strong>
+              <span id="step-1-text">En la release verás varios archivos. Elige el instalador que corresponda a tu equipo.</span>
+            </div>
+            <div class="step">
+              <strong id="step-2-title">2. Abre un terminal</strong>
+              <span id="step-2-text">En Linux o macOS puedes abrir la app Terminal. En Windows puedes usar PowerShell o cmd.</span>
+            </div>
+            <div class="step">
+              <strong id="step-3-title">3. Comprueba que funciona</strong>
+              <span id="step-3-text">Ejecuta <code>execonvert --help</code>. Si aparece la ayuda, ya está listo.</span>
+            </div>
+            <div class="step">
+              <strong id="step-4-title">4. Convierte un archivo</strong>
+              <span id="step-4-text">Escribe el archivo de entrada y el de salida en el mismo comando.</span>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <section class="panel" style="margin-top: 20px;">
+        <h2 id="commands-title">Comandos más habituales</h2>
+        <p id="commands-intro">Los nombres de archivo pueden ser rutas completas o relativas. Algunos ejemplos:</p>
+        <pre>execonvert proyecto.elpx proyecto.pdf
+execonvert proyecto.elpx proyecto.docx
+execonvert proyecto.elpx resumen.md
+execonvert apuntes.md apuntes.elpx
+execonvert legacy.elp actualizado.elpx
+execonvert inspect proyecto.elpx</pre>
+
+        <p id="commands-note" class="note">
+          Si un nombre de archivo o carpeta tiene espacios, ponlo entre comillas. Ejemplo: <code>execonvert "Mi proyecto.elpx" "Mi proyecto.pdf"</code>
+        </p>
+      </section>
+
+      <div class="grid">
+        <section class="panel">
+          <h2 id="examples-title">Ejemplos útiles</h2>
+          <p id="example-1-label">Exportar solo algunas páginas de un proyecto:</p>
+          <pre>execonvert proyecto.elpx seleccion.pdf --pages 1,2.1</pre>
+
+          <p id="example-2-label">Inspeccionar la estructura interna de páginas:</p>
+          <pre>execonvert inspect proyecto.elpx --json</pre>
+
+          <p id="example-3-label">Importar Markdown y convertirlo en un proyecto eXeLearning:</p>
+          <pre>execonvert apuntes.md apuntes.elpx</pre>
+
+          <p id="example-4-label">Convertir un proyecto antiguo <code>.elp</code> directamente a PDF:</p>
+          <pre>execonvert legacy.elp legacy.pdf</pre>
+        </section>
+
+        <section class="panel">
+          <h2 id="automation-title">Para automatizar</h2>
+          <p id="automation-intro">La CLI sirve muy bien para tareas repetitivas: convertir lotes de archivos, integrarla en scripts, ejecutarla desde otras herramientas o lanzarla desde tareas programadas.</p>
+          <p id="automation-linux-label">Ejemplo sencillo en Linux o macOS:</p>
+          <pre>for f in *.elpx; do
+  execonvert "$f" "${f%.elpx}.pdf"
+done</pre>
+
+          <p id="automation-windows-label">Ejemplo sencillo en PowerShell:</p>
+          <pre>Get-ChildItem *.elpx | ForEach-Object {
+  execonvert $_.FullName ($_.BaseName + ".pdf")
+}</pre>
+        </section>
+      </div>
+
+      <section class="panel" style="margin-top: 20px;">
+        <h2 id="faq-title">Preguntas frecuentes</h2>
+        <div class="faq">
+          <div class="faq-item">
+            <strong id="faq-1-title">No sé cuál descargar</strong>
+            <span id="faq-1-text">Si usas Ubuntu u otro sistema basado en Debian, normalmente elige <code>.deb</code>. En Windows, el instalador <code>.exe</code>. En macOS, el archivo <code>.pkg</code>. En otras distribuciones Linux, prueba con <code>.AppImage</code>.</span>
+          </div>
+          <div class="faq-item">
+            <strong id="faq-2-title">¿Se puede usar sin conocimientos técnicos?</strong>
+            <span id="faq-2-text">Sí, si solo necesitas ejecutar comandos básicos. Esta página está pensada precisamente para ese caso. Si prefieres no usar terminal, sigue siendo mejor <a href="../index.html">la página principal de eXeConvert</a>.</span>
+          </div>
+          <div class="faq-item">
+            <strong id="faq-3-title">¿Dónde están siempre los archivos más nuevos?</strong>
+            <span id="faq-3-text">En la <a href="https://github.com/eXeConvert/eXeConvert.github.io/releases/latest" target="_blank" rel="noopener">última release de GitHub</a>.</span>
+          </div>
+        </div>
+
+        <p class="back">
+          <a id="back-link" href="../index.html">Volver a la página principal de eXeConvert</a>
+        </p>
+      </section>
+
+      <footer class="footer">
+        <p class="footer-links">
+          <span id="footer-version">Versión v0.2.0 · ©</span>
+          <a href="https://bilateria.org/" target="_blank" rel="noopener noreferrer">Juan José de Haro</a>
+          <span>·</span>
+          <a id="footer-license" href="https://www.gnu.org/licenses/agpl-3.0.html" target="_blank" rel="noopener noreferrer">Licencia AGPLv3</a>
+          <span>·</span>
+          <a id="footer-repo" href="https://github.com/eXeConvert/eXeConvert.github.io" target="_blank" rel="noopener noreferrer">Repositorio GitHub</a>
+          <span>·</span>
+          <a id="footer-issues" href="https://github.com/eXeConvert/eXeConvert.github.io/issues" target="_blank" rel="noopener noreferrer">Problemas y sugerencias</a>
+        </p>
+        <p id="footer-independent">Proyecto independiente. No está afiliado ni avalado oficialmente por eXeLearning o INTEF.</p>
+        <p>
+          <span id="footer-third-party">Este proyecto reutiliza recursos de eXeLearning para compatibilidad con <code>.elpx</code>. Consulta las atribuciones en</span>
+          <a href="../THIRD_PARTY_NOTICES.md" target="_blank" rel="noopener noreferrer">THIRD_PARTY_NOTICES</a>
+          <span>·</span>
+          <a id="footer-privacy-link" href="#">Privacidad</a>.
+        </p>
+        <p id="footer-privacy" hidden>
+          Esta aplicación recoge únicamente estadísticas de uso agregadas con un sistema propio para conocer su utilización y mejorar la herramienta. No se almacenan direcciones IP ni se usan cookies de analítica para los visitantes.
+        </p>
+      </footer>
+    </div>
+
+    <script>
+      const STORAGE_KEY = "execonvert.locale";
+      const SUPPORTED_LOCALES = ["es", "ca", "en"];
+      const FALLBACK_VERSION = "v0.2.0";
+      const RELEASES_API_URL = "https://api.github.com/repos/eXeConvert/eXeConvert.github.io/releases/latest";
+
+      const translations = {
+        es: {
+          pageTitle: "eXeConvert CLI",
+          langLabel: "Idioma",
+          title: "eXeConvert CLI",
+          releaseLabel: "Última versión publicada:",
+          subtitle: "La versión para usar desde un terminal o para automatizar conversiones",
+          intro:
+            "Esta es la versión de terminal o consola de eXeConvert. Se usa desde una ventana de Terminal, PowerShell o cmd y es útil para convertir muchos archivos o automatizar tareas.",
+          downloadButton: "Descargar la última versión",
+          downloadsTitle: "Qué descargar",
+          debTitle: "Ubuntu y otros sistemas basados en Debian",
+          debText: "Descarga el paquete <code>.deb</code> desde la última release y ábrelo con el instalador del sistema.",
+          appImageTitle: "Linux genérico",
+          appImageText: "Usa el archivo <code>.AppImage</code> si no quieres instalar un paquete del sistema.",
+          windowsTitle: "Windows",
+          windowsText: "Descarga el instalador <code>.exe</code> y sigue el asistente.",
+          macosTitle: "macOS",
+          macosText: "Descarga el instalador <code>.pkg</code> y sigue el proceso habitual de instalación.",
+          note:
+            "<strong>Importante:</strong> la CLI está pensada para terminal. Si prefieres trabajar con una interfaz gráfica, usa <a href=\"../index.html\">la página principal de eXeConvert</a>.",
+          firstUseTitle: "Primer uso",
+          step1Title: "1. Instala la versión adecuada para tu sistema",
+          step1Text: "En la release verás varios archivos. Elige el instalador que corresponda a tu equipo.",
+          step2Title: "2. Abre un terminal",
+          step2Text: "En Linux o macOS puedes abrir la app Terminal. En Windows puedes usar PowerShell o cmd.",
+          step3Title: "3. Comprueba que funciona",
+          step3Text: "Ejecuta <code>execonvert --help</code>. Si aparece la ayuda, ya está listo.",
+          step4Title: "4. Convierte un archivo",
+          step4Text: "Escribe el archivo de entrada y el de salida en el mismo comando.",
+          commandsTitle: "Comandos más habituales",
+          commandsIntro: "Los nombres de archivo pueden ser rutas completas o relativas. Algunos ejemplos:",
+          commandsNote:
+            "Si un nombre de archivo o carpeta tiene espacios, ponlo entre comillas. Ejemplo: <code>execonvert \"Mi proyecto.elpx\" \"Mi proyecto.pdf\"</code>",
+          examplesTitle: "Ejemplos útiles",
+          example1: "Exportar solo algunas páginas de un proyecto:",
+          example2: "Inspeccionar la estructura interna de páginas:",
+          example3: "Importar Markdown y convertirlo en un proyecto eXeLearning:",
+          example4: "Convertir un proyecto antiguo <code>.elp</code> directamente a PDF:",
+          automationTitle: "Para automatizar",
+          automationIntro:
+            "La CLI sirve muy bien para tareas repetitivas: convertir lotes de archivos, integrarla en scripts, ejecutarla desde otras herramientas o lanzarla desde tareas programadas.",
+          automationLinux: "Ejemplo sencillo en Linux o macOS:",
+          automationWindows: "Ejemplo sencillo en PowerShell:",
+          faqTitle: "Preguntas frecuentes",
+          faq1Title: "No sé cuál descargar",
+          faq1Text:
+            "Si usas Ubuntu u otro sistema basado en Debian, normalmente elige <code>.deb</code>. En Windows, el instalador <code>.exe</code>. En macOS, el archivo <code>.pkg</code>. En otras distribuciones Linux, prueba con <code>.AppImage</code>.",
+          faq2Title: "¿Se puede usar sin conocimientos técnicos?",
+          faq2Text:
+            "Sí, si solo necesitas ejecutar comandos básicos. Esta página está pensada precisamente para ese caso. Si prefieres no usar terminal, sigue siendo mejor <a href=\"../index.html\">la página principal de eXeConvert</a>.",
+          faq3Title: "¿Dónde están siempre los archivos más nuevos?",
+          faq3Text:
+            "En la <a href=\"https://github.com/eXeConvert/eXeConvert.github.io/releases/latest\" target=\"_blank\" rel=\"noopener\">última release de GitHub</a>.",
+          backLink: "Volver a la página principal de eXeConvert",
+          footerVersion: "Versión {version} · ©",
+          footerLicense: "Licencia AGPLv3",
+          footerRepo: "Repositorio GitHub",
+          footerIssues: "Problemas y sugerencias",
+          footerIndependent: "Proyecto independiente. No está afiliado ni avalado oficialmente por eXeLearning o INTEF.",
+          footerThirdParty: "Este proyecto reutiliza recursos de eXeLearning para compatibilidad con <code>.elpx</code>. Consulta las atribuciones en",
+          footerPrivacyLink: "Privacidad",
+          footerPrivacy:
+            "Esta aplicación recoge únicamente estadísticas de uso agregadas con un sistema propio para conocer su utilización y mejorar la herramienta. No se almacenan direcciones IP ni se usan cookies de analítica para los visitantes."
+        },
+        ca: {
+          pageTitle: "eXeConvert CLI",
+          langLabel: "Idioma",
+          title: "eXeConvert CLI",
+          releaseLabel: "Última versió publicada:",
+          subtitle: "La versió per fer servir des d'un terminal o per automatitzar conversions",
+          intro:
+            "Aquesta és la versió de terminal o consola d'eXeConvert. Es fa servir des d'una finestra de Terminal, PowerShell o cmd i és útil per convertir molts fitxers o automatitzar tasques.",
+          downloadButton: "Descarregar l'última versió",
+          downloadsTitle: "Què descarregar",
+          debTitle: "Ubuntu i altres sistemes basats en Debian",
+          debText: "Descarrega el paquet <code>.deb</code> des de l'última release i obre'l amb l'instal·lador del sistema.",
+          appImageTitle: "Linux genèric",
+          appImageText: "Fes servir el fitxer <code>.AppImage</code> si no vols instal·lar un paquet del sistema.",
+          windowsTitle: "Windows",
+          windowsText: "Descarrega l'instal·lador <code>.exe</code> i segueix l'assistent.",
+          macosTitle: "macOS",
+          macosText: "Descarrega l'instal·lador <code>.pkg</code> i segueix el procés habitual d'instal·lació.",
+          note:
+            "<strong>Important:</strong> la CLI està pensada per al terminal. Si prefereixes treballar amb una interfície gràfica, fes servir <a href=\"../index.html\">la pàgina principal d'eXeConvert</a>.",
+          firstUseTitle: "Primer ús",
+          step1Title: "1. Instal·la la versió adequada per al teu sistema",
+          step1Text: "A la release veuràs diversos fitxers. Tria l'instal·lador que correspongui al teu equip.",
+          step2Title: "2. Obre un terminal",
+          step2Text: "A Linux o macOS pots obrir l'app Terminal. A Windows pots fer servir PowerShell o cmd.",
+          step3Title: "3. Comprova que funciona",
+          step3Text: "Executa <code>execonvert --help</code>. Si apareix l'ajuda, ja està a punt.",
+          step4Title: "4. Converteix un fitxer",
+          step4Text: "Escriu el fitxer d'entrada i el de sortida en el mateix comandament.",
+          commandsTitle: "Comandes més habituals",
+          commandsIntro: "Els noms de fitxer poden ser rutes completes o relatives. Alguns exemples:",
+          commandsNote:
+            "Si un nom de fitxer o carpeta té espais, posa'l entre cometes. Exemple: <code>execonvert \"El meu projecte.elpx\" \"El meu projecte.pdf\"</code>",
+          examplesTitle: "Exemples útils",
+          example1: "Exportar només algunes pàgines d'un projecte:",
+          example2: "Inspeccionar l'estructura interna de pàgines:",
+          example3: "Importar Markdown i convertir-lo en un projecte eXeLearning:",
+          example4: "Convertir un projecte antic <code>.elp</code> directament a PDF:",
+          automationTitle: "Per automatitzar",
+          automationIntro:
+            "La CLI va molt bé per a tasques repetitives: convertir lots de fitxers, integrar-la en scripts, executar-la des d'altres eines o llançar-la des de tasques programades.",
+          automationLinux: "Exemple senzill a Linux o macOS:",
+          automationWindows: "Exemple senzill a PowerShell:",
+          faqTitle: "Preguntes freqüents",
+          faq1Title: "No sé quin descarregar",
+          faq1Text:
+            "Si fas servir Ubuntu o un altre sistema basat en Debian, normalment tria <code>.deb</code>. A Windows, l'instal·lador <code>.exe</code>. A macOS, el fitxer <code>.pkg</code>. En altres distribucions Linux, prova amb <code>.AppImage</code>.",
+          faq2Title: "Es pot fer servir sense coneixements tècnics?",
+          faq2Text:
+            "Sí, si només necessites executar comandes bàsiques. Aquesta pàgina està pensada precisament per a aquest cas. Si prefereixes no fer servir el terminal, continua sent millor <a href=\"../index.html\">la pàgina principal d'eXeConvert</a>.",
+          faq3Title: "On hi ha sempre els fitxers més nous?",
+          faq3Text:
+            "A l'<a href=\"https://github.com/eXeConvert/eXeConvert.github.io/releases/latest\" target=\"_blank\" rel=\"noopener\">última release de GitHub</a>.",
+          backLink: "Tornar a la pàgina principal d'eXeConvert",
+          footerVersion: "Versió {version} · ©",
+          footerLicense: "Llicència AGPLv3",
+          footerRepo: "Repositori GitHub",
+          footerIssues: "Problemes i suggeriments",
+          footerIndependent: "Projecte independent. No està afiliat ni avalat oficialment per eXeLearning o INTEF.",
+          footerThirdParty: "Aquest projecte reutilitza recursos d'eXeLearning per compatibilitat amb <code>.elpx</code>. Consulta les atribucions a",
+          footerPrivacyLink: "Privadesa",
+          footerPrivacy:
+            "Aquesta aplicació recull únicament estadístiques d'ús agregades amb un sistema propi per conèixer-ne la utilització i millorar l'eina. No s'emmagatzemen adreces IP ni s'utilitzen cookies d'analítica per als visitants."
+        },
+        en: {
+          pageTitle: "eXeConvert CLI",
+          langLabel: "Language",
+          title: "eXeConvert CLI",
+          releaseLabel: "Latest published version:",
+          subtitle: "The version to use from a terminal or for automating conversions",
+          intro:
+            "This is the terminal or console version of eXeConvert. It is used from a Terminal, PowerShell, or cmd window and is useful for converting many files or automating tasks.",
+          downloadButton: "Download the latest version",
+          downloadsTitle: "What to download",
+          debTitle: "Ubuntu and other Debian-based systems",
+          debText: "Download the <code>.deb</code> package from the latest release and open it with the system installer.",
+          appImageTitle: "Generic Linux",
+          appImageText: "Use the <code>.AppImage</code> file if you do not want to install a system package.",
+          windowsTitle: "Windows",
+          windowsText: "Download the <code>.exe</code> installer and follow the setup wizard.",
+          macosTitle: "macOS",
+          macosText: "Download the <code>.pkg</code> installer and follow the usual installation process.",
+          note:
+            "<strong>Important:</strong> the CLI is intended for terminal use. If you prefer a graphical interface, use <a href=\"../index.html\">the main eXeConvert page</a>.",
+          firstUseTitle: "First steps",
+          step1Title: "1. Install the version that matches your system",
+          step1Text: "The release includes several files. Choose the installer that matches your computer.",
+          step2Title: "2. Open a terminal",
+          step2Text: "On Linux or macOS you can open the Terminal app. On Windows you can use PowerShell or cmd.",
+          step3Title: "3. Check that it works",
+          step3Text: "Run <code>execonvert --help</code>. If the help appears, it is ready.",
+          step4Title: "4. Convert a file",
+          step4Text: "Write the input file and the output file in the same command.",
+          commandsTitle: "Most common commands",
+          commandsIntro: "File names can be full or relative paths. Some examples:",
+          commandsNote:
+            "If a file or folder name contains spaces, put it in quotes. Example: <code>execonvert \"My project.elpx\" \"My project.pdf\"</code>",
+          examplesTitle: "Useful examples",
+          example1: "Export only some pages from a project:",
+          example2: "Inspect the internal page structure:",
+          example3: "Import Markdown and turn it into an eXeLearning project:",
+          example4: "Convert an old <code>.elp</code> project directly to PDF:",
+          automationTitle: "For automation",
+          automationIntro:
+            "The CLI works well for repetitive tasks: converting batches of files, integrating it into scripts, calling it from other tools, or running it from scheduled jobs.",
+          automationLinux: "Simple example on Linux or macOS:",
+          automationWindows: "Simple example in PowerShell:",
+          faqTitle: "Frequently asked questions",
+          faq1Title: "I do not know which file to download",
+          faq1Text:
+            "If you use Ubuntu or another Debian-based system, choose <code>.deb</code> in most cases. On Windows, use the <code>.exe</code> installer. On macOS, use the <code>.pkg</code> file. On other Linux distributions, try <code>.AppImage</code>.",
+          faq2Title: "Can it be used without technical knowledge?",
+          faq2Text:
+            "Yes, if you only need basic commands. This page is designed for that case. If you prefer not to use a terminal, <a href=\"../index.html\">the main eXeConvert page</a> is still the better option.",
+          faq3Title: "Where are the newest files always available?",
+          faq3Text:
+            "In the <a href=\"https://github.com/eXeConvert/eXeConvert.github.io/releases/latest\" target=\"_blank\" rel=\"noopener\">latest GitHub release</a>.",
+          backLink: "Back to the main eXeConvert page",
+          footerVersion: "Version {version} · ©",
+          footerLicense: "AGPLv3 License",
+          footerRepo: "GitHub repository",
+          footerIssues: "Issues and suggestions",
+          footerIndependent: "Independent project. Not officially affiliated with or endorsed by eXeLearning or INTEF.",
+          footerThirdParty: "This project reuses eXeLearning resources for <code>.elpx</code> compatibility. See attributions in",
+          footerPrivacyLink: "Privacy",
+          footerPrivacy:
+            "This application only collects aggregated usage statistics with an in-house system to understand how it is used and improve the tool. No IP addresses are stored and no analytics cookies are used for visitors."
+        }
+      };
+
+      function resolveLocale() {
+        const params = new URLSearchParams(window.location.search);
+        const queryLocale = params.get("lang");
+        if (SUPPORTED_LOCALES.includes(queryLocale)) {
+          return queryLocale;
+        }
+
+        const stored = localStorage.getItem(STORAGE_KEY);
+        if (SUPPORTED_LOCALES.includes(stored)) {
+          return stored;
+        }
+
+        const nav = (navigator.language || "es").toLowerCase();
+        if (nav.startsWith("ca")) return "ca";
+        if (nav.startsWith("en")) return "en";
+        return "es";
+      }
+
+      function setHtml(id, value) {
+        const node = document.getElementById(id);
+        if (node) {
+          node.innerHTML = value;
+        }
+      }
+
+      function setText(id, value) {
+        const node = document.getElementById(id);
+        if (node) {
+          node.textContent = value;
+        }
+      }
+
+      function applyTranslations(locale) {
+        const copy = translations[locale] || translations.es;
+        document.documentElement.lang = locale;
+        document.title = copy.pageTitle;
+
+        const select = document.getElementById("language-select");
+        if (select) {
+          select.setAttribute("aria-label", copy.langLabel);
+          select.value = locale;
+        }
+
+        setText("cli-title", copy.title);
+        setText("release-label", copy.releaseLabel);
+        setText("cli-subtitle", copy.subtitle);
+        setText("cli-intro", copy.intro);
+        setText("cli-download-button", copy.downloadButton);
+        setText("downloads-title", copy.downloadsTitle);
+        setText("download-deb-title", copy.debTitle);
+        setHtml("download-deb-text", copy.debText);
+        setText("download-appimage-title", copy.appImageTitle);
+        setHtml("download-appimage-text", copy.appImageText);
+        setText("download-windows-title", copy.windowsTitle);
+        setHtml("download-windows-text", copy.windowsText);
+        setText("download-macos-title", copy.macosTitle);
+        setHtml("download-macos-text", copy.macosText);
+        setHtml("cli-note", copy.note);
+        setText("first-use-title", copy.firstUseTitle);
+        setText("step-1-title", copy.step1Title);
+        setHtml("step-1-text", copy.step1Text);
+        setText("step-2-title", copy.step2Title);
+        setHtml("step-2-text", copy.step2Text);
+        setText("step-3-title", copy.step3Title);
+        setHtml("step-3-text", copy.step3Text);
+        setText("step-4-title", copy.step4Title);
+        setHtml("step-4-text", copy.step4Text);
+        setText("commands-title", copy.commandsTitle);
+        setText("commands-intro", copy.commandsIntro);
+        setHtml("commands-note", copy.commandsNote);
+        setText("examples-title", copy.examplesTitle);
+        setHtml("example-1-label", copy.example1);
+        setHtml("example-2-label", copy.example2);
+        setHtml("example-3-label", copy.example3);
+        setHtml("example-4-label", copy.example4);
+        setText("automation-title", copy.automationTitle);
+        setText("automation-intro", copy.automationIntro);
+        setText("automation-linux-label", copy.automationLinux);
+        setText("automation-windows-label", copy.automationWindows);
+        setText("faq-title", copy.faqTitle);
+        setText("faq-1-title", copy.faq1Title);
+        setHtml("faq-1-text", copy.faq1Text);
+        setText("faq-2-title", copy.faq2Title);
+        setHtml("faq-2-text", copy.faq2Text);
+        setText("faq-3-title", copy.faq3Title);
+        setHtml("faq-3-text", copy.faq3Text);
+        setText("back-link", copy.backLink);
+        setText("footer-version", copy.footerVersion.replace("{version}", document.getElementById("release-value")?.textContent || FALLBACK_VERSION));
+        setText("footer-license", copy.footerLicense);
+        setText("footer-repo", copy.footerRepo);
+        setText("footer-issues", copy.footerIssues);
+        setText("footer-independent", copy.footerIndependent);
+        setHtml("footer-third-party", copy.footerThirdParty);
+        setText("footer-privacy-link", copy.footerPrivacyLink);
+        setText("footer-privacy", copy.footerPrivacy);
+      }
+
+      function persistLocale(locale) {
+        localStorage.setItem(STORAGE_KEY, locale);
+        const url = new URL(window.location.href);
+        url.searchParams.set("lang", locale);
+        window.history.replaceState({}, "", url);
+      }
+
+      async function loadLatestVersion() {
+        try {
+          const response = await fetch(RELEASES_API_URL, {
+            headers: {
+              Accept: "application/vnd.github+json"
+            }
+          });
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+          }
+          const data = await response.json();
+          const version = data.tag_name || data.name || FALLBACK_VERSION;
+          const releaseValue = document.getElementById("release-value");
+          if (releaseValue) {
+            releaseValue.textContent = version;
+          }
+          applyTranslations(document.documentElement.lang || activeLocale);
+        } catch {
+          const releaseValue = document.getElementById("release-value");
+          if (releaseValue) {
+            releaseValue.textContent = FALLBACK_VERSION;
+          }
+        }
+      }
+
+      const activeLocale = resolveLocale();
+      applyTranslations(activeLocale);
+      loadLatestVersion();
+
+      document.getElementById("language-select")?.addEventListener("change", event => {
+        const locale = event.target.value;
+        if (!SUPPORTED_LOCALES.includes(locale)) {
+          return;
+        }
+        persistLocale(locale);
+        applyTranslations(locale);
+      });
+
+      document.getElementById("footer-privacy-link")?.addEventListener("click", event => {
+        event.preventDefault();
+        const privacy = document.getElementById("footer-privacy");
+        if (!privacy) {
+          return;
+        }
+        privacy.hidden = !privacy.hidden;
+      });
+    </script>
+  </body>
+</html>

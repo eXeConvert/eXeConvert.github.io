@@ -134,10 +134,13 @@ interface BrowserMathJaxApi {
 }
 
 interface BrowserMathJaxGlobal {
+  typesetPromise?: (elements?: unknown[]) => Promise<void>;
+  texReset?: () => void;
   tex2svgPromise?: (expression: string, options?: { display?: boolean }) => Promise<HTMLElement>;
   tex?: {
     inlineMath?: string[][];
     displayMath?: string[][];
+    processEscapes?: boolean;
   };
   svg?: {
     fontCache?: string;
@@ -264,7 +267,7 @@ export function buildPrintableHtmlDocument(htmlDocument: string, options?: Print
       svg: { fontCache: 'global' }
     };
   </script>
-  <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js"></script>`
+  <script src="./libs/exe_math/tex-mml-svg.js"></script>`
     : '';
 
   return `<!doctype html>
@@ -317,6 +320,10 @@ export async function buildPdfBlobFromPrintableHtml(
   options?: PrintableHtmlOptions,
   onProgress?: (progress: ConvertProgress) => void,
 ): Promise<Blob> {
+  if (canUseNodePdfRenderer()) {
+    return buildPdfBlobFromPuppeteer(htmlDocument, options, onProgress);
+  }
+
   onProgress?.({ phase: 'pdf', message: 'Generando el documento .pdf...' });
 
   ensurePdfMakeFonts();
@@ -391,111 +398,272 @@ export async function buildPdfBlobFromPrintableHtml(
   }
 }
 
-async function buildPdfBlobFromChromium(
+function canUseNodePdfRenderer(): boolean {
+  return typeof process !== 'undefined' && Boolean(process.versions?.node);
+}
+
+async function buildPdfBlobFromPuppeteer(
   htmlDocument: string,
   options?: PrintableHtmlOptions,
   onProgress?: (progress: ConvertProgress) => void,
 ): Promise<Blob> {
   const dynamicImport = new Function('specifier', 'return import(specifier)') as <T>(specifier: string) => Promise<T>;
-  const [{ mkdtemp, readFile, writeFile, rm }, os, path, childProcess] = await Promise.all([
+  const [{ access, constants, mkdtemp, readdir, rm, stat, writeFile }, os, path, url] = await Promise.all([
     dynamicImport<typeof import('node:fs/promises')>('node:fs/promises'),
     dynamicImport<typeof import('node:os')>('node:os'),
     dynamicImport<typeof import('node:path')>('node:path'),
-    dynamicImport<typeof import('node:child_process')>('node:child_process'),
+    dynamicImport<typeof import('node:url')>('node:url'),
   ]);
 
-  const execFile = childProcess.execFile;
   const tempDir = await mkdtemp(path.join(os.tmpdir(), 'execonvert-pdf-'));
   const inputPath = path.join(tempDir, 'document.html');
-  const outputPath = path.join(tempDir, 'document.pdf');
-  const browserPath = await findChromiumExecutable();
   const title = options?.title || 'Documento PDF';
-  const htmlWithPrintHints = injectChromiumPrintHints(htmlDocument, title);
+  const htmlWithPrintHints = injectPuppeteerPrintHints(htmlDocument, title);
+  const runtimeRoot = resolveRuntimeRoot(path);
+  const bundledCacheDir = runtimeRoot ? path.join(runtimeRoot, 'runtime', 'puppeteer') : null;
+  const previousCacheDir = process.env.PUPPETEER_CACHE_DIR;
 
   try {
     await writeFile(inputPath, htmlWithPrintHints, 'utf8');
-    onProgress?.({ phase: 'pdf', message: 'Componiendo el documento .pdf...' });
+    if (bundledCacheDir && (await pathExists(bundledCacheDir, stat))) {
+      process.env.PUPPETEER_CACHE_DIR = bundledCacheDir;
+    }
 
-    await new Promise<void>((resolve, reject) => {
-      execFile(
-        browserPath,
-        [
-          '--headless=new',
-          '--disable-gpu',
-          '--no-pdf-header-footer',
-          '--run-all-compositor-stages-before-draw',
-          '--virtual-time-budget=12000',
-          `--print-to-pdf=${outputPath}`,
-          `file://${inputPath}`,
-        ],
-        { maxBuffer: 10 * 1024 * 1024 },
-        error => {
-          if (error) {
-            reject(error);
-            return;
-          }
-          resolve();
-        },
-      );
+    onProgress?.({ phase: 'pdf', message: 'Generando el documento .pdf...' });
+
+    const puppeteerModule = await dynamicImport<typeof import('puppeteer')>('puppeteer');
+    const puppeteer = puppeteerModule.default;
+    const executablePath = await resolvePuppeteerExecutablePath({
+      access,
+      constants,
+      path,
+      puppeteer,
+      readdir,
+      stat,
+      bundledCacheDir,
+    });
+    const browser = await puppeteer.launch({
+      executablePath,
+      headless: true,
+      args: [
+        '--disable-gpu',
+        '--disable-dev-shm-usage',
+        ...(process.platform === 'linux' ? ['--no-sandbox', '--disable-setuid-sandbox'] : []),
+      ],
     });
 
-    const pdfBuffer = await readFile(outputPath);
-    return new Blob([pdfBuffer], { type: 'application/pdf' });
+    try {
+      const page = await browser.newPage();
+      await page.goto(url.pathToFileURL(inputPath).href, { waitUntil: 'load' });
+
+      if (containsLatex(htmlDocument)) {
+        const mathJaxPath = await resolveBundledMathJaxPath({ access, constants, url });
+        await page.evaluate(() => {
+          (window as Window & typeof globalThis & { MathJax?: BrowserMathJaxGlobal }).MathJax = {
+            tex: {
+              inlineMath: [['\\(', '\\)'], ['$', '$']],
+              displayMath: [['\\[', '\\]'], ['$$', '$$']],
+              processEscapes: true,
+            },
+            svg: {
+              fontCache: 'global',
+            },
+          };
+        });
+        await page.addScriptTag({ path: mathJaxPath });
+        try {
+          await page.evaluate(async () => {
+            const mathWindow = window as Window & typeof globalThis & { MathJax?: BrowserMathJaxGlobal };
+            const mathJax = mathWindow.MathJax;
+            if (!mathJax?.typesetPromise) {
+              throw new Error('MathJax no está disponible en la página de impresión.');
+            }
+            if (typeof mathJax.texReset === 'function') {
+              mathJax.texReset();
+            }
+            await mathJax.typesetPromise();
+            await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+            document.documentElement.setAttribute('data-execonvert-pdf-ready', 'true');
+          });
+        } catch (error) {
+          const detail = error instanceof Error ? error.message : String(error);
+          throw new Error(`Falló el renderizado MathJax antes de imprimir el PDF. ${detail}`);
+        }
+      } else {
+        await page.evaluate(() => {
+          document.documentElement.setAttribute('data-execonvert-pdf-ready', 'true');
+        });
+      }
+
+      await page.waitForFunction(() => document.documentElement.dataset.execonvertPdfReady === 'true', {
+        timeout: 15000,
+      });
+
+      onProgress?.({ phase: 'pdf', message: 'Componiendo el documento .pdf...' });
+      const pdfBuffer = await page.pdf({
+        format: 'A4',
+        printBackground: true,
+        preferCSSPageSize: true,
+        displayHeaderFooter: false,
+      });
+      const pdfBytes = new Uint8Array(Array.from(pdfBuffer));
+      return new Blob([pdfBytes], { type: 'application/pdf' });
+    } finally {
+      await browser.close();
+    }
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    if (detail.includes('Could not find Chrome') || detail.includes('Could not find expected browser')) {
+      throw new Error(`No se encontró el ejecutable empaquetado del navegador para generar el PDF. ${detail}`);
+    }
+    if (detail.includes('Failed to launch') || detail.includes('Executable does not exist')) {
+      throw new Error(`No se pudo lanzar el navegador embebido para generar el PDF. ${detail}`);
+    }
+    if (detail.includes('MathJax')) {
+      throw new Error(detail);
+    }
+    if (detail.includes('Page.printToPDF') || detail.includes('page.pdf')) {
+      throw new Error(`Falló la impresión a PDF desde el navegador embebido. ${detail}`);
+    }
+    throw new Error(`Falló la exportación PDF con Puppeteer. ${detail}`);
   } finally {
+    if (previousCacheDir === undefined) {
+      delete process.env.PUPPETEER_CACHE_DIR;
+    } else {
+      process.env.PUPPETEER_CACHE_DIR = previousCacheDir;
+    }
     await rm(tempDir, { recursive: true, force: true });
   }
 }
 
-async function findChromiumExecutable(): Promise<string> {
-  const dynamicImport = new Function('specifier', 'return import(specifier)') as <T>(specifier: string) => Promise<T>;
-  const [{ access, constants }] = await Promise.all([
-    dynamicImport<typeof import('node:fs/promises')>('node:fs/promises'),
-  ]);
+function resolveRuntimeRoot(pathModule: typeof import('node:path')): string | null {
+  const runtimeRoot = process.env.EXECONVERT_RUNTIME_ROOT?.trim();
+  return runtimeRoot ? pathModule.resolve(runtimeRoot) : null;
+}
 
+async function pathExists(
+  candidate: string | null,
+  stat: typeof import('node:fs/promises').stat,
+): Promise<boolean> {
+  if (!candidate) {
+    return false;
+  }
+  try {
+    await stat(candidate);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function resolveBundledMathJaxPath({
+  access,
+  constants,
+  url,
+}: {
+  access: typeof import('node:fs/promises').access;
+  constants: typeof import('node:fs/promises').constants;
+  url: typeof import('node:url');
+}): Promise<string> {
+  const localMathJaxPath = '../app/public/libs/exe_math/tex-mml-svg.js';
+  const fallbackMathJaxPath = '../../app/public/libs/exe_math/tex-mml-svg.js';
   const candidates = [
-    process.env.CHROMIUM_PATH,
-    '/usr/bin/chromium',
-    '/usr/bin/chromium-browser',
-    '/usr/bin/google-chrome',
-    '/usr/bin/google-chrome-stable',
-  ].filter((value): value is string => Boolean(value));
+    url.fileURLToPath(new URL(/* @vite-ignore */ localMathJaxPath, import.meta.url)),
+    url.fileURLToPath(new URL(/* @vite-ignore */ fallbackMathJaxPath, import.meta.url)),
+  ];
 
   for (const candidate of candidates) {
     try {
-      await access(candidate, constants.X_OK);
+      await access(candidate, constants.R_OK);
       return candidate;
     } catch {
       continue;
     }
   }
 
-  throw new Error('No se ha encontrado Chromium para generar el PDF vectorial.');
+  throw new Error('No se encontró la librería local de MathJax para la exportación PDF.');
 }
 
-function injectChromiumPrintHints(htmlDocument: string, title: string): string {
+async function resolvePuppeteerExecutablePath({
+  access,
+  constants,
+  path,
+  puppeteer,
+  readdir,
+  stat,
+  bundledCacheDir,
+}: {
+  access: typeof import('node:fs/promises').access;
+  constants: typeof import('node:fs/promises').constants;
+  path: typeof import('node:path');
+  puppeteer: typeof import('puppeteer').default;
+  readdir: typeof import('node:fs/promises').readdir;
+  stat: typeof import('node:fs/promises').stat;
+  bundledCacheDir: string | null;
+}): Promise<string> {
+  try {
+    const resolved = puppeteer.executablePath();
+    await access(resolved, constants.X_OK);
+    return resolved;
+  } catch {
+    // The bundle may store the browser in a copied cache directory, so scan it explicitly.
+  }
+
+  if (!(bundledCacheDir && (await pathExists(bundledCacheDir, stat)))) {
+    throw new Error('No se encontró el ejecutable empaquetado del navegador y no hay caché embebida disponible.');
+  }
+
+  const executableNames =
+    process.platform === 'win32'
+      ? new Set(['chrome.exe', 'chrome-headless-shell.exe'])
+      : process.platform === 'darwin'
+        ? new Set(['Google Chrome for Testing', 'chrome-headless-shell'])
+        : new Set(['chrome', 'chrome-headless-shell']);
+
+  const queue = [bundledCacheDir];
+  while (queue.length > 0) {
+    const current = queue.shift();
+    if (!current) {
+      continue;
+    }
+    const entries = await readdir(current, { withFileTypes: true });
+    for (const entry of entries) {
+      const fullPath = path.join(current, entry.name);
+      if (entry.isDirectory()) {
+        queue.push(fullPath);
+        continue;
+      }
+      if (!executableNames.has(entry.name)) {
+        continue;
+      }
+      try {
+        await access(fullPath, constants.X_OK);
+        return fullPath;
+      } catch {
+        continue;
+      }
+    }
+  }
+
+  throw new Error(`No se encontró el ejecutable empaquetado del navegador en ${bundledCacheDir}.`);
+}
+
+function injectPuppeteerPrintHints(htmlDocument: string, title: string): string {
   const safeTitle = escapeHtml(title);
-  const mathWaitScript = `
+  const readinessScript = `
   <script>
     window.addEventListener('load', () => {
-      const done = () => {
-        document.documentElement.setAttribute('data-execonvert-pdf-ready', 'true');
-      };
-      const mj = window.MathJax;
-      if (mj && mj.startup && typeof mj.startup.promise?.then === 'function') {
-        mj.startup.promise.then(() => setTimeout(done, 250)).catch(done);
-        return;
-      }
-      setTimeout(done, 500);
+      document.documentElement.setAttribute('data-execonvert-document-loaded', 'true');
     });
   </script>`;
 
   if (/<\/head>/i.test(htmlDocument)) {
     return htmlDocument
       .replace(/<title>.*?<\/title>/i, `<title>${safeTitle}</title>`)
-      .replace(/<\/head>/i, `${mathWaitScript}</head>`);
+      .replace(/<\/head>/i, `${readinessScript}</head>`);
   }
 
-  return `<!doctype html><html><head><meta charset="utf-8"><title>${safeTitle}</title>${mathWaitScript}</head><body>${htmlDocument}</body></html>`;
+  return `<!doctype html><html><head><meta charset="utf-8"><title>${safeTitle}</title>${readinessScript}</head><body>${htmlDocument}</body></html>`;
 }
 
 async function resolvePdfMakeWindow(): Promise<Window & typeof globalThis> {

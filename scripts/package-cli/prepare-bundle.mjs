@@ -39,12 +39,15 @@ function parseArgs(argv) {
   return options;
 }
 
-function run(command, args, cwd) {
+function run(command, args, cwd, extraEnv = {}) {
   return new Promise((resolvePromise, rejectPromise) => {
     const child = spawn(command, args, {
       cwd,
       stdio: 'inherit',
-      env: process.env,
+      env: {
+        ...process.env,
+        ...extraEnv,
+      },
       shell: process.platform === 'win32' && /\.cmd$/i.test(command),
     });
     child.on('error', rejectPromise);
@@ -62,10 +65,18 @@ function resolveNpmCommand() {
   return process.platform === 'win32' ? 'npm.cmd' : 'npm';
 }
 
+function resolvePuppeteerCommand(bundleDir, platform) {
+  if (platform === 'win32') {
+    return resolve(bundleDir, 'node_modules/.bin/puppeteer.cmd');
+  }
+  return resolve(bundleDir, 'node_modules/.bin/puppeteer');
+}
+
 function shellWrapper() {
   return `#!/bin/sh
 set -eu
 SELF_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+export EXECONVERT_RUNTIME_ROOT="$SELF_DIR"
 exec "$SELF_DIR/runtime/node/bin/node" "$SELF_DIR/bin/execonvert.js" "$@"
 `;
 }
@@ -74,6 +85,7 @@ function cmdWrapper() {
   return `@echo off
 setlocal
 set "SELF_DIR=%~dp0"
+set "EXECONVERT_RUNTIME_ROOT=%SELF_DIR:~0,-1%"
 "%SELF_DIR%runtime\\node\\node.exe" "%SELF_DIR%bin\\execonvert.js" %*
 `;
 }
@@ -108,6 +120,17 @@ if (!isWindows) {
 }
 
 await run(resolveNpmCommand(), ['ci', '--omit=dev', '--ignore-scripts'], outputDir);
+
+const puppeteerCacheDir = resolve(outputDir, 'runtime/puppeteer');
+await mkdir(puppeteerCacheDir, { recursive: true });
+await run(
+  resolvePuppeteerCommand(outputDir, options.platform),
+  ['browsers', 'install', 'chrome'],
+  outputDir,
+  {
+    PUPPETEER_CACHE_DIR: puppeteerCacheDir,
+  },
+);
 
 const shellScriptPath = resolve(outputDir, 'execonvert');
 await cp(resolve(rootDir, 'bin/execonvert.js'), resolve(outputDir, 'bin/execonvert.js'));

@@ -140,9 +140,15 @@ h2 {
 
 .hero-links {
   margin: 10px 0 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
 }
 
 .hero-links a {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   color: var(--muted);
   text-decoration: underline;
   text-decoration-color: rgba(88, 99, 88, 0.35);
@@ -152,6 +158,11 @@ h2 {
   transition:
     color 120ms ease,
     text-decoration-color 120ms ease;
+}
+
+.hero-link-icon {
+  font-size: 1rem;
+  flex: 0 0 auto;
 }
 
 .hero-links a:hover,

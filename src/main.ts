@@ -93,7 +93,7 @@ if (!app) {
   throw new Error('No se ha encontrado el contenedor principal.');
 }
 
-const APP_VERSION = 'v0.1.2';
+const APP_VERSION = 'v0.2.0';
 const ANALYTICS_FALLBACK_ENDPOINT = 'https://bilateria.org/app/estadistica/execonvert/track.php';
 const ANALYTICS_FALLBACK_STATS_URL = 'https://bilateria.org/app/estadistica/execonvert/admin-stats.php';
 const ANALYTICS_VISIT_COOLDOWN_MS = 30 * 60 * 1000;
@@ -134,7 +134,14 @@ app.innerHTML = `
         ${t('app.lede')}
       </p>
       <p class="hero-links">
-        <a href="./info/index.html?lang=${locale}" target="_blank" rel="noopener">${t('app.infographicLink')}</a>
+        <a href="./info/index.html?lang=${locale}" target="_blank" rel="noopener">
+          <span class="material-symbols-rounded hero-link-icon" aria-hidden="true">image</span>
+          <span>${t('app.infographicLink')}</span>
+        </a>
+        <a href="./info/cli.html?lang=${locale}" target="_blank" rel="noopener">
+          <span class="material-symbols-rounded hero-link-icon" aria-hidden="true">terminal</span>
+          <span>${t('app.cliLink')} · ${t('app.cliLinkHelp')}</span>
+        </a>
       </p>
     </section>
 

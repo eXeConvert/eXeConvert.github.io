@@ -9,6 +9,7 @@ Conversor estático en navegador para transformar proyectos de eXeLearning y con
 - Analiza `content.xml` de proyectos `.elpx` modernos y permite seleccionar páginas antes de exportar.
 - Reconstruye una versión HTML estable del contenido para previsualización y exportación.
 - Exporta `.elpx` a `.docx`, `.md` o `.pdf`.
+- En CLI y paquetes nativos, la exportación `.pdf` usa Puppeteer con navegador embebido y MathJax en SVG para mantener fórmulas vectoriales.
 - Importa `.docx` y `.md` a `.elpx`.
 
 ## Qué no hace todavía
@@ -162,6 +163,7 @@ La idea es siempre la misma:
 
 - construir la CLI
 - empaquetarla con un runtime de Node incluido
+- descargar Chrome for Testing dentro de `runtime/puppeteer`
 - instalar un comando final llamado `execonvert`
 
 ## Estadísticas de visitas
@@ -183,6 +185,7 @@ Backend base de esta app:
 ## Arquitectura
 
 - `src/converter.ts`: parser del `.elpx`, selección de páginas, normalización HTML y exportación a `.docx` y `.pdf`.
+  La ruta PDF principal en Node/CLI usa HTML imprimible + MathJax SVG + Puppeteer; `pdfmake` queda como fallback del navegador web.
 - `src/legacy-elp.ts`: conversión de `.elp` legacy a `.elpx` mediante bundles de eXeLearning.
 - `src/docx-import.ts`: importación de `.docx` a `.elpx`.
 - `src/markdown-import.ts` y `src/elpx-markdown.ts`: conversiones entre `.md` y `.elpx`.

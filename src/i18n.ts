@@ -13,6 +13,8 @@ const dictionaries: Record<Locale, Record<string, string>> = {
     'app.subtitle': 'Conversor para eXeLearning',
     'app.lede': 'Convierte archivos <code>.elp</code> y <code>.elpx</code> a <code>.docx</code>, <code>.pdf</code> o <code>.md</code>, y también importa <code>.docx</code> o <code>.md</code> a <code>.elpx</code>.',
     'app.infographicLink': 'Ver infografía',
+    'app.cliLink': 'Usar la versión CLI',
+    'app.cliLinkHelp': 'Para terminal y automatización',
     'panel.conversion': 'Conversión',
 
     'drop.title': 'Suelta aquí un archivo o selecciónalo',
@@ -176,6 +178,8 @@ const dictionaries: Record<Locale, Record<string, string>> = {
     'app.subtitle': 'Convertidor per a eXeLearning',
     'app.lede': 'Converteix fitxers <code>.elp</code> i <code>.elpx</code> a <code>.docx</code>, <code>.pdf</code> o <code>.md</code>, i també importa <code>.docx</code> o <code>.md</code> a <code>.elpx</code>.',
     'app.infographicLink': 'Veure infografia',
+    'app.cliLink': 'Fer servir la versió CLI',
+    'app.cliLinkHelp': 'Per a terminal i automatització',
     'panel.conversion': 'Conversió',
 
     'drop.title': 'Deixa anar aquí un fitxer o selecciona’l',
@@ -339,6 +343,8 @@ const dictionaries: Record<Locale, Record<string, string>> = {
     'app.subtitle': 'Converter for eXeLearning',
     'app.lede': 'Convert <code>.elp</code> and <code>.elpx</code> files to <code>.docx</code>, <code>.pdf</code>, or <code>.md</code>, and also import <code>.docx</code> or <code>.md</code> into <code>.elpx</code>.',
     'app.infographicLink': 'View infographic',
+    'app.cliLink': 'Use the CLI version',
+    'app.cliLinkHelp': 'For terminal use and automation',
     'panel.conversion': 'Conversion',
 
     'drop.title': 'Drop a file here or choose one',
