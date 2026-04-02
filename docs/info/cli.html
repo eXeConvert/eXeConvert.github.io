@@ -511,7 +511,7 @@ done</pre>
           releaseLabel: "Última versión publicada:",
           subtitle: "La versión para usar desde un terminal o para automatizar conversiones",
           intro:
-            "Esta es la versión de terminal o consola de eXeConvert. Se usa desde una ventana de Terminal, PowerShell o cmd y es útil para convertir muchos archivos o automatizar tareas.",
+            "Esta es la versión de terminal o consola de eXeConvert. Se usa desde una ventana de Terminal, PowerShell o cmd y es útil para convertir muchos archivos o automatizar tareas (si prefieres una interfaz gráfica, puedes usar <a href=\"../index.html\">la versión web de eXeConvert</a>).",
           downloadButton: "Descargar la última versión",
           downloadsTitle: "Qué descargar",
           debTitle: "Ubuntu y otros sistemas basados en Debian",
@@ -575,7 +575,7 @@ done</pre>
           releaseLabel: "Última versió publicada:",
           subtitle: "La versió per fer servir des d'un terminal o per automatitzar conversions",
           intro:
-            "Aquesta és la versió de terminal o consola d'eXeConvert. Es fa servir des d'una finestra de Terminal, PowerShell o cmd i és útil per convertir molts fitxers o automatitzar tasques.",
+            "Aquesta és la versió de terminal o consola d'eXeConvert. Es fa servir des d'una finestra de Terminal, PowerShell o cmd i és útil per convertir molts fitxers o automatitzar tasques (si prefereixes una interfície gràfica, pots fer servir <a href=\"../index.html\">la versió web d'eXeConvert</a>).",
           downloadButton: "Descarregar l'última versió",
           downloadsTitle: "Què descarregar",
           debTitle: "Ubuntu i altres sistemes basats en Debian",
@@ -639,7 +639,7 @@ done</pre>
           releaseLabel: "Latest published version:",
           subtitle: "The version to use from a terminal or for automating conversions",
           intro:
-            "This is the terminal or console version of eXeConvert. It is used from a Terminal, PowerShell, or cmd window and is useful for converting many files or automating tasks.",
+            "This is the terminal or console version of eXeConvert. It is used from a Terminal, PowerShell, or cmd window and is useful for converting many files or automating tasks (if you prefer a graphical interface, you can use <a href=\"../index.html\">the web version of eXeConvert</a>).",
           downloadButton: "Download the latest version",
           downloadsTitle: "What to download",
           debTitle: "Ubuntu and other Debian-based systems",
@@ -744,7 +744,7 @@ done</pre>
         setText("cli-title", copy.title);
         setText("release-label", copy.releaseLabel);
         setText("cli-subtitle", copy.subtitle);
-        setText("cli-intro", copy.intro);
+        setHtml("cli-intro", copy.intro);
         setText("cli-download-button", copy.downloadButton);
         setText("downloads-title", copy.downloadsTitle);
         setText("download-deb-title", copy.debTitle);
