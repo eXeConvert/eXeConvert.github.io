@@ -128,7 +128,10 @@ interface PdfLatexPlaceholder {
 
 interface BrowserMathJaxApi {
   tex2svgPromise(expression: string, options?: { display?: boolean }): Promise<HTMLElement>;
+  typesetPromise?: (elements?: unknown[]) => Promise<void>;
   startup?: {
+    promise?: Promise<void>;
+    ready?: () => void;
     defaultReady?: () => void;
   };
 }
@@ -137,6 +140,11 @@ interface BrowserMathJaxGlobal {
   typesetPromise?: (elements?: unknown[]) => Promise<void>;
   texReset?: () => void;
   tex2svgPromise?: (expression: string, options?: { display?: boolean }) => Promise<HTMLElement>;
+  loader?: {
+    paths?: {
+      mathjax?: string;
+    };
+  };
   tex?: {
     inlineMath?: string[][];
     displayMath?: string[][];
@@ -146,6 +154,7 @@ interface BrowserMathJaxGlobal {
     fontCache?: string;
   };
   startup?: {
+    promise?: Promise<void>;
     ready?: () => void;
     defaultReady?: () => void;
   };
@@ -418,7 +427,8 @@ async function buildPdfBlobFromPuppeteer(
   const tempDir = await mkdtemp(path.join(os.tmpdir(), 'execonvert-pdf-'));
   const inputPath = path.join(tempDir, 'document.html');
   const title = options?.title || 'Documento PDF';
-  const htmlWithPrintHints = injectPuppeteerPrintHints(htmlDocument, title);
+  const htmlForPuppeteer = stripBundledMathJaxScripts(htmlDocument);
+  const htmlWithPrintHints = injectPuppeteerPrintHints(htmlForPuppeteer, title);
   const runtimeRoot = resolveRuntimeRoot(path);
   const bundledCacheDir = runtimeRoot ? path.join(runtimeRoot, 'runtime', 'puppeteer') : null;
   const previousCacheDir = process.env.PUPPETEER_CACHE_DIR;
@@ -457,31 +467,56 @@ async function buildPdfBlobFromPuppeteer(
       await page.goto(url.pathToFileURL(inputPath).href, { waitUntil: 'load' });
 
       if (containsLatex(htmlDocument)) {
-        const mathJaxPath = await resolveBundledMathJaxPath({ access, constants, url });
-        await page.evaluate(() => {
-          (window as Window & typeof globalThis & { MathJax?: BrowserMathJaxGlobal }).MathJax = {
-            tex: {
-              inlineMath: [['\\(', '\\)'], ['$', '$']],
-              displayMath: [['\\[', '\\]'], ['$$', '$$']],
-              processEscapes: true,
-            },
-            svg: {
-              fontCache: 'global',
-            },
-          };
-        });
-        await page.addScriptTag({ path: mathJaxPath });
         try {
+          const hasMathJaxRuntime = await page.evaluate(() => {
+            const mathWindow = window as Window & typeof globalThis & { MathJax?: BrowserMathJaxGlobal };
+            const mathJax = mathWindow.MathJax;
+            return Boolean(mathJax && (mathJax.startup?.promise || mathJax.typesetPromise));
+          });
+
+          if (!hasMathJaxRuntime) {
+            const mathJaxPath = await resolveBundledMathJaxPath({ access, constants, url });
+            const mathJaxBaseUrl = `${url.pathToFileURL(path.dirname(mathJaxPath)).href.replace(/\/$/, '')}/`;
+            await page.evaluate((baseUrl: string) => {
+              (window as Window & typeof globalThis & { MathJax?: BrowserMathJaxGlobal }).MathJax = {
+                loader: {
+                  paths: {
+                    mathjax: baseUrl,
+                  },
+                },
+                tex: {
+                  inlineMath: [['\\(', '\\)'], ['$', '$']],
+                  displayMath: [['\\[', '\\]'], ['$$', '$$']],
+                  processEscapes: true,
+                },
+                svg: {
+                  fontCache: 'global',
+                },
+              };
+            }, mathJaxBaseUrl);
+            await page.addScriptTag({ path: mathJaxPath });
+            await page.waitForFunction(() => {
+              const mathWindow = window as Window & typeof globalThis & { MathJax?: BrowserMathJaxGlobal };
+              const mathJax = mathWindow.MathJax;
+              return Boolean(mathJax && (mathJax.startup?.promise || mathJax.typesetPromise));
+            }, { timeout: 15000 });
+          }
+
           await page.evaluate(async () => {
             const mathWindow = window as Window & typeof globalThis & { MathJax?: BrowserMathJaxGlobal };
             const mathJax = mathWindow.MathJax;
-            if (!mathJax?.typesetPromise) {
+            if (!mathJax) {
               throw new Error('MathJax no está disponible en la página de impresión.');
             }
-            if (typeof mathJax.texReset === 'function') {
-              mathJax.texReset();
+
+            if (mathJax.startup?.promise) {
+              await mathJax.startup.promise;
+            } else if (mathJax.typesetPromise) {
+              await mathJax.typesetPromise();
+            } else {
+              throw new Error('MathJax no expone ninguna promesa de renderizado.');
             }
-            await mathJax.typesetPromise();
+
             await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
             document.documentElement.setAttribute('data-execonvert-pdf-ready', 'true');
           });
@@ -534,6 +569,18 @@ async function buildPdfBlobFromPuppeteer(
     }
     await rm(tempDir, { recursive: true, force: true });
   }
+}
+
+function stripBundledMathJaxScripts(htmlDocument: string): string {
+  const parsed = new DOMParser().parseFromString(htmlDocument, 'text/html');
+  for (const script of Array.from(parsed.querySelectorAll('script'))) {
+    const src = script.getAttribute('src') || '';
+    const inline = script.textContent || '';
+    if (src.includes('tex-mml-svg.js') || inline.includes('window.MathJax')) {
+      script.remove();
+    }
+  }
+  return parsed.documentElement.outerHTML;
 }
 
 function resolveRuntimeRoot(pathModule: typeof import('node:path')): string | null {
