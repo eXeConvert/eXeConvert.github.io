@@ -3,6 +3,9 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="analytics-endpoint" content="https://bilateria.org/app/estadistica/execonvert-cli/track.php" />
+    <meta name="analytics-stats-url" content="https://bilateria.org/app/estadistica/execonvert-cli/admin-stats.php" />
+    <meta name="analytics-site-id" content="execonvert-cli" />
     <title>eXeConvert CLI</title>
     <link rel="icon" href="./execonvert-cli-icon.svg" type="image/svg+xml" />
     <style>
@@ -828,9 +831,97 @@ done</pre>
         }
       }
 
+      function loadAnalyticsInBackground() {
+        const endpoint = document.querySelector('meta[name="analytics-endpoint"]')?.content;
+        const siteId = document.querySelector('meta[name="analytics-site-id"]')?.content;
+        if (!endpoint || !siteId) {
+          return;
+        }
+
+        const cooldownMs = 30 * 60 * 1000;
+        const timeoutMs = 2500;
+        const storageKey = `analytics:last-visit:${siteId}`;
+        let summaryOnly = false;
+
+        try {
+          const lastVisit = Number(localStorage.getItem(storageKey) || "0");
+          if (lastVisit > 0 && Date.now() - lastVisit < cooldownMs) {
+            summaryOnly = true;
+          }
+        } catch {
+          summaryOnly = false;
+        }
+
+        const callbackName = `analyticsCallback_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+        const url = new URL(endpoint);
+        const currentUrl = new URL(window.location.href);
+
+        url.searchParams.set("callback", callbackName);
+        url.searchParams.set("page_url", currentUrl.href);
+        if (document.referrer) {
+          url.searchParams.set("referrer", document.referrer);
+        }
+        for (const key of ["utm_source", "utm_medium", "utm_campaign"]) {
+          const value = currentUrl.searchParams.get(key);
+          if (value) {
+            url.searchParams.set(key, value);
+          }
+        }
+        if (summaryOnly) {
+          url.searchParams.set("summary_only", "1");
+        }
+
+        const script = document.createElement("script");
+        let finished = false;
+        let timeoutId = 0;
+
+        const cleanup = () => {
+          if (finished) {
+            return;
+          }
+          finished = true;
+          window.clearTimeout(timeoutId);
+          delete window[callbackName];
+          script.remove();
+        };
+
+        window[callbackName] = () => {
+          if (!summaryOnly) {
+            try {
+              localStorage.setItem(storageKey, String(Date.now()));
+            } catch {
+              // Ignore storage failures and keep the page working.
+            }
+          }
+          cleanup();
+        };
+
+        script.async = true;
+        script.src = url.toString();
+        script.onerror = cleanup;
+        timeoutId = window.setTimeout(cleanup, timeoutMs);
+        document.head.appendChild(script);
+      }
+
+      function scheduleAnalyticsLoad() {
+        if ("requestIdleCallback" in window) {
+          window.requestIdleCallback(loadAnalyticsInBackground, { timeout: 2000 });
+          return;
+        }
+        const run = () => {
+          window.setTimeout(loadAnalyticsInBackground, 0);
+        };
+        if (document.readyState === "complete") {
+          run();
+        } else {
+          window.addEventListener("load", run, { once: true });
+        }
+      }
+
       const activeLocale = resolveLocale();
       applyTranslations(activeLocale);
       loadLatestVersion();
+      scheduleAnalyticsLoad();
 
       document.getElementById("language-select")?.addEventListener("change", event => {
         const locale = event.target.value;
