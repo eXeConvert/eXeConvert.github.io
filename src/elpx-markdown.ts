@@ -174,16 +174,27 @@ function tableElementToMarkdown(table: HTMLTableElement, cellTurndown: TurndownS
 }
 
 function extractTableRows(table: HTMLTableElement, cellTurndown: TurndownService): string[][] {
+  const view = table.ownerDocument.defaultView;
+  const HTMLElementCtor = view?.HTMLElement;
+  const HTMLTableRowElementCtor = view?.HTMLTableRowElement;
+  const HTMLTableCellElementCtor = view?.HTMLTableCellElement;
   const rowGroups = Array.from(table.children).filter(
-    (child): child is HTMLElement =>
-      child instanceof HTMLElement && ['thead', 'tbody', 'tfoot'].includes(child.tagName.toLowerCase()),
+    (child): child is HTMLElement => {
+      const isElement = HTMLElementCtor ? child instanceof HTMLElementCtor : child.nodeType === 1;
+      return isElement && ['thead', 'tbody', 'tfoot'].includes((child as HTMLElement).tagName.toLowerCase());
+    },
   );
   const directRows =
     rowGroups.length > 0
       ? rowGroups.flatMap(group => Array.from(group.children))
       : Array.from(table.children);
   const tableRows = directRows.filter(
-    (row): row is HTMLTableRowElement => row instanceof HTMLTableRowElement,
+    (row): row is HTMLTableRowElement => {
+      if (HTMLTableRowElementCtor) {
+        return row instanceof HTMLTableRowElementCtor;
+      }
+      return row.nodeType === 1 && (row as Element).tagName.toLowerCase() === 'tr';
+    },
   );
 
   const grid: string[][] = [];
@@ -196,17 +207,21 @@ function extractTableRows(table: HTMLTableElement, cellTurndown: TurndownService
     }
 
     for (const cell of Array.from(rowElement.children)) {
-      if (!(cell instanceof HTMLTableCellElement)) {
+      const isTableCell = HTMLTableCellElementCtor
+        ? cell instanceof HTMLTableCellElementCtor
+        : cell.nodeType === 1 && /^(td|th)$/i.test((cell as Element).tagName);
+      if (!isTableCell) {
         continue;
       }
+      const tableCell = cell as HTMLTableCellElement;
 
       while (row[columnIndex] !== undefined) {
         columnIndex += 1;
       }
 
-      const colspan = Math.max(1, Number.parseInt(cell.getAttribute('colspan') || '1', 10) || 1);
-      const rowspan = Math.max(1, Number.parseInt(cell.getAttribute('rowspan') || '1', 10) || 1);
-      const content = normalizeTableCell(cellToMarkdown(cell, cellTurndown));
+      const colspan = Math.max(1, Number.parseInt(tableCell.getAttribute('colspan') || '1', 10) || 1);
+      const rowspan = Math.max(1, Number.parseInt(tableCell.getAttribute('rowspan') || '1', 10) || 1);
+      const content = normalizeTableCell(cellToMarkdown(tableCell, cellTurndown));
 
       for (let rowOffset = 0; rowOffset < rowspan; rowOffset += 1) {
         const targetRow = grid[rowIndex + rowOffset] || [];

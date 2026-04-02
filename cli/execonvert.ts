@@ -49,7 +49,7 @@ type ParsedArgs = {
   pageIds: string[];
 };
 
-const CLI_VERSION = '0.2.1';
+const CLI_VERSION = '0.2.2';
 
 type ProgressLike = {
   phase: string;
