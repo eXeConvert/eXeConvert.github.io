@@ -53,6 +53,10 @@ The project exposes a **shared conversion core** (`src/`) through two separate f
 .md   → .elpx
 ```
 
+### Static web pages
+
+The info pages (`info/index.html`, `info/cli.html`, etc.) live in `app/public/info/`. Vite copies `app/public/` to `docs/` during build — **never edit `docs/info/` directly**, those files are overwritten on every build.
+
 ### Build outputs
 
 - Web build → `docs/` (served as GitHub Pages at execonvert.github.io)
