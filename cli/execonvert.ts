@@ -1,4 +1,5 @@
 import { basename, dirname, extname, resolve } from 'node:path';
+import { globSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { stderr, stdout } from 'node:process';
 
@@ -854,6 +855,19 @@ function printConvertResult(json: boolean, payload: Record<string, unknown>, t: 
   stdout.write(`${t('result.written', { output: String(payload.output) })}\n`);
 }
 
+function expandGlobs(paths: string[]): string[] {
+  const result: string[] = [];
+  for (const p of paths) {
+    if (/[*?[\]{]/.test(p)) {
+      const expanded = globSync(p);
+      result.push(...expanded);
+    } else {
+      result.push(p);
+    }
+  }
+  return result;
+}
+
 function isSupportedConversion(
   inputFormat: 'elp' | 'elpx' | 'docx' | 'markdown' | 'pdf',
   outputFormat: 'elp' | 'elpx' | 'docx' | 'markdown' | 'pdf',
@@ -877,7 +891,7 @@ function deriveOutputPath(inputPath: string, toFormat: string, outDir?: string):
 
 async function runBatch(args: ParsedArgs): Promise<void> {
   const i18n = createCliTranslator(args.locale);
-  const inputPaths = args.inputPaths!;
+  const inputPaths = expandGlobs(args.inputPaths!);
   const toRaw = args.to!;
 
   const toFormat = toRaw === 'md' || toRaw === 'markdown' || toRaw === 'txt' ? 'markdown' : toRaw;
