@@ -424,36 +424,36 @@ execonvert inspect proyecto.elpx</pre>
         </p>
       </section>
 
-      <div class="grid">
-        <section class="panel">
-          <h2 id="examples-title">Ejemplos útiles</h2>
-          <p id="example-1-label">Exportar solo algunas páginas de un proyecto:</p>
-          <pre>execonvert proyecto.elpx seleccion.pdf --pages 1,2.1</pre>
+      <section class="panel" style="margin-top: 20px;">
+        <h2 id="batch-title">Conversión en masa</h2>
+        <p id="batch-intro">Con <code>--to</code> puedes convertir varios archivos a la vez. El shell expande el comodín y la CLI procesa cada archivo, ignorando automáticamente los que no son compatibles con el formato de salida.</p>
+        <p id="batch-example-1-label">Convertir todos los <code>.elpx</code> de una carpeta a PDF:</p>
+        <pre>execonvert *.elpx --to pdf</pre>
+        <p id="batch-example-2-label">Convertir todos los archivos compatibles y guardarlos en otra carpeta:</p>
+        <pre>execonvert * --to docx --out-dir ./salida</pre>
+        <p id="batch-note" class="note" style="margin-top: 14px;"></p>
+      </section>
 
-          <p id="example-2-label">Inspeccionar la estructura interna de páginas:</p>
-          <pre>execonvert inspect proyecto.elpx</pre>
+      <section class="panel" style="margin-top: 20px;">
+        <h2 id="examples-title">Ejemplos útiles</h2>
+        <p id="example-1-label">Exportar solo algunas páginas de un proyecto:</p>
+        <pre>execonvert proyecto.elpx seleccion.pdf --pages 1,2.1</pre>
 
-          <p id="example-3-label">Importar Markdown y convertirlo en un proyecto eXeLearning:</p>
-          <pre>execonvert apuntes.md apuntes.elpx</pre>
+        <p id="example-2-label">Inspeccionar la estructura interna de páginas:</p>
+        <pre>execonvert inspect proyecto.elpx</pre>
 
-          <p id="example-4-label">Convertir un proyecto antiguo <code>.elp</code> directamente a PDF:</p>
-          <pre>execonvert legacy.elp legacy.pdf</pre>
-        </section>
+        <p id="example-3-label">Importar Markdown y convertirlo en un proyecto eXeLearning:</p>
+        <pre>execonvert apuntes.md apuntes.elpx</pre>
 
-        <section class="panel">
-          <h2 id="automation-title">Para automatizar</h2>
-          <p id="automation-intro">La CLI sirve muy bien para tareas repetitivas: convertir lotes de archivos, integrarla en scripts, ejecutarla desde otras herramientas o lanzarla desde tareas programadas.</p>
-          <p id="automation-linux-label">Ejemplo sencillo en Linux o macOS:</p>
-          <pre>for f in *.elpx; do
-  execonvert "$f" "${f%.elpx}.pdf"
-done</pre>
+        <p id="example-4-label">Convertir un proyecto antiguo <code>.elp</code> directamente a PDF:</p>
+        <pre>execonvert legacy.elp legacy.pdf</pre>
 
-          <p id="automation-windows-label">Ejemplo sencillo en PowerShell:</p>
-          <pre>Get-ChildItem *.elpx | ForEach-Object {
-  execonvert $_.FullName ($_.BaseName + ".pdf")
-}</pre>
-        </section>
-      </div>
+        <p id="example-5-label">Convertir todos los <code>.elpx</code> de una carpeta a PDF:</p>
+        <pre>execonvert *.elpx --to pdf</pre>
+
+        <p id="example-6-label">Convertir todos los archivos compatibles a <code>.docx</code> y guardarlos en otra carpeta:</p>
+        <pre>execonvert * --to docx --out-dir ./salida</pre>
+      </section>
 
       <section class="panel" style="margin-top: 20px;">
         <h2 id="faq-title">Preguntas frecuentes</h2>
@@ -540,16 +540,18 @@ done</pre>
           commandsIntro: "Los nombres de archivo pueden ser rutas completas o relativas. Algunos ejemplos:",
           commandsNote:
             "Si un nombre de archivo o carpeta tiene espacios, ponlo entre comillas. Ejemplo: <code>execonvert \"Mi proyecto.elpx\" \"Mi proyecto.pdf\"</code>",
+          batchTitle: "Conversión en masa",
+          batchIntro: "Con <code>--to</code> puedes convertir varios archivos a la vez. El shell expande el comodín y la CLI procesa cada archivo, ignorando automáticamente los que no son compatibles con el formato de salida.",
+          batchExample1: "Convertir todos los <code>.elpx</code> de una carpeta a PDF:",
+          batchExample2: "Convertir todos los archivos compatibles y guardarlos en otra carpeta:",
+          batchNote: "<strong>--out-dir</strong> es opcional. Si se omite, los archivos convertidos se guardan en la misma carpeta que el original.",
           examplesTitle: "Ejemplos útiles",
           example1: "Exportar solo algunas páginas de un proyecto:",
           example2: "Inspeccionar la estructura interna de páginas:",
           example3: "Importar Markdown y convertirlo en un proyecto eXeLearning:",
           example4: "Convertir un proyecto antiguo <code>.elp</code> directamente a PDF:",
-          automationTitle: "Para automatizar",
-          automationIntro:
-            "La CLI sirve muy bien para tareas repetitivas: convertir lotes de archivos, integrarla en scripts, ejecutarla desde otras herramientas o lanzarla desde tareas programadas.",
-          automationLinux: "Ejemplo sencillo en Linux o macOS:",
-          automationWindows: "Ejemplo sencillo en PowerShell:",
+          example5: "Convertir todos los <code>.elpx</code> de una carpeta a PDF:",
+          example6: "Convertir todos los archivos compatibles a <code>.docx</code> y guardarlos en otra carpeta:",
           faqTitle: "Preguntas frecuentes",
           faq1Title: "No sé cuál descargar",
           faq1Text:
@@ -604,16 +606,18 @@ done</pre>
           commandsIntro: "Els noms de fitxer poden ser rutes completes o relatives. Alguns exemples:",
           commandsNote:
             "Si un nom de fitxer o carpeta té espais, posa'l entre cometes. Exemple: <code>execonvert \"El meu projecte.elpx\" \"El meu projecte.pdf\"</code>",
+          batchTitle: "Conversió en massa",
+          batchIntro: "Amb <code>--to</code> pots convertir diversos fitxers alhora. La shell expandeix el comodí i la CLI processa cada fitxer, ignorant automàticament els que no són compatibles amb el format de sortida.",
+          batchExample1: "Convertir tots els <code>.elpx</code> d'una carpeta a PDF:",
+          batchExample2: "Convertir tots els fitxers compatibles i desar-los en una altra carpeta:",
+          batchNote: "<strong>--out-dir</strong> és opcional. Si s'omet, els fitxers convertits es desen a la mateixa carpeta que l'original.",
           examplesTitle: "Exemples útils",
           example1: "Exportar només algunes pàgines d'un projecte:",
           example2: "Inspeccionar l'estructura interna de pàgines:",
           example3: "Importar Markdown i convertir-lo en un projecte eXeLearning:",
           example4: "Convertir un projecte antic <code>.elp</code> directament a PDF:",
-          automationTitle: "Per automatitzar",
-          automationIntro:
-            "La CLI va molt bé per a tasques repetitives: convertir lots de fitxers, integrar-la en scripts, executar-la des d'altres eines o llançar-la des de tasques programades.",
-          automationLinux: "Exemple senzill a Linux o macOS:",
-          automationWindows: "Exemple senzill a PowerShell:",
+          example5: "Convertir tots els <code>.elpx</code> d'una carpeta a PDF:",
+          example6: "Convertir tots els fitxers compatibles a <code>.docx</code> i desar-los en una altra carpeta:",
           faqTitle: "Preguntes freqüents",
           faq1Title: "No sé quin descarregar",
           faq1Text:
@@ -668,16 +672,18 @@ done</pre>
           commandsIntro: "File names can be full or relative paths. Some examples:",
           commandsNote:
             "If a file or folder name contains spaces, put it in quotes. Example: <code>execonvert \"My project.elpx\" \"My project.pdf\"</code>",
+          batchTitle: "Batch conversion",
+          batchIntro: "With <code>--to</code> you can convert multiple files at once. The shell expands the wildcard and the CLI processes each file, automatically skipping those that are not compatible with the output format.",
+          batchExample1: "Convert all <code>.elpx</code> files in a folder to PDF:",
+          batchExample2: "Convert all compatible files and save them in another folder:",
+          batchNote: "<strong>--out-dir</strong> is optional. If omitted, converted files are saved in the same folder as the original.",
           examplesTitle: "Useful examples",
           example1: "Export only some pages from a project:",
           example2: "Inspect the internal page structure:",
           example3: "Import Markdown and turn it into an eXeLearning project:",
           example4: "Convert an old <code>.elp</code> project directly to PDF:",
-          automationTitle: "For automation",
-          automationIntro:
-            "The CLI works well for repetitive tasks: converting batches of files, integrating it into scripts, calling it from other tools, or running it from scheduled jobs.",
-          automationLinux: "Simple example on Linux or macOS:",
-          automationWindows: "Simple example in PowerShell:",
+          example5: "Convert all <code>.elpx</code> files in a folder to PDF:",
+          example6: "Convert all compatible files to <code>.docx</code> and save them in another folder:",
           faqTitle: "Frequently asked questions",
           faq1Title: "I do not know which file to download",
           faq1Text:
@@ -771,15 +777,18 @@ done</pre>
         setText("commands-title", copy.commandsTitle);
         setText("commands-intro", copy.commandsIntro);
         setHtml("commands-note", copy.commandsNote);
+        setText("batch-title", copy.batchTitle);
+        setHtml("batch-intro", copy.batchIntro);
+        setHtml("batch-example-1-label", copy.batchExample1);
+        setHtml("batch-example-2-label", copy.batchExample2);
+        setHtml("batch-note", copy.batchNote);
         setText("examples-title", copy.examplesTitle);
         setHtml("example-1-label", copy.example1);
         setHtml("example-2-label", copy.example2);
         setHtml("example-3-label", copy.example3);
         setHtml("example-4-label", copy.example4);
-        setText("automation-title", copy.automationTitle);
-        setText("automation-intro", copy.automationIntro);
-        setText("automation-linux-label", copy.automationLinux);
-        setText("automation-windows-label", copy.automationWindows);
+        setHtml("example-5-label", copy.example5);
+        setHtml("example-6-label", copy.example6);
         setText("faq-title", copy.faqTitle);
         setText("faq-1-title", copy.faq1Title);
         setHtml("faq-1-text", copy.faq1Text);

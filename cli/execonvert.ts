@@ -35,9 +35,12 @@ type StructureOptions = {
 };
 
 type ParsedArgs = {
-  command: 'convert' | 'inspect' | 'help' | 'version';
+  command: 'convert' | 'batch' | 'inspect' | 'help' | 'version';
   inputPath?: string;
+  inputPaths?: string[];
   outputPath?: string;
+  to?: string;
+  outDir?: string;
   locale: Locale;
   json: boolean;
   includeImages: boolean;
@@ -49,7 +52,7 @@ type ParsedArgs = {
   pageIds: string[];
 };
 
-const CLI_VERSION = '0.2.2';
+const CLI_VERSION = '0.3.0';
 
 type ProgressLike = {
   phase: string;
@@ -81,6 +84,8 @@ const cliMessages: Record<Locale, Record<string, string>> = {
     'help.output.elpx': 'desde .elpx: .md, .docx, .pdf',
     'help.output.docx': 'desde .docx: .elpx',
     'help.output.markdown': 'desde .md/.txt: .elpx',
+    'help.option.to': 'Formato de salida para conversión múltiple (elpx, docx, md, pdf). Los archivos no compatibles se ignoran.',
+    'help.option.outDir': 'Directorio de salida (por defecto: mismo directorio que cada entrada)',
     'help.option.json': 'Imprime JSON legible por máquina',
     'help.option.pages': 'Exporta solo las referencias de página seleccionadas de un .elpx',
     'help.option.pageId': 'Exporta solo el identificador interno de página indicado (repetible)',
@@ -104,7 +109,10 @@ const cliMessages: Record<Locale, Record<string, string>> = {
     'error.unknownPageRef': 'Referencia de página desconocida: {ref}',
     'error.unsupportedConversion': 'Conversión no compatible: {input} -> {output}',
     'error.prefix': 'Error: {message}',
+    'error.batchArity': 'El modo --to requiere al menos un archivo de entrada.',
+    'error.batchNoTo': 'Se esperaban exactamente dos archivos (entrada y salida). Usa --to <formato> para convertir múltiples archivos.',
     'result.written': 'Escrito {output}',
+    'result.batchDone': '{count} archivo(s) convertido(s).',
     'progress.generatePdf': 'Generando el documento .pdf...',
     'progress.composePdf': 'Componiendo el documento .pdf...',
   },
@@ -124,6 +132,8 @@ const cliMessages: Record<Locale, Record<string, string>> = {
     'help.output.elpx': 'des de .elpx: .md, .docx, .pdf',
     'help.output.docx': 'des de .docx: .elpx',
     'help.output.markdown': 'des de .md/.txt: .elpx',
+    'help.option.to': 'Format de sortida per a conversió múltiple (elpx, docx, md, pdf). Els fitxers no compatibles s’ignoren.',
+    'help.option.outDir': 'Directori de sortida (per defecte: mateix directori que cada entrada)',
     'help.option.json': 'Imprimeix JSON llegible per màquines',
     'help.option.pages': 'Exporta només les referències de pàgina seleccionades d’un .elpx',
     'help.option.pageId': 'Exporta només l’identificador intern de pàgina indicat (repetible)',
@@ -147,7 +157,10 @@ const cliMessages: Record<Locale, Record<string, string>> = {
     'error.unknownPageRef': 'Referència de pàgina desconeguda: {ref}',
     'error.unsupportedConversion': 'Conversió no compatible: {input} -> {output}',
     'error.prefix': 'Error: {message}',
+    'error.batchArity': 'El mode --to requereix almenys un fitxer d’entrada.',
+    'error.batchNoTo': 'S’esperaven exactament dos fitxers (entrada i sortida). Usa --to <format> per convertir múltiples fitxers.',
     'result.written': 'S’ha escrit {output}',
+    'result.batchDone': '{count} fitxer(s) convertit(s).',
     'progress.generatePdf': 'S’està generant el document .pdf...',
     'progress.composePdf': 'S’està component el document .pdf...',
   },
@@ -167,6 +180,8 @@ const cliMessages: Record<Locale, Record<string, string>> = {
     'help.output.elpx': 'from .elpx: .md, .docx, .pdf',
     'help.output.docx': 'from .docx: .elpx',
     'help.output.markdown': 'from .md/.txt: .elpx',
+    'help.option.to': 'Output format for batch conversion (elpx, docx, md, pdf). Incompatible files are skipped.',
+    'help.option.outDir': 'Output directory (default: same directory as each input)',
     'help.option.json': 'Print machine-readable JSON',
     'help.option.pages': 'Export only selected page refs from an .elpx input',
     'help.option.pageId': 'Export only the given internal page id (repeatable)',
@@ -190,7 +205,10 @@ const cliMessages: Record<Locale, Record<string, string>> = {
     'error.unknownPageRef': 'Unknown page ref: {ref}',
     'error.unsupportedConversion': 'Unsupported conversion: {input} -> {output}',
     'error.prefix': 'Error: {message}',
+    'error.batchArity': '--to mode requires at least one input file.',
+    'error.batchNoTo': 'Expected exactly two files (input and output). Use --to <format> to convert multiple files.',
     'result.written': 'Written {output}',
+    'result.batchDone': '{count} file(s) converted.',
     'progress.generatePdf': 'Generating the .pdf document...',
     'progress.composePdf': 'Composing the .pdf document...',
   },
@@ -258,6 +276,7 @@ ${t('help.versionLine', { version: CLI_VERSION })}
 
 ${t('help.usage')}:
   execonvert <input> <output> [options]
+  execonvert <input1> [input2 ...] --to <format> [--out-dir <dir>] [options]
   execonvert inspect <input> [--json]
 
 ${t('help.inputs')}:
@@ -273,6 +292,8 @@ ${t('help.outputs')}:
   ${t('help.output.markdown')}
 
 ${t('help.options')}:
+  --to <format>           ${t('help.option.to')}
+  --out-dir <dir>         ${t('help.option.outDir')}
   --json                  ${t('help.option.json')}
   --pages 1,2.1           ${t('help.option.pages')}
   --page-id <id>          ${t('help.option.pageId')}
@@ -290,6 +311,8 @@ ${t('help.examples')}:
   execonvert notes.md notes.elpx --h1 resource-title --h2 subpage --h3 idevice
   execonvert project.elpx project.docx --pages 1,2.1
   execonvert project.elpx project.pdf --pages 1,2.1
+  execonvert *.elpx --to docx
+  execonvert *.elpx --to pdf --out-dir ./output
   execonvert inspect project.elpx --json
 `);
 }
@@ -332,8 +355,21 @@ function parseArgs(argv: string[], t: CliTranslator['t'], locale: Locale): Parse
   }
 
   const parsed = parseOptionFlags(args, defaults, t);
+
+  if (parsed.options.to !== undefined) {
+    if (parsed.positionals.length === 0) {
+      throw new Error(t('error.batchArity'));
+    }
+    return {
+      ...defaults,
+      ...parsed.options,
+      command: 'batch',
+      inputPaths: parsed.positionals,
+    };
+  }
+
   if (parsed.positionals.length !== 2) {
-    throw new Error(t('error.convertArity'));
+    throw new Error(t('error.batchNoTo'));
   }
 
   return {
@@ -359,6 +395,8 @@ function parseOptionFlags(args: string[], defaults: ParsedArgs, t: CliTranslator
     h4: defaults.h4,
     pages: [],
     pageIds: [],
+    to: defaults.to,
+    outDir: defaults.outDir,
   };
 
   for (let index = 0; index < args.length; index += 1) {
@@ -374,6 +412,16 @@ function parseOptionFlags(args: string[], defaults: ParsedArgs, t: CliTranslator
       case '--locale':
         ensureOptionValue(value, nextValue, t);
         options.locale = normalizeLocaleToken(nextValue) ?? 'en';
+        index += 1;
+        break;
+      case '--to':
+        ensureOptionValue(value, nextValue, t);
+        options.to = nextValue.toLowerCase().replace(/^\./, '');
+        index += 1;
+        break;
+      case '--out-dir':
+        ensureOptionValue(value, nextValue, t);
+        options.outDir = nextValue;
         index += 1;
         break;
       case '--json':
@@ -806,6 +854,60 @@ function printConvertResult(json: boolean, payload: Record<string, unknown>, t: 
   stdout.write(`${t('result.written', { output: String(payload.output) })}\n`);
 }
 
+function isSupportedConversion(
+  inputFormat: 'elp' | 'elpx' | 'docx' | 'markdown' | 'pdf',
+  outputFormat: 'elp' | 'elpx' | 'docx' | 'markdown' | 'pdf',
+): boolean {
+  if (inputFormat === 'elpx') return outputFormat === 'docx' || outputFormat === 'markdown' || outputFormat === 'pdf';
+  if (inputFormat === 'elp') return outputFormat === 'elpx' || outputFormat === 'docx' || outputFormat === 'markdown' || outputFormat === 'pdf';
+  if (inputFormat === 'docx') return outputFormat === 'elpx';
+  if (inputFormat === 'markdown') return outputFormat === 'elpx';
+  return false;
+}
+
+function deriveOutputPath(inputPath: string, toFormat: string, outDir?: string): string {
+  const base = basename(inputPath, extname(inputPath));
+  const ext = toFormat === 'markdown' ? 'md' : toFormat;
+  const filename = `${base}.${ext}`;
+  if (outDir) {
+    return resolve(outDir, filename);
+  }
+  return resolve(dirname(inputPath), filename);
+}
+
+async function runBatch(args: ParsedArgs): Promise<void> {
+  const i18n = createCliTranslator(args.locale);
+  const inputPaths = args.inputPaths!;
+  const toRaw = args.to!;
+
+  const toFormat = toRaw === 'md' || toRaw === 'markdown' || toRaw === 'txt' ? 'markdown' : toRaw;
+  const fakeOutputPath = `output.${toRaw}`;
+  detectFormat(fakeOutputPath, i18n.t);
+
+  const eligible = inputPaths.filter(inputPath => {
+    try {
+      const fmt = detectFormat(inputPath, i18n.t);
+      return isSupportedConversion(fmt, toFormat as 'elp' | 'elpx' | 'docx' | 'markdown' | 'pdf');
+    } catch {
+      return false;
+    }
+  });
+
+  let count = 0;
+  for (const inputPath of eligible) {
+    if (!args.json) {
+      stderr.write(`[${count + 1}/${eligible.length}] ${basename(inputPath)}\n`);
+    }
+    const outputPath = deriveOutputPath(inputPath, toRaw, args.outDir);
+    await runConvert({ ...args, command: 'convert', inputPath, outputPath });
+    count += 1;
+  }
+
+  if (!args.json) {
+    stdout.write(`${i18n.t('result.batchDone', { count })}\n`);
+  }
+}
+
 let currentCliTranslator = createCliTranslator('en');
 let lastProgressSignature = '';
 
@@ -853,6 +955,10 @@ async function main(): Promise<void> {
   }
   if (args.command === 'inspect') {
     await runInspect(args.inputPath!, args.json);
+    return;
+  }
+  if (args.command === 'batch') {
+    await runBatch(args);
     return;
   }
   await runConvert(args);
