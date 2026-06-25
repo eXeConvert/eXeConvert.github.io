@@ -29,6 +29,7 @@
     "check:web": "tsc -p tsconfig.json --noEmit",
     "check:cli": "tsc -p tsconfig.cli.json --noEmit",
     "cli": "node ./bin/execonvert.js",
+    "sync:exe": "bash scripts/sync-exe-bundles.sh",
     "prepack": "npm run build:cli"
   },
   "dependencies": {
