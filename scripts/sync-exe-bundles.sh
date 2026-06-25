@@ -36,6 +36,8 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 EXE_DIR="$REPO_ROOT/app/public/exelearning"
 BUNDLES_DIR="$EXE_DIR/bundles"
 LOGO_DIR="$EXE_DIR/app/common/exe_powered_logo"
+I18N_DIR="$EXE_DIR/app/common/i18n"
+I18N_TEMPLATE_DEST="$EXE_DIR/app/common/common_i18n.js"
 RUNTIME_SOURCE_JSON="$EXE_DIR/runtime-source.json"
 
 FORCE=0
@@ -117,6 +119,8 @@ IMPORTERS_SRC="$SRC/app/yjs/importers.bundle.js"
 EXPORTERS_SRC="$SRC/app/yjs/exporters.bundle.js"
 BUNDLES_SRC="$SRC/bundles"
 LOGO_SRC="$SRC/app/common/exe_powered_logo/exe_powered_logo.png"
+I18N_TEMPLATE_SRC="$SRC/app/common/common_i18n.js"
+I18N_SRC_DIR="$SRC/app/common/i18n"
 
 # Verify everything we need exists BEFORE touching the destination, so a bad
 # release never leaves eXeConvert without its runtime.
@@ -133,15 +137,27 @@ fi
 if [[ ! -f "$LOGO_SRC" ]]; then
   echo "Warning: exe_powered_logo.png not found in release; keeping existing copy." >&2
 fi
+if [[ ! -f "$I18N_TEMPLATE_SRC" || ! -d "$I18N_SRC_DIR" ]]; then
+  echo "Warning: i18n template/translations not found in release; legacy .elp export may not be translated." >&2
+fi
 
-rm -rf "$BUNDLES_DIR"
-mkdir -p "$BUNDLES_DIR" "$LOGO_DIR" "$EXE_DIR"
+rm -rf "$BUNDLES_DIR" "$I18N_DIR"
+mkdir -p "$BUNDLES_DIR" "$LOGO_DIR" "$I18N_DIR" "$EXE_DIR"
 
 cp "$IMPORTERS_SRC" "$EXE_DIR/importers.bundle.js"
 cp "$EXPORTERS_SRC" "$EXE_DIR/exporters.bundle.js"
 cp -R "$BUNDLES_SRC/." "$BUNDLES_DIR/"
 if [[ -f "$LOGO_SRC" ]]; then
   cp "$LOGO_SRC" "$LOGO_DIR/exe_powered_logo.png"
+fi
+# i18n: template (key -> c_("English")) plus per-language resolved files
+# (key -> translation). The legacy exporter combines them into the
+# source->target map it needs to translate navigation labels and licenses.
+if [[ -f "$I18N_TEMPLATE_SRC" ]]; then
+  cp "$I18N_TEMPLATE_SRC" "$I18N_TEMPLATE_DEST"
+fi
+if [[ -d "$I18N_SRC_DIR" ]]; then
+  cp -R "$I18N_SRC_DIR/." "$I18N_DIR/"
 fi
 
 source_commit="$(resolve_tag_commit "$latest_tag")"

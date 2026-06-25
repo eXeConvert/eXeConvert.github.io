@@ -16,12 +16,22 @@ Categorías usadas: **Añadido**, **Cambiado**, **Corregido**, **Eliminado**.
   `app/public/exelearning/runtime-source.json`. Una sola fuente cubre web y
   escritorio, porque el build de la CLI copia `app/public/` tal cual.
 - Este `CHANGELOG.md`, incluido también en el paquete npm distribuible.
+- Soporte de traducciones (i18n) en la conversión legacy `.elp → .elpx`: el
+  fetcher implementa `fetchI18nFile` y `fetchI18nTranslations` (que el exporter
+  4.0.1 exige) y el sync trae los archivos i18n de eXeLearning (plantilla + 11
+  idiomas). Las etiquetas de navegación y el `common_i18n.js` del proyecto salen
+  en el idioma del contenido.
 
 ### Cambiado
 - Runtime embebido de eXeLearning actualizado a **v4.0.1**. El paquete de temas
   pasa de incluir solo `base` a incluir los 6 oficiales (`base`, `flux`, `neo`,
   `nova`, `universal`, `zen`), lo que habilita la conversión de proyectos con
-  cualquiera de esos temas. _(Pendiente de validar con pruebas de conversión.)_
+  cualquiera de esos temas.
+
+### Corregido
+- La conversión `.elp → .elpx` dejaba de funcionar con el runtime 4.0.1
+  (`this.fetcher.fetchI18nTranslations is not a function`); ahora el fetcher
+  implementa los métodos i18n requeridos.
 
 ## [0.3.1] - 2026-05-12
 

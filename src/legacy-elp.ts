@@ -562,6 +562,47 @@ class MemoryAssetHandler {
   async preloadAllAssets(): Promise<void> {}
 }
 
+function decodeI18nString(value: string): string {
+  return value.replace(/\\(["\\/bfnrt])/g, (_, ch: string) => {
+    switch (ch) {
+      case 'n':
+        return '\n';
+      case 't':
+        return '\t';
+      case 'r':
+        return '\r';
+      case 'b':
+        return '\b';
+      case 'f':
+        return '\f';
+      default:
+        return ch;
+    }
+  });
+}
+
+// Parse the i18n template (`"key": c_("English")`) into key -> English source.
+function parseI18nTemplate(content: string): Map<string, string> {
+  const map = new Map<string, string>();
+  const re = /"([^"]+)"\s*:\s*c_\(\s*"((?:[^"\\]|\\.)*)"\s*\)/g;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(content)) !== null) {
+    map.set(match[1], decodeI18nString(match[2]));
+  }
+  return map;
+}
+
+// Parse a resolved i18n file (`"key": "translation"`) into key -> translation.
+function parseI18nResolved(content: string): Map<string, string> {
+  const map = new Map<string, string>();
+  const re = /"([^"]+)"\s*:\s*"((?:[^"\\]|\\.)*)"/g;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(content)) !== null) {
+    map.set(match[1], decodeI18nString(match[2]));
+  }
+  return map;
+}
+
 class BundleResourceFetcher {
   private readonly bundleCache = new Map<string, Promise<Map<string, Blob>>>();
   private readonly ideviceCache = new Map<string, Map<string, Blob>>();
@@ -645,6 +686,62 @@ class BundleResourceFetcher {
 
   async fetchContentCss(): Promise<Map<string, Blob>> {
     return this.loadZipBundle(`${EXELEARNING_BASE_PATH}/bundles/content-css.zip`);
+  }
+
+  // Returns the pre-built common_i18n.{lang}.js for the given language (key ->
+  // translation, with c_() already resolved), or null when unavailable.
+  async fetchI18nFile(language: string): Promise<string | null> {
+    return this.loadI18nScript(language);
+  }
+
+  // Returns a source(English) -> target map, the way eXeLearning derives it in
+  // static mode: by combining the template common_i18n.js (key -> c_("English"))
+  // with the resolved common_i18n.{lang}.js (key -> translation).
+  async fetchI18nTranslations(language: string): Promise<Record<string, string>> {
+    const [templateText, resolvedText] = await Promise.all([
+      this.loadI18nTemplate(),
+      this.loadI18nScript(language),
+    ]);
+    if (!templateText || !resolvedText) {
+      return {};
+    }
+    const sources = parseI18nTemplate(templateText);
+    const targets = parseI18nResolved(resolvedText);
+    const record: Record<string, string> = {};
+    for (const [key, source] of sources) {
+      const target = targets.get(key);
+      if (source && target !== undefined) {
+        record[source] = target;
+      }
+    }
+    return record;
+  }
+
+  private async loadI18nScript(language: string): Promise<string | null> {
+    const candidates = [language];
+    const baseLang = language.split('-')[0];
+    if (baseLang && baseLang !== language) {
+      candidates.push(baseLang);
+    }
+    for (const lang of candidates) {
+      const text = await this.fetchTextFile(`${EXELEARNING_BASE_PATH}/app/common/i18n/common_i18n.${lang}.js`);
+      if (text !== null) {
+        return text;
+      }
+    }
+    return null;
+  }
+
+  private loadI18nTemplate(): Promise<string | null> {
+    return this.fetchTextFile(`${EXELEARNING_BASE_PATH}/app/common/common_i18n.js`);
+  }
+
+  private async fetchTextFile(relativePath: string): Promise<string | null> {
+    const response = await fetch(resolvePublicUrl(relativePath));
+    if (!response.ok) {
+      return null;
+    }
+    return response.text();
   }
 
   async fetchGlobalFontFiles(): Promise<Map<string, Blob>> {
