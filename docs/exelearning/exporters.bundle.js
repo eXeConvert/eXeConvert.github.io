@@ -37,7 +37,8 @@
           // Display: $$...$$ (may span multiple lines with <br>)
           { regex: /\$\$([\s\S]*?)\$\$/g, display: "block" },
           // Block: \begin{...}...\end{...} (may span multiple lines with <br>)
-          { regex: /\\begin\{[^}]+\}[\s\S]*?\\end\{[^}]+\}/g, display: "block" },
+          // Exclude TikZ/circuitikz environments (handled by TikZJax, not MathJax)
+          { regex: /\\begin\{(?!(?:tikzpicture|circuitikz)\})[^}]+\}[\s\S]*?\\end\{[^}]+\}/g, display: "block" },
           // Inline: \(...\) (typically single line but support multi)
           { regex: /\\\([\s\S]*?\\\)/g, display: "inline" },
           // Bare \ref{...} and \eqref{...} - used in text mode to reference equations
@@ -814,7 +815,12 @@
       "trueorfalse",
       "true-or-false",
       "scrambled-list",
-      "magnifier"
+      "magnifier",
+      "three-sixty-viewer",
+      "adaptative-quiz",
+      "slide",
+      "three-d-viewer",
+      "markdown-text"
     ];
     const isJson = jsonIdevices.includes(cssClass) || jsonIdevices.includes(normalized);
     return {
@@ -827,7 +833,9 @@
     checklist: ["html2canvas.js"],
     "progress-report": ["html2canvas.js"],
     "select-media-files": ["mansory-jq.js"],
-    "image-gallery": ["simple-lightbox.min.js"]
+    "image-gallery": ["simple-lightbox.min.js"],
+    "three-sixty-viewer": ["three.min.js", "OrbitControls.js"],
+    "three-d-viewer": ["model-viewer.min.js", "three.module.min.js", "STLLoader.js", "OrbitControls.js"]
   };
   var IDEVICE_CSS_DEPENDENCIES = {
     "image-gallery": ["simple-lightbox.min.css"]
@@ -836,10 +844,19 @@
     const mainFile = `${typeName}${extension}`;
     if (extension === ".js") {
       const dependencies = IDEVICE_JS_DEPENDENCIES[typeName] || [];
-      return [mainFile, ...dependencies];
+      return [...dependencies, mainFile];
     }
     const cssDependencies = IDEVICE_CSS_DEPENDENCIES[typeName] || [];
-    return [mainFile, ...cssDependencies];
+    return [...cssDependencies, mainFile];
+  }
+  var IDEVICE_JS_MODULES = {
+    "three-d-viewer": ["three.module.min.js", "STLLoader.js", "OrbitControls.js"]
+  };
+  function isIdeviceJsModule(typeName, filename) {
+    if (filename.endsWith(".mjs")) return true;
+    if (/\.module(\.[^.]+)*\.js$/i.test(filename)) return true;
+    if (IDEVICE_JS_MODULES[typeName]?.includes(filename)) return true;
+    return false;
   }
 
   // src/shared/export/constants.ts
@@ -859,10 +876,12 @@
       files: ["exe_games/exe_games.js", "exe_games/exe_games.css"]
     },
     // Code highlighting
+    // Matches the legacy TinyMCE class (`highlighted-code`) and the
+    // `language-<lang>` classes produced by Showdown for fenced code blocks.
     {
       name: "exe_highlighter",
-      type: "class",
-      pattern: "highlighted-code",
+      type: "regex",
+      pattern: /class\s*=\s*["'][^"']*\b(?:highlighted-code|language-[a-z0-9_+-]+)\b/i,
       files: ["exe_highlighter/exe_highlighter.js", "exe_highlighter/exe_highlighter.css"]
     },
     // Lightbox for images
@@ -1035,6 +1054,7 @@
       files: ["fflate/fflate.umd.js", "exe_elpx_download/exe_elpx_download.js"]
     }
   ];
+  var ELPX_DOWNLOAD_ONCLICK = "try{var p=window.parent;if(p&&p!==window&&p.eXeLearning&&p.eXeLearning.app){p.postMessage({type:'exe-download-elpx'},'*');return false;}}catch(e){}if(typeof downloadElpx==='function')downloadElpx();return false;";
   var BASE_LIBRARIES = [
     // jQuery
     "jquery/jquery.min.js",
@@ -1049,203 +1069,276 @@
     "bootstrap/bootstrap.min.css.map"
   ];
   var SCORM_LIBRARIES = ["scorm/SCORM_API_wrapper.js", "scorm/SCOFunctions.js"];
+  var MIME_TO_EXTENSION = {
+    "image/jpeg": ".jpg",
+    "image/jpg": ".jpg",
+    "image/png": ".png",
+    "image/gif": ".gif",
+    "image/webp": ".webp",
+    "image/svg+xml": ".svg",
+    "image/bmp": ".bmp",
+    "image/tiff": ".tiff",
+    "image/x-icon": ".ico",
+    "application/pdf": ".pdf",
+    "video/mp4": ".mp4",
+    "video/webm": ".webm",
+    "video/ogg": ".ogv",
+    "video/quicktime": ".mov",
+    "audio/mpeg": ".mp3",
+    "audio/mp4": ".m4a",
+    "audio/ogg": ".ogg",
+    "audio/wav": ".wav",
+    "audio/webm": ".weba",
+    "application/zip": ".zip",
+    "application/json": ".json",
+    "text/plain": ".txt",
+    "text/html": ".html",
+    "text/css": ".css",
+    "application/javascript": ".js",
+    "application/octet-stream": ".bin"
+  };
+  var EXTENSION_TO_MIME = {
+    // Reverse of MIME_TO_EXTENSION
+    ...Object.fromEntries(Object.entries(MIME_TO_EXTENSION).map(([mime, ext]) => [ext, mime])),
+    // Ensure canonical MIME types for extensions with multiple MIME aliases
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".doc": "application/msword",
+    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ".xls": "application/vnd.ms-excel",
+    ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ".ppt": "application/vnd.ms-powerpoint",
+    ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    ".xml": "application/xml"
+  };
   var LICENSE_REGISTRY = {
     // === Creative Commons 4.0 (Current) ===
     "creative commons: attribution 4.0": {
-      displayName: "creative commons: attribution 4.0 (BY)",
+      displayName: "Creative Commons: Attribution 4.0 (BY)",
       url: "https://creativecommons.org/licenses/by/4.0/",
       cssClass: "cc"
     },
     "creative commons: attribution - share alike 4.0": {
-      displayName: "creative commons: attribution - share alike 4.0 (BY-SA)",
+      displayName: "Creative Commons: Attribution - Share Alike 4.0 (BY-SA)",
       url: "https://creativecommons.org/licenses/by-sa/4.0/",
       cssClass: "cc cc-by-sa"
     },
     "creative commons: attribution - non derived work 4.0": {
-      displayName: "creative commons: attribution - non derived work 4.0 (BY-ND)",
+      displayName: "Creative Commons: Attribution - Non Derived Work 4.0 (BY-ND)",
       url: "https://creativecommons.org/licenses/by-nd/4.0/",
       cssClass: "cc cc-by-nd"
     },
     "creative commons: attribution - non commercial 4.0": {
-      displayName: "creative commons: attribution - non commercial 4.0 (BY-NC)",
+      displayName: "Creative Commons: Attribution - Non Commercial 4.0 (BY-NC)",
       url: "https://creativecommons.org/licenses/by-nc/4.0/",
       cssClass: "cc cc-by-nc"
     },
     "creative commons: attribution - non commercial - share alike 4.0": {
-      displayName: "creative commons: attribution - non commercial - share alike 4.0 (BY-NC-SA)",
+      displayName: "Creative Commons: Attribution - Non Commercial - Share Alike 4.0 (BY-NC-SA)",
       url: "https://creativecommons.org/licenses/by-nc-sa/4.0/",
       cssClass: "cc cc-by-nc-sa"
     },
     "creative commons: attribution - non derived work - non commercial 4.0": {
-      displayName: "creative commons: attribution - non derived work - non commercial 4.0 (BY-NC-ND)",
+      displayName: "Creative Commons: Attribution - Non Derived Work - Non Commercial 4.0 (BY-NC-ND)",
       url: "https://creativecommons.org/licenses/by-nc-nd/4.0/",
       cssClass: "cc cc-by-nc-nd"
     },
     // === Creative Commons 3.0 (Legacy - not selectable in dropdown) ===
     "creative commons: attribution 3.0": {
-      displayName: "creative commons: attribution 3.0 (BY)",
+      displayName: "Creative Commons: Attribution 3.0 (BY)",
       url: "https://creativecommons.org/licenses/by/3.0/",
       cssClass: "cc",
       legacy: true
     },
     "creative commons: attribution - share alike 3.0": {
-      displayName: "creative commons: attribution - share alike 3.0 (BY-SA)",
+      displayName: "Creative Commons: Attribution - Share Alike 3.0 (BY-SA)",
       url: "https://creativecommons.org/licenses/by-sa/3.0/",
       cssClass: "cc cc-by-sa",
       legacy: true
     },
     "creative commons: attribution - non derived work 3.0": {
-      displayName: "creative commons: attribution - non derived work 3.0 (BY-ND)",
+      displayName: "Creative Commons: Attribution - Non Derived Work 3.0 (BY-ND)",
       url: "https://creativecommons.org/licenses/by-nd/3.0/",
       cssClass: "cc cc-by-nd",
       legacy: true
     },
     "creative commons: attribution - non commercial 3.0": {
-      displayName: "creative commons: attribution - non commercial 3.0 (BY-NC)",
+      displayName: "Creative Commons: Attribution - Non Commercial 3.0 (BY-NC)",
       url: "https://creativecommons.org/licenses/by-nc/3.0/",
       cssClass: "cc cc-by-nc",
       legacy: true
     },
     "creative commons: attribution - non commercial - share alike 3.0": {
-      displayName: "creative commons: attribution - non commercial - share alike 3.0 (BY-NC-SA)",
+      displayName: "Creative Commons: Attribution - Non Commercial - Share Alike 3.0 (BY-NC-SA)",
       url: "https://creativecommons.org/licenses/by-nc-sa/3.0/",
       cssClass: "cc cc-by-nc-sa",
       legacy: true
     },
     "creative commons: attribution - non derived work - non commercial 3.0": {
-      displayName: "creative commons: attribution - non derived work - non commercial 3.0 (BY-NC-ND)",
+      displayName: "Creative Commons: Attribution - Non Derived Work - Non Commercial 3.0 (BY-NC-ND)",
       url: "https://creativecommons.org/licenses/by-nc-nd/3.0/",
       cssClass: "cc cc-by-nc-nd",
       legacy: true
     },
     // === Creative Commons 2.5 (Legacy - not selectable in dropdown) ===
     "creative commons: attribution 2.5": {
-      displayName: "creative commons: attribution 2.5 (BY)",
+      displayName: "Creative Commons: Attribution 2.5 (BY)",
       url: "https://creativecommons.org/licenses/by/2.5/",
       cssClass: "cc",
       legacy: true
     },
     "creative commons: attribution - share alike 2.5": {
-      displayName: "creative commons: attribution - share alike 2.5 (BY-SA)",
+      displayName: "Creative Commons: Attribution - Share Alike 2.5 (BY-SA)",
       url: "https://creativecommons.org/licenses/by-sa/2.5/",
       cssClass: "cc cc-by-sa",
       legacy: true
     },
     "creative commons: attribution - non derived work 2.5": {
-      displayName: "creative commons: attribution - non derived work 2.5 (BY-ND)",
+      displayName: "Creative Commons: Attribution - Non Derived Work 2.5 (BY-ND)",
       url: "https://creativecommons.org/licenses/by-nd/2.5/",
       cssClass: "cc cc-by-nd",
       legacy: true
     },
     "creative commons: attribution - non commercial 2.5": {
-      displayName: "creative commons: attribution - non commercial 2.5 (BY-NC)",
+      displayName: "Creative Commons: Attribution - Non Commercial 2.5 (BY-NC)",
       url: "https://creativecommons.org/licenses/by-nc/2.5/",
       cssClass: "cc cc-by-nc",
       legacy: true
     },
     "creative commons: attribution - non commercial - share alike 2.5": {
-      displayName: "creative commons: attribution - non commercial - share alike 2.5 (BY-NC-SA)",
+      displayName: "Creative Commons: Attribution - Non Commercial - Share Alike 2.5 (BY-NC-SA)",
       url: "https://creativecommons.org/licenses/by-nc-sa/2.5/",
       cssClass: "cc cc-by-nc-sa",
       legacy: true
     },
     "creative commons: attribution - non derived work - non commercial 2.5": {
-      displayName: "creative commons: attribution - non derived work - non commercial 2.5 (BY-NC-ND)",
+      displayName: "Creative Commons: Attribution - Non Derived Work - Non Commercial 2.5 (BY-NC-ND)",
       url: "https://creativecommons.org/licenses/by-nc-nd/2.5/",
       cssClass: "cc cc-by-nc-nd",
       legacy: true
     },
     // === Creative Commons CC0 1.0 (Public Domain Dedication) ===
     "creative commons: cc0 1.0": {
-      displayName: "creative commons: public domain 1.0 (CC0)",
+      displayName: "Creative Commons: Public Domain 1.0 (CC0)",
       url: "https://creativecommons.org/publicdomain/zero/1.0/",
       cssClass: "cc cc-0"
     },
     // === Public Domain (generic, no specific license link) ===
     "public domain": {
-      displayName: "public domain",
+      displayName: "Public domain",
       url: "",
       cssClass: ""
     },
     // === GNU/GPL Licenses (Legacy - not selectable in dropdown, no icon in themes) ===
     "gnu/gpl": {
-      displayName: "gnu/gpl",
+      displayName: "GNU/GPL",
       url: "https://www.gnu.org/licenses/gpl.html",
       cssClass: "",
       legacy: true
     },
     "free software license gpl": {
-      displayName: "free software license GPL",
+      displayName: "Free Software License GPL",
       url: "https://www.gnu.org/licenses/gpl.html",
       cssClass: "",
       legacy: true
     },
     // === EUPL License (Legacy - not selectable in dropdown, no icon in themes) ===
     "free software license eupl": {
-      displayName: "free software license EUPL",
+      displayName: "Free Software License EUPL",
       url: "https://eupl.eu/",
       cssClass: "",
       legacy: true
     },
     // === Dual License GPL + EUPL (Legacy - not selectable in dropdown, no icon in themes) ===
     "dual free content license gpl and eupl": {
-      displayName: "dual free content license GPL and EUPL",
+      displayName: "Dual Free Content License GPL and EUPL",
       url: "",
       cssClass: "",
       legacy: true
     },
     // === GFDL License (Legacy - not selectable in dropdown, no icon in themes) ===
     "license gfdl": {
-      displayName: "license GFDL",
+      displayName: "License GFDL",
       url: "https://www.gnu.org/licenses/fdl.html",
       cssClass: "",
       legacy: true
     },
     // === Other Licenses (Legacy - not selectable in dropdown) ===
     "other free software licenses": {
-      displayName: "other free software licenses",
+      displayName: "Other Free Software Licenses",
       url: "",
       cssClass: "",
       legacy: true
     },
     "propietary license": {
-      displayName: "propietary license",
+      displayName: "Proprietary license",
       url: "",
       cssClass: "",
       hideInFooter: true
     },
     "intellectual property license": {
-      displayName: "intellectual property license",
+      displayName: "Intellectual Property License",
       url: "",
       cssClass: "",
       legacy: true
     },
     "not appropriate": {
-      displayName: "not appropriate",
+      displayName: "Not appropriate",
       url: "",
       cssClass: "",
       hideInFooter: true
     }
   };
+  function resolveLicenseKey(licenseName) {
+    if (!licenseName) return "";
+    const cleanName = licenseName.toLowerCase().trim().replace(/\s+/g, " ");
+    if (LICENSE_REGISTRY[cleanName]) {
+      return cleanName;
+    }
+    for (const [key, entry] of Object.entries(LICENSE_REGISTRY)) {
+      if (cleanName === entry.displayName.toLowerCase().trim().replace(/\s+/g, " ")) {
+        return key;
+      }
+    }
+    return cleanName;
+  }
   function getLicenseClass(licenseName) {
     if (!licenseName) {
       return "";
     }
-    const cleanName = licenseName.toLowerCase().trim().replace(/\s+/g, " ");
-    if (LICENSE_REGISTRY[cleanName]) {
-      return LICENSE_REGISTRY[cleanName].cssClass;
+    const key = resolveLicenseKey(licenseName);
+    if (LICENSE_REGISTRY[key]) {
+      return LICENSE_REGISTRY[key].cssClass;
     }
     return "";
   }
   function getLicenseUrl(licenseName) {
     if (!licenseName) return "";
-    const key = licenseName.toLowerCase().trim().replace(/\s+/g, " ");
+    const key = resolveLicenseKey(licenseName);
     return LICENSE_REGISTRY[key]?.url || "";
   }
   function formatLicenseText(licenseName) {
     if (!licenseName) return "";
-    const key = licenseName.toLowerCase().trim();
-    return LICENSE_REGISTRY[key]?.displayName || licenseName;
+    const key = resolveLicenseKey(licenseName);
+    const entry = LICENSE_REGISTRY[key];
+    if (!entry) return licenseName;
+    return key.startsWith("creative commons") ? key : entry.displayName;
+  }
+  function formatShortLicenseText(licenseName) {
+    if (!licenseName) return "";
+    const key = resolveLicenseKey(licenseName);
+    const entry = LICENSE_REGISTRY[key];
+    if (entry?.url?.includes("creativecommons.org/licenses/")) {
+      const match = entry.url.match(/licenses\/([^/]+\/[^/]+)\/?/);
+      if (match?.[1]) {
+        const type = match[1].replace("/", " ").toUpperCase();
+        return `Creative Commons ${type}`;
+      }
+    }
+    if (entry?.url?.includes("creativecommons.org/publicdomain/zero/")) {
+      return "Creative Commons CC0 1.0";
+    }
+    return entry?.displayName || licenseName;
   }
   function shouldShowLicenseFooter(licenseName) {
     if (!licenseName) return false;
@@ -1381,7 +1474,6 @@
     return IDEVICE_TYPE_MAP[normalized] || normalized || "text";
   }
   var ODE_DTD_FILENAME = "content.dtd";
-  var ODE_VERSION = "3.0";
   var ODE_DTD_CONTENT = `<!--
     ODE Content DTD
     Document Type Definition for eXeLearning ODE XML format (content.xml)
@@ -1621,6 +1713,14 @@
       category: "internal"
     },
     {
+      key: "odeVersionId",
+      xmlKey: "odeVersionId",
+      type: "string",
+      defaultValue: "",
+      excludeFromXml: true,
+      category: "internal"
+    },
+    {
       key: "createdAt",
       xmlKey: "createdAt",
       type: "string",
@@ -1675,10 +1775,22 @@
     return String(value ?? "");
   }
 
+  // src/shared/export/utils/odeId.ts
+  function generateOdeId() {
+    const now = /* @__PURE__ */ new Date();
+    const timestamp = now.getFullYear().toString() + String(now.getMonth() + 1).padStart(2, "0") + String(now.getDate()).padStart(2, "0") + String(now.getHours()).padStart(2, "0") + String(now.getMinutes()).padStart(2, "0") + String(now.getSeconds()).padStart(2, "0");
+    const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+    let random = "";
+    for (let i = 0; i < 6; i++) {
+      random += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return timestamp + random;
+  }
+
   // src/shared/export/generators/OdeXmlGenerator.ts
   function generateOdeXml(meta, pages, options) {
     const odeId = options?.odeId || meta.odeIdentifier || generateOdeId();
-    const versionId = options?.versionId || generateOdeId();
+    const versionId = options?.versionId || meta.odeVersionId || generateOdeId();
     const includeDoctype = options?.includeDoctype ?? true;
     let xml = '<?xml version="1.0" encoding="UTF-8"?>\n';
     if (includeDoctype) {
@@ -1687,7 +1799,12 @@
     }
     xml += '<ode xmlns="http://www.intef.es/xsd/ode" version="2.0">\n';
     xml += generateUserPreferencesXml(meta);
-    xml += generateOdeResourcesXml(odeId, versionId);
+    xml += generateOdeResourcesXml(
+      odeId,
+      versionId,
+      normalizeExeVersion(meta.exelearningVersion),
+      meta.scormIdentifier
+    );
     xml += generateOdePropertiesXml(meta);
     xml += "<odeNavStructures>\n";
     for (let i = 0; i < pages.length; i++) {
@@ -1710,13 +1827,20 @@
   </userPreference>
 `;
   }
-  function generateOdeResourcesXml(odeId, versionId) {
+  function generateOdeResourcesXml(odeId, versionId, exeVersion, scormIdentifier) {
     let xml = "<odeResources>\n";
     xml += generateOdeResourceEntry("odeId", odeId);
     xml += generateOdeResourceEntry("odeVersionId", versionId);
-    xml += generateOdeResourceEntry("exe_version", ODE_VERSION);
+    xml += generateOdeResourceEntry("exe_version", exeVersion);
+    if (scormIdentifier) {
+      xml += generateOdeResourceEntry("scormIdentifier", scormIdentifier);
+    }
     xml += "</odeResources>\n";
     return xml;
+  }
+  function normalizeExeVersion(version) {
+    if (!version) return "";
+    return String(version).trim().replace(/^v/, "");
   }
   function generateOdeResourceEntry(key, value) {
     return `  <odeResource>
@@ -1798,14 +1922,7 @@
 `;
     xml += "      <odePagStructureProperties>\n";
     if (block.properties) {
-      const blockPropKeys = [
-        "visibility",
-        "teacherOnly",
-        "allowToggle",
-        "minimized",
-        "identifier",
-        "cssClass"
-      ];
+      const blockPropKeys = ["visibility", "teacherOnly", "allowToggle", "minimized", "cssClass"];
       for (const key of blockPropKeys) {
         if (block.properties[key] !== void 0) {
           xml += generatePagStructurePropertyEntry(key, String(block.properties[key]));
@@ -1860,7 +1977,7 @@
 `;
     xml += "          <odeComponentsProperties>\n";
     if (component.structureProperties) {
-      const componentPropKeys = ["visibility", "teacherOnly", "identifier", "cssClass"];
+      const componentPropKeys = ["visibility", "teacherOnly", "cssClass"];
       for (const key of componentPropKeys) {
         if (component.structureProperties[key] !== void 0) {
           xml += generateComponentPropertyEntry(key, String(component.structureProperties[key]));
@@ -1880,16 +1997,6 @@
               <value>${escapeXml(value)}</value>
             </odeComponentsProperty>
 `;
-  }
-  function generateOdeId() {
-    const now = /* @__PURE__ */ new Date();
-    const timestamp = now.getFullYear().toString() + String(now.getMonth() + 1).padStart(2, "0") + String(now.getDate()).padStart(2, "0") + String(now.getHours()).padStart(2, "0") + String(now.getMinutes()).padStart(2, "0") + String(now.getSeconds()).padStart(2, "0");
-    const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-    let random = "";
-    for (let i = 0; i < 6; i++) {
-      random += chars.charAt(Math.floor(Math.random() * chars.length));
-    }
-    return timestamp + random;
   }
   function escapeXml(str) {
     if (!str) return "";
@@ -1925,7 +2032,7 @@
         licenseUrl: getLicenseUrl(meta.get("license") || ""),
         keywords: meta.get("keywords") || "",
         theme: meta.get("theme") || "base",
-        exelearningVersion: meta.get("exelearning_version") || (typeof window !== "undefined" ? window.eXeLearning?.version : void 0),
+        exelearningVersion: meta.get("exelearning_version") || (typeof window !== "undefined" ? window.eXeLearning?.version : void 0) || (typeof process !== "undefined" ? process.env?.APP_VERSION : void 0),
         createdAt: meta.get("createdAt") || (/* @__PURE__ */ new Date()).toISOString(),
         modified: meta.get("modifiedAt") || (/* @__PURE__ */ new Date()).toISOString(),
         // Custom styles support
@@ -1942,7 +2049,14 @@
         globalFont: meta.get("globalFont") || "default",
         // Custom content
         extraHeadContent: meta.get("extraHeadContent") || void 0,
-        footer: meta.get("footer") || void 0
+        footer: meta.get("footer") || void 0,
+        // Project screenshot/thumbnail
+        screenshot: meta.get("screenshot") || void 0,
+        // Stable identifiers (#1784, #1785) -- preserved across import/export so
+        // that content.xml diffs stay clean and LMS tracking survives SCORM re-uploads.
+        odeIdentifier: meta.get("odeIdentifier") || void 0,
+        odeVersionId: meta.get("odeVersionId") || void 0,
+        scormIdentifier: meta.get("scormIdentifier") || void 0
       };
     }
     /**
@@ -2087,7 +2201,6 @@
         teacherOnly: rawProps.teacherOnly,
         allowToggle: rawProps.allowToggle,
         minimized: rawProps.minimized,
-        identifier: rawProps.identifier,
         cssClass: rawProps.cssClass
       };
       const iconName = blockMap.get("iconName") || "";
@@ -2130,7 +2243,6 @@
       const structureProperties = {
         visibility: rawStructProps.visibility,
         teacherOnly: rawStructProps.teacherOnly,
-        identifier: rawStructProps.identifier,
         cssClass: rawStructProps.cssClass
       };
       return {
@@ -2337,6 +2449,26 @@
       return this.convertBlobMapToUint8ArrayMap(blobMap);
     }
     /**
+     * Fetch the pre-built, pre-translated i18n JS file for the given language.
+     * Delegates to ResourceFetcher which fetches `app/common/i18n/common_i18n.{lang}.js`.
+     * @param language - BCP-47 language code (e.g., 'es', 'eu')
+     * @returns Resolved JS content ready to add to the export ZIP as libs/common_i18n.js
+     */
+    async fetchI18nFile(language) {
+      const result = await this.fetcher.fetchI18nFile(language);
+      return result ?? "";
+    }
+    /**
+     * Fetch i18n translations for a specific language.
+     * Delegates to ResourceFetcher which handles static vs server mode.
+     * @param language - BCP-47 language code (e.g., 'es', 'eu')
+     * @returns Map<englishSource, translatedTarget>
+     */
+    async fetchI18nTranslations(language) {
+      const record = await this.fetcher.fetchI18nTranslations(language);
+      return new Map(Object.entries(record));
+    }
+    /**
      * Convert Map<string, Blob> to Map<string, Uint8Array>
      * In browser, we convert Blob to ArrayBuffer then to Uint8Array
      * @param blobMap - Map of path -> Blob
@@ -2358,19 +2490,39 @@
     }
   };
 
+  // src/config.ts
+  function getExtensionFromMimeType(mime, withDot = false) {
+    const normalizedMime = (mime || "").toLowerCase();
+    const extWithDot = MIME_TO_EXTENSION[normalizedMime] || ".bin";
+    return withDot ? extWithDot : extWithDot.slice(1);
+  }
+  function deriveFilenameFromMime(assetId, mime) {
+    const ext = getExtensionFromMimeType(mime);
+    return `asset-${assetId.substring(0, 8)}.${ext}`;
+  }
+
   // src/shared/export/adapters/BrowserAssetProvider.ts
+  function isUnknownFilename(filename) {
+    return !filename || filename === "unknown";
+  }
+  var CONVERSION_BATCH_SIZE = 20;
   var BrowserAssetProvider = class {
     /**
-     * Create provider with AssetCacheManager and/or AssetManager instance
-     * @param assetCache - AssetCacheManager instance (legacy, optional)
-     * @param assetManager - AssetManager instance (preferred, optional)
+     * Create provider with AssetManager instance.
      *
-     * Note: At least one of assetCache or assetManager should be provided.
-     * AssetManager is preferred for getAllAssets() as it contains the actual imported assets.
+     * Accepts one or two arguments for backward compatibility with call sites that
+     * pass `(assetCache, assetManager)`. When two arguments are provided the second
+     * one (the new AssetManager) is used; the first (legacy cache) is ignored.
+     *
+     * @param assetCacheOrManager - AssetManager, or legacy AssetCacheManager (ignored when assetManager is supplied)
+     * @param assetManager - Preferred new AssetManager (optional)
      */
-    constructor(assetCache, assetManager = null) {
-      this.assetCache = assetCache;
-      this.assetManager = assetManager;
+    constructor(assetCacheOrManager, assetManager) {
+      this.assetManager = assetManager !== void 0 ? assetManager : assetCacheOrManager;
+    }
+    /** Read the projectId from the AssetManager (not part of the formal interface). */
+    get projectId() {
+      return this.assetManager?.projectId;
     }
     /**
      * Get asset data by path/id
@@ -2379,29 +2531,30 @@
      */
     async getAsset(assetId) {
       try {
+        const metadata = this.getMetadataById(assetId);
+        if (metadata) {
+          const blob = await this.getBlobWithoutPromoting(assetId);
+          if (blob) {
+            return this.blobAssetToExportAsset({
+              id: metadata.id,
+              blob,
+              mime: metadata.mime || blob.type || "application/octet-stream",
+              filename: metadata.filename,
+              folderPath: metadata.folderPath
+            });
+          }
+        }
         if (this.assetManager?.getAsset) {
           const asset = await this.assetManager.getAsset(assetId);
           if (asset?.blob) {
             const arrayBuffer = await asset.blob.arrayBuffer();
+            const assetFilename = asset.filename;
+            const filename = !isUnknownFilename(assetFilename) ? assetFilename : assetId.split("/").pop() || deriveFilenameFromMime(asset.id, asset.mime);
             return {
               id: asset.id,
-              filename: assetId.split("/").pop() || "unknown",
-              originalPath: assetId,
-              mime: asset.mime || "application/octet-stream",
-              data: new Uint8Array(arrayBuffer)
-            };
-          }
-        }
-        if (this.assetCache) {
-          const cached = await this.assetCache.getAssetByPath(assetId);
-          if (cached?.blob) {
-            const arrayBuffer = await cached.blob.arrayBuffer();
-            const filename = cached.metadata?.filename || assetId.split("/").pop() || "unknown";
-            return {
-              id: assetId,
               filename,
               originalPath: assetId,
-              mime: cached.metadata?.mimeType || "application/octet-stream",
+              mime: asset.mime || "application/octet-stream",
               data: new Uint8Array(arrayBuffer)
             };
           }
@@ -2425,10 +2578,6 @@
             return true;
           }
         }
-        if (this.assetCache) {
-          const cached = await this.assetCache.getAssetByPath(assetPath);
-          return cached !== null && cached.blob !== void 0;
-        }
         return false;
       } catch {
         return false;
@@ -2440,15 +2589,18 @@
      */
     async listAssets() {
       try {
-        if (this.assetManager) {
-          const assets = await this.assetManager.getProjectAssets();
-          return assets.filter((a) => a.originalPath || a.filename).map((a) => a.originalPath || `${a.id}/${a.filename}`);
+        if (!this.assetManager) return [];
+        if (this.assetManager.getAllAssetsMetadata) {
+          const metadata = this.assetManager.getAllAssetsMetadata();
+          if (metadata.length > 0) {
+            return metadata.filter((a) => a.filename).map((a) => {
+              const filename = a.filename;
+              return a.folderPath ? `${a.folderPath}/${filename}` : `${a.id}/${filename}`;
+            });
+          }
         }
-        if (this.assetCache) {
-          const assets = await this.assetCache.getAllAssets();
-          return assets.filter((a) => a.metadata?.originalPath).map((a) => a.metadata.originalPath);
-        }
-        return [];
+        const assets = await this.assetManager.getProjectAssets();
+        return assets.filter((a) => a.originalPath || a.filename).map((a) => a.originalPath || `${a.id}/${a.filename}`);
       } catch (error) {
         console.warn("[BrowserAssetProvider] Failed to list assets:", error);
         return [];
@@ -2462,141 +2614,29 @@
      * @returns Array of ExportAsset
      */
     async getAllAssets() {
-      const result = [];
+      if (!this.assetManager) return [];
       try {
-        if (this.assetManager) {
-          const projectId = this.assetManager.projectId;
-          console.log(`[BrowserAssetProvider] AssetManager available, projectId: ${projectId}`);
-          console.log(`[BrowserAssetProvider] Calling getProjectAssets...`);
-          const assets = await this.assetManager.getProjectAssets();
-          console.log(`[BrowserAssetProvider] Found ${assets.length} assets from AssetManager`);
-          if (assets.length > 0) {
-            console.log(
-              `[BrowserAssetProvider] First asset:`,
-              JSON.stringify({
-                id: assets[0].id,
-                filename: assets[0].filename,
-                mime: assets[0].mime,
-                hasBlob: !!assets[0].blob
-              })
-            );
-          }
-          const assetsWithBlob = assets.filter((asset) => asset.blob);
-          const conversions = await Promise.all(
-            assetsWithBlob.map(async (asset) => {
-              const arrayBuffer = await asset.blob.arrayBuffer();
-              return { asset, arrayBuffer };
-            })
-          );
-          for (const { asset, arrayBuffer } of conversions) {
-            const assetId = String(asset.id);
-            const filename = asset.filename || `asset-${assetId}`;
-            let originalPath;
-            if (asset.folderPath) {
-              originalPath = `${asset.folderPath}/${filename}`;
-            } else if (asset.originalPath?.includes(assetId)) {
-              originalPath = asset.originalPath;
-            } else {
-              originalPath = `${assetId}/${filename}`;
-            }
-            result.push({
-              id: assetId,
-              filename,
-              originalPath,
-              folderPath: asset.folderPath || "",
-              mime: asset.mime || "application/octet-stream",
-              data: new Uint8Array(arrayBuffer)
-            });
-          }
-          if (result.length > 0) {
-            console.log(`[BrowserAssetProvider] Converted ${result.length} assets for export`);
-            return result;
-          } else {
-            console.log(`[BrowserAssetProvider] AssetManager returned 0 usable assets (no blobs)`);
-            if (this.assetManager.getAllAssetsRaw) {
-              console.log(`[BrowserAssetProvider] Trying fallback: getAllAssetsRaw...`);
-              const allAssets = await this.assetManager.getAllAssetsRaw();
-              if (allAssets.length > 0) {
-                console.warn(
-                  `[BrowserAssetProvider] FALLBACK: Found ${allAssets.length} assets in DB (different projectIds)`
-                );
-                const projectIds = [...new Set(allAssets.map((a) => a.projectId))];
-                console.warn(`[BrowserAssetProvider] ProjectIds in DB: ${projectIds.join(", ")}`);
-                console.warn(`[BrowserAssetProvider] Expected projectId: ${projectId}`);
-                const filteredAssets = allAssets.filter((a) => a.projectId === projectId);
-                if (filteredAssets.length < allAssets.length) {
-                  console.warn(
-                    `[BrowserAssetProvider] Filtered out ${allAssets.length - filteredAssets.length} assets from other projects`
-                  );
-                }
-                console.log(
-                  `[BrowserAssetProvider] FALLBACK filtered to ${filteredAssets.length} assets matching projectId: ${projectId}`
-                );
-                for (const asset of filteredAssets) {
-                  if (asset.blob) {
-                    const arrayBuffer = await asset.blob.arrayBuffer();
-                    const assetId = String(asset.id);
-                    const filename = asset.filename || `asset-${assetId}`;
-                    let originalPath;
-                    if (asset.folderPath) {
-                      originalPath = `${asset.folderPath}/${filename}`;
-                    } else if (asset.originalPath?.includes(assetId)) {
-                      originalPath = asset.originalPath;
-                    } else {
-                      originalPath = `${assetId}/${filename}`;
-                    }
-                    result.push({
-                      id: assetId,
-                      filename,
-                      originalPath,
-                      folderPath: asset.folderPath || "",
-                      mime: asset.mime || "application/octet-stream",
-                      data: new Uint8Array(arrayBuffer)
-                    });
-                  }
-                }
-                if (result.length > 0) {
-                  console.log(
-                    `[BrowserAssetProvider] FALLBACK converted ${result.length} assets for export`
-                  );
-                  return result;
-                }
-              }
-            }
-          }
-        } else {
-          console.log(`[BrowserAssetProvider] AssetManager not available`);
-          if (this.assetCache) {
-            console.log(`[BrowserAssetProvider] Trying legacy AssetCacheManager...`);
-            try {
-              const assets = await this.assetCache.getAllAssets();
-              console.log(
-                `[BrowserAssetProvider] Found ${assets.length} assets from AssetCacheManager (legacy)`
-              );
-              for (const asset of assets) {
-                if (asset.blob) {
-                  const arrayBuffer = await asset.blob.arrayBuffer();
-                  const assetId = String(asset.assetId);
-                  const filename = asset.metadata?.filename || `asset-${assetId}`;
-                  const originalPath = asset.metadata?.originalPath || `${assetId}/${filename}`;
-                  result.push({
-                    id: assetId,
-                    filename,
-                    originalPath,
-                    mime: asset.metadata?.mimeType || "application/octet-stream",
-                    data: new Uint8Array(arrayBuffer)
-                  });
-                }
-              }
-            } catch (legacyError) {
-              console.warn("[BrowserAssetProvider] Legacy AssetCacheManager failed:", legacyError);
-            }
+        const metadataAssets = await this.collectAssetsFromMetadata();
+        if (metadataAssets.length > 0) {
+          return metadataAssets;
+        }
+        const assets = await this.assetManager.getProjectAssets();
+        const assetsWithBlob = assets.filter((asset) => asset.blob);
+        if (assetsWithBlob.length > 0) {
+          return Promise.all(assetsWithBlob.map((asset) => this.blobAssetToExportAsset(asset)));
+        }
+        if (this.assetManager.getAllAssetsRaw) {
+          const allAssets = await this.assetManager.getAllAssetsRaw();
+          const filteredAssets = allAssets.filter((a) => a.projectId === this.projectId && a.blob);
+          if (filteredAssets.length > 0) {
+            return Promise.all(filteredAssets.map((a) => this.blobAssetToExportAsset(a)));
           }
         }
+        return [];
       } catch (error) {
         console.warn("[BrowserAssetProvider] Failed to get all assets:", error);
+        return [];
       }
-      return result;
     }
     /**
      * Get all project assets (alias for getAllAssets)
@@ -2604,6 +2644,211 @@
      */
     async getProjectAssets() {
       return this.getAllAssets();
+    }
+    /**
+     * Process assets via callback with batched parallelism.
+     * Converts blobs in batches of {@link CONVERSION_BATCH_SIZE} to balance
+     * throughput (parallel I/O) against memory (not all buffers at once).
+     *
+     * @returns Number of assets processed
+     */
+    async forEachAsset(callback) {
+      if (!this.assetManager) return 0;
+      try {
+        const metadataCount = await this.processMetadataAssets(callback);
+        if (metadataCount > 0) {
+          return metadataCount;
+        }
+        const assets = await this.assetManager.getProjectAssets();
+        const assetsWithBlob = assets.filter((a) => a.blob);
+        if (assetsWithBlob.length > 0) {
+          return this.processAssetBatches(assetsWithBlob, callback);
+        }
+        if (this.assetManager.getAllAssetsRaw) {
+          const allAssets = await this.assetManager.getAllAssetsRaw();
+          const filteredAssets = allAssets.filter((a) => a.projectId === this.projectId && a.blob);
+          if (filteredAssets.length > 0) {
+            return this.processAssetBatches(filteredAssets, callback);
+          }
+        }
+        return 0;
+      } catch (error) {
+        console.warn("[BrowserAssetProvider] Failed in forEachAsset:", error);
+        return 0;
+      }
+    }
+    /**
+     * List asset metadata without loading binary data.
+     * Uses getAllAssetsMetadata() which reads only Yjs metadata — no blob loading.
+     * Falls back to getProjectAssets() when getAllAssetsMetadata is not available.
+     *
+     * @returns Lightweight metadata array
+     */
+    async listAssetMetadata() {
+      if (!this.assetManager) return [];
+      const toMetadata = (asset) => {
+        const assetId = String(asset.id);
+        const mime = asset.mime || "application/octet-stream";
+        const filename = !isUnknownFilename(asset.filename) ? asset.filename : deriveFilenameFromMime(assetId, mime);
+        return {
+          id: assetId,
+          filename,
+          folderPath: asset.folderPath || "",
+          mime
+        };
+      };
+      try {
+        if (this.assetManager.getAllAssetsMetadata) {
+          const allMetadata = this.assetManager.getAllAssetsMetadata();
+          const filtered = allMetadata.filter((a) => a.filename || a.mime);
+          if (filtered.length > 0) {
+            return filtered.map(toMetadata);
+          }
+        }
+        const assets = await this.assetManager.getProjectAssets();
+        const assetsWithBlob = assets.filter((a) => a.blob);
+        if (assetsWithBlob.length > 0) {
+          return assetsWithBlob.map(toMetadata);
+        }
+        if (this.assetManager.getAllAssetsRaw) {
+          const allAssets = await this.assetManager.getAllAssetsRaw();
+          const filteredAssets = allAssets.filter((a) => a.projectId === this.projectId && a.blob);
+          return filteredAssets.map(toMetadata);
+        }
+        return [];
+      } catch (error) {
+        console.warn("[BrowserAssetProvider] Failed to list asset metadata:", error);
+        return [];
+      }
+    }
+    /**
+     * Return metadata directly from Yjs when available.
+     * This is the preferred source for export/preview because it avoids blob loading.
+     */
+    getMetadataEntries() {
+      if (!this.assetManager?.getAllAssetsMetadata) {
+        return [];
+      }
+      return this.assetManager.getAllAssetsMetadata().filter((asset) => asset.id);
+    }
+    /**
+     * Resolve one metadata entry by id without falling back to blob-loading APIs.
+     */
+    getMetadataById(assetId) {
+      if (this.assetManager?.getAssetMetadata) {
+        return this.assetManager.getAssetMetadata(assetId);
+      }
+      const metadata = this.getMetadataEntries();
+      return metadata.find((asset) => asset.id === assetId) || null;
+    }
+    /**
+     * Read blob data without rehydrating blobCache from Cache API.
+     */
+    async getBlobWithoutPromoting(assetId) {
+      if (!this.assetManager) {
+        return null;
+      }
+      if (this.assetManager.getBlobForExport) {
+        return this.assetManager.getBlobForExport(assetId);
+      }
+      if (this.assetManager.getBlob) {
+        return this.assetManager.getBlob(assetId, { restoreToMemory: false });
+      }
+      return null;
+    }
+    /**
+     * Convert all metadata-backed assets without calling getProjectAssets().
+     */
+    async collectAssetsFromMetadata() {
+      const result = [];
+      await this.processMetadataAssets(async (asset) => {
+        result.push(asset);
+      });
+      return result;
+    }
+    /**
+     * Process metadata-backed assets in bounded batches, loading blobs on demand.
+     */
+    async processMetadataAssets(callback) {
+      const metadataEntries = this.getMetadataEntries();
+      if (metadataEntries.length === 0) {
+        return 0;
+      }
+      let count = 0;
+      const missingIds = [];
+      for (let i = 0; i < metadataEntries.length; i += CONVERSION_BATCH_SIZE) {
+        const batch = metadataEntries.slice(i, i + CONVERSION_BATCH_SIZE);
+        const converted = await Promise.all(
+          batch.map(async (metadata) => {
+            const blob = await this.getBlobWithoutPromoting(metadata.id);
+            if (!blob) {
+              missingIds.push(metadata.id);
+              return null;
+            }
+            return this.blobAssetToExportAsset({
+              id: metadata.id,
+              blob,
+              mime: metadata.mime || blob.type || "application/octet-stream",
+              filename: metadata.filename,
+              folderPath: metadata.folderPath
+            });
+          })
+        );
+        for (const asset of converted) {
+          if (!asset) {
+            continue;
+          }
+          await callback(asset);
+          count++;
+        }
+      }
+      if (missingIds.length > 0) {
+        console.warn(
+          `[BrowserAssetProvider] Export is missing ${missingIds.length}/${metadataEntries.length} assets (blob not in cache or server): ${missingIds.join(", ")}`
+        );
+      }
+      return count;
+    }
+    /**
+     * Convert and process assets in batches.
+     * Each batch converts blobs in parallel, then invokes callbacks sequentially.
+     */
+    async processAssetBatches(assets, callback) {
+      let count = 0;
+      for (let i = 0; i < assets.length; i += CONVERSION_BATCH_SIZE) {
+        const batch = assets.slice(i, i + CONVERSION_BATCH_SIZE);
+        const converted = await Promise.all(batch.map((a) => this.blobAssetToExportAsset(a)));
+        for (const asset of converted) {
+          await callback(asset);
+          count++;
+        }
+      }
+      return count;
+    }
+    /**
+     * Convert a raw blob-bearing asset from AssetManager into an ExportAsset.
+     * Shared by getAllAssets() and forEachAsset() to avoid duplicated logic.
+     */
+    async blobAssetToExportAsset(asset) {
+      const arrayBuffer = await asset.blob.arrayBuffer();
+      const assetId = String(asset.id);
+      const filename = !isUnknownFilename(asset.filename) ? asset.filename : deriveFilenameFromMime(assetId, asset.mime);
+      let originalPath;
+      if (asset.folderPath) {
+        originalPath = `${asset.folderPath}/${filename}`;
+      } else if (asset.originalPath?.includes(assetId)) {
+        originalPath = asset.originalPath;
+      } else {
+        originalPath = `${assetId}/${filename}`;
+      }
+      return {
+        id: assetId,
+        filename,
+        originalPath,
+        folderPath: asset.folderPath || "",
+        mime: asset.mime || "application/octet-stream",
+        data: new Uint8Array(arrayBuffer)
+      };
     }
     /**
      * Resolve asset URL for preview (returns blob URL)
@@ -2615,9 +2860,6 @@
         if (this.assetManager?.resolveAssetURL) {
           const url = await this.assetManager.resolveAssetURL(assetPath);
           if (url) return url;
-        }
-        if (this.assetCache) {
-          return await this.assetCache.resolveAssetUrl(assetPath);
         }
         return null;
       } catch {
@@ -3250,6 +3492,63 @@
     for (; v; ++b)
       d[b] = v, v >>>= 8;
   };
+  var Deflate = /* @__PURE__ */ (function() {
+    function Deflate2(opts, cb) {
+      if (typeof opts == "function")
+        cb = opts, opts = {};
+      this.ondata = cb;
+      this.o = opts || {};
+      this.s = { l: 0, i: 32768, w: 32768, z: 32768 };
+      this.b = new u8(98304);
+      if (this.o.dictionary) {
+        var dict = this.o.dictionary.subarray(-32768);
+        this.b.set(dict, 32768 - dict.length);
+        this.s.i = 32768 - dict.length;
+      }
+    }
+    Deflate2.prototype.p = function(c, f) {
+      this.ondata(dopt(c, this.o, 0, 0, this.s), f);
+    };
+    Deflate2.prototype.push = function(chunk, final) {
+      if (!this.ondata)
+        err(5);
+      if (this.s.l)
+        err(4);
+      var endLen = chunk.length + this.s.z;
+      if (endLen > this.b.length) {
+        if (endLen > 2 * this.b.length - 32768) {
+          var newBuf = new u8(endLen & -32768);
+          newBuf.set(this.b.subarray(0, this.s.z));
+          this.b = newBuf;
+        }
+        var split = this.b.length - this.s.z;
+        this.b.set(chunk.subarray(0, split), this.s.z);
+        this.s.z = this.b.length;
+        this.p(this.b, false);
+        this.b.set(this.b.subarray(-32768));
+        this.b.set(chunk.subarray(split), 32768);
+        this.s.z = chunk.length - split + 32768;
+        this.s.i = 32766, this.s.w = 32768;
+      } else {
+        this.b.set(chunk, this.s.z);
+        this.s.z += chunk.length;
+      }
+      this.s.l = final & 1;
+      if (this.s.z > this.s.w + 8191 || final) {
+        this.p(this.b, final || false);
+        this.s.w = this.s.i, this.s.i -= 2;
+      }
+    };
+    Deflate2.prototype.flush = function() {
+      if (!this.ondata)
+        err(5);
+      if (this.s.l)
+        err(4);
+      this.p(this.b, false);
+      this.s.w = this.s.i, this.s.i -= 2;
+    };
+    return Deflate2;
+  })();
   function deflateSync(data, opts) {
     return dopt(data, opts || {}, 0, 0);
   }
@@ -3307,6 +3606,9 @@
     }
     return slc(ar, 0, ai);
   }
+  var dbf = function(l) {
+    return l == 1 ? 3 : l < 6 ? 2 : l == 9 ? 1 : 0;
+  };
   var exfl = function(ex) {
     var le = 0;
     if (ex) {
@@ -3365,6 +3667,175 @@
     wbytes(o, b + 12, d);
     wbytes(o, b + 16, e);
   };
+  var ZipPassThrough = /* @__PURE__ */ (function() {
+    function ZipPassThrough2(filename) {
+      this.filename = filename;
+      this.c = crc();
+      this.size = 0;
+      this.compression = 0;
+    }
+    ZipPassThrough2.prototype.process = function(chunk, final) {
+      this.ondata(null, chunk, final);
+    };
+    ZipPassThrough2.prototype.push = function(chunk, final) {
+      if (!this.ondata)
+        err(5);
+      this.c.p(chunk);
+      this.size += chunk.length;
+      if (final)
+        this.crc = this.c.d();
+      this.process(chunk, final || false);
+    };
+    return ZipPassThrough2;
+  })();
+  var ZipDeflate = /* @__PURE__ */ (function() {
+    function ZipDeflate2(filename, opts) {
+      var _this = this;
+      if (!opts)
+        opts = {};
+      ZipPassThrough.call(this, filename);
+      this.d = new Deflate(opts, function(dat, final) {
+        _this.ondata(null, dat, final);
+      });
+      this.compression = 8;
+      this.flag = dbf(opts.level);
+    }
+    ZipDeflate2.prototype.process = function(chunk, final) {
+      try {
+        this.d.push(chunk, final);
+      } catch (e) {
+        this.ondata(e, null, final);
+      }
+    };
+    ZipDeflate2.prototype.push = function(chunk, final) {
+      ZipPassThrough.prototype.push.call(this, chunk, final);
+    };
+    return ZipDeflate2;
+  })();
+  var Zip = /* @__PURE__ */ (function() {
+    function Zip2(cb) {
+      this.ondata = cb;
+      this.u = [];
+      this.d = 1;
+    }
+    Zip2.prototype.add = function(file) {
+      var _this = this;
+      if (!this.ondata)
+        err(5);
+      if (this.d & 2)
+        this.ondata(err(4 + (this.d & 1) * 8, 0, 1), null, false);
+      else {
+        var f = strToU8(file.filename), fl_1 = f.length;
+        var com = file.comment, o = com && strToU8(com);
+        var u = fl_1 != file.filename.length || o && com.length != o.length;
+        var hl_1 = fl_1 + exfl(file.extra) + 30;
+        if (fl_1 > 65535)
+          this.ondata(err(11, 0, 1), null, false);
+        var header = new u8(hl_1);
+        wzh(header, 0, file, f, u, -1);
+        var chks_1 = [header];
+        var pAll_1 = function() {
+          for (var _i = 0, chks_2 = chks_1; _i < chks_2.length; _i++) {
+            var chk = chks_2[_i];
+            _this.ondata(null, chk, false);
+          }
+          chks_1 = [];
+        };
+        var tr_1 = this.d;
+        this.d = 0;
+        var ind_1 = this.u.length;
+        var uf_1 = mrg(file, {
+          f,
+          u,
+          o,
+          t: function() {
+            if (file.terminate)
+              file.terminate();
+          },
+          r: function() {
+            pAll_1();
+            if (tr_1) {
+              var nxt = _this.u[ind_1 + 1];
+              if (nxt)
+                nxt.r();
+              else
+                _this.d = 1;
+            }
+            tr_1 = 1;
+          }
+        });
+        var cl_1 = 0;
+        file.ondata = function(err2, dat, final) {
+          if (err2) {
+            _this.ondata(err2, dat, final);
+            _this.terminate();
+          } else {
+            cl_1 += dat.length;
+            chks_1.push(dat);
+            if (final) {
+              var dd = new u8(16);
+              wbytes(dd, 0, 134695760);
+              wbytes(dd, 4, file.crc);
+              wbytes(dd, 8, cl_1);
+              wbytes(dd, 12, file.size);
+              chks_1.push(dd);
+              uf_1.c = cl_1, uf_1.b = hl_1 + cl_1 + 16, uf_1.crc = file.crc, uf_1.size = file.size;
+              if (tr_1)
+                uf_1.r();
+              tr_1 = 1;
+            } else if (tr_1)
+              pAll_1();
+          }
+        };
+        this.u.push(uf_1);
+      }
+    };
+    Zip2.prototype.end = function() {
+      var _this = this;
+      if (this.d & 2) {
+        this.ondata(err(4 + (this.d & 1) * 8, 0, 1), null, true);
+        return;
+      }
+      if (this.d)
+        this.e();
+      else
+        this.u.push({
+          r: function() {
+            if (!(_this.d & 1))
+              return;
+            _this.u.splice(-1, 1);
+            _this.e();
+          },
+          t: function() {
+          }
+        });
+      this.d = 3;
+    };
+    Zip2.prototype.e = function() {
+      var bt = 0, l = 0, tl = 0;
+      for (var _i = 0, _a2 = this.u; _i < _a2.length; _i++) {
+        var f = _a2[_i];
+        tl += 46 + f.f.length + exfl(f.extra) + (f.o ? f.o.length : 0);
+      }
+      var out = new u8(tl + 22);
+      for (var _b2 = 0, _c = this.u; _b2 < _c.length; _b2++) {
+        var f = _c[_b2];
+        wzh(out, bt, f, f.f, f.u, -f.c - 2, l, f.o);
+        bt += 46 + f.f.length + exfl(f.extra) + (f.o ? f.o.length : 0), l += f.b;
+      }
+      wzf(out, bt, this.u.length, tl, l);
+      this.ondata(null, out, true);
+      this.d = 2;
+    };
+    Zip2.prototype.terminate = function() {
+      for (var _i = 0, _a2 = this.u; _i < _a2.length; _i++) {
+        var f = _a2[_i];
+        f.t();
+      }
+      this.d = 2;
+    };
+    return Zip2;
+  })();
   function zipSync(data, opts) {
     if (!opts)
       opts = {};
@@ -3410,6 +3881,36 @@
   }
 
   // src/shared/export/providers/FflateZipProvider.ts
+  var DEFLATED_EXTENSIONS = /* @__PURE__ */ new Set([
+    "css",
+    "csv",
+    "dtd",
+    "htm",
+    "html",
+    "js",
+    "json",
+    "map",
+    "mjs",
+    "ncx",
+    "opf",
+    "svg",
+    "txt",
+    "xhtml",
+    "xlf",
+    "xml",
+    "xsl"
+  ]);
+  function getNormalizedExtension(filePath) {
+    const fileName = filePath.split("/").pop() || filePath;
+    const lastDot = fileName.lastIndexOf(".");
+    if (lastDot < 0 || lastDot === fileName.length - 1) {
+      return "";
+    }
+    return fileName.slice(lastDot + 1).toLowerCase();
+  }
+  function shouldDeflatePath(filePath) {
+    return DEFLATED_EXTENSIONS.has(getNormalizedExtension(filePath));
+  }
   function toUint8Array(content) {
     if (content instanceof Uint8Array) {
       return content;
@@ -3422,6 +3923,12 @@
   var FflateZipProvider = class {
     constructor() {
       this.files = /* @__PURE__ */ new Map();
+      this.lastGenerateStats = {
+        deflatedFiles: 0,
+        storedFiles: 0,
+        deflatedBytes: 0,
+        storedBytes: 0
+      };
     }
     /**
      * Create a new ZIP archive (returns self for compatibility)
@@ -3452,14 +3959,65 @@
       return this.generate();
     }
     /**
-     * Generate the ZIP archive
+     * Generate the ZIP archive using fflate's streaming Zip class.
+     * This avoids building an intermediate Zippable object (~1x uncompressed size saved at peak).
      */
     async generate() {
-      const zipData = {};
-      for (const [path, data] of this.files) {
-        zipData[path] = [data, { level: 6 }];
+      if (this.files.size === 0) {
+        this.lastGenerateStats = {
+          deflatedFiles: 0,
+          storedFiles: 0,
+          deflatedBytes: 0,
+          storedBytes: 0
+        };
+        return zipSync({});
       }
-      return zipSync(zipData);
+      const chunks = [];
+      let totalLength = 0;
+      const stats = {
+        deflatedFiles: 0,
+        storedFiles: 0,
+        deflatedBytes: 0,
+        storedBytes: 0
+      };
+      return new Promise((resolve, reject) => {
+        const zipper = new Zip((err2, data, final) => {
+          if (err2) {
+            reject(err2);
+            return;
+          }
+          chunks.push(data);
+          totalLength += data.length;
+          if (final) {
+            const result = new Uint8Array(totalLength);
+            let offset = 0;
+            for (const chunk of chunks) {
+              result.set(chunk, offset);
+              offset += chunk.length;
+            }
+            resolve(result);
+          }
+        });
+        for (const [filePath, data] of this.files) {
+          const shouldDeflate = shouldDeflatePath(filePath);
+          const file = shouldDeflate ? new ZipDeflate(filePath, { level: 6 }) : new ZipPassThrough(filePath);
+          zipper.add(file);
+          file.push(data, true);
+          if (shouldDeflate) {
+            stats.deflatedFiles += 1;
+            stats.deflatedBytes += data.length;
+          } else {
+            stats.storedFiles += 1;
+            stats.storedBytes += data.length;
+          }
+        }
+        this.lastGenerateStats = stats;
+        this.files.clear();
+        zipper.end();
+      });
+    }
+    getLastGenerateStats() {
+      return { ...this.lastGenerateStats };
     }
     /**
      * Reset the archive for reuse
@@ -3590,8 +4148,7 @@
       const isPreviewMode = basePath.startsWith("/") || basePath.includes("://");
       const fixedContent = this.fixAssetUrls(htmlContent, basePath, isPreviewMode, assetExportPathMap);
       const escapedContent = this.escapePreCodeContent(fixedContent);
-      const isTextIdevice = type === "text" || type === "FreeTextIdevice" || type === "TextIdevice";
-      const contentHtml = isTextIdevice && escapedContent ? `<div class="exe-text">${escapedContent}</div>` : escapedContent;
+      const contentHtml = escapedContent;
       return `<div id="${this.escapeAttr(ideviceId)}" class="${classes.join(" ")}"${dataAttrs}>
 ${contentHtml}
 </div>`;
@@ -3654,11 +4211,7 @@ ${iconHtml}${titleHtml}${toggleHtml}</header>`;
       for (const component of components) {
         contentHtml += this.render(component, { basePath, includeDataAttributes, assetExportPathMap });
       }
-      let extraAttrs = "";
-      if (properties.identifier) {
-        extraAttrs += ` identifier="${this.escapeAttr(properties.identifier)}"`;
-      }
-      return `<article id="${this.escapeAttr(blockId)}" class="${classes.join(" ")}"${extraAttrs}>
+      return `<article id="${this.escapeAttr(blockId)}" class="${classes.join(" ")}">
 ${headerHtml}
 <div class="box-content">
 ${contentHtml}
@@ -3875,7 +4428,8 @@ ${contentHtml}
           seen.add(typeName);
           const jsFiles = getIdeviceExportFiles(typeName, ".js");
           for (const jsFile of jsFiles) {
-            scripts.push(`<script src="${basePath}idevices/${typeName}/${jsFile}"><\/script>`);
+            const typeAttr = isIdeviceJsModule(typeName, jsFile) ? ' type="module"' : "";
+            scripts.push(`<script${typeAttr} src="${basePath}idevices/${typeName}/${jsFile}"><\/script>`);
           }
         }
       }
@@ -3924,9 +4478,10 @@ ${contentHtml}
           const jsFiles = getIdeviceExportFiles(typeName, ".js");
           for (const jsFile of jsFiles) {
             const src = `${basePath}idevices/${typeName}/${jsFile}`;
+            const typeAttr = isIdeviceJsModule(typeName, jsFile) ? ' type="module"' : "";
             scripts.push({
               src,
-              tag: `<script src="${src}"><\/script>`
+              tag: `<script${typeAttr} src="${src}"><\/script>`
             });
           }
         }
@@ -3935,6 +4490,11 @@ ${contentHtml}
     }
   };
 
+  // src/shared/export/browser/translation-shim.ts
+  function trans(id, _parameters, _locale) {
+    return id;
+  }
+
   // src/shared/export/renderers/PageRenderer.ts
   var PageRenderer = class {
     /**
@@ -3942,6 +4502,19 @@ ${contentHtml}
      */
     constructor(ideviceRenderer = null) {
       this.ideviceRenderer = ideviceRenderer || new IdeviceRenderer();
+    }
+    /**
+     * Build the HTML <title> value for a page.
+     * Index page uses the project title alone. Inner pages use
+     * "Page title | Project title" (falling back to the project title
+     * when the page title is empty or duplicates it).
+     */
+    buildDocumentTitle(page, projectTitle, isIndex) {
+      if (isIndex) return projectTitle;
+      const pageTitle = (page.title || "").trim();
+      if (!pageTitle) return projectTitle;
+      if (!projectTitle || pageTitle === projectTitle) return pageTitle;
+      return `${pageTitle} | ${projectTitle}`;
     }
     /**
      * Check if a property value is truthy (handles both boolean and string "true")
@@ -3992,6 +4565,7 @@ ${contentHtml}
         extraHeadScripts = "",
         onLoadScript = "",
         onUnloadScript = "",
+        detectedLibraries: providedDetectedLibraries,
         // Theme files (CSS/JS from theme root directory)
         themeFiles = [],
         // Navigation visibility options (for SCORM/IMS where LMS handles navigation)
@@ -4002,10 +4576,16 @@ ${contentHtml}
         // Application version for generator meta tag
         version
       } = options;
-      const pageTitle = isIndex ? projectTitle : page.title || "Page";
+      const pageTitle = this.buildDocumentTitle(page, projectTitle, isIndex);
       const originalContent = this.collectPageContent(page);
-      const detectedLibraries = this.detectContentLibraries(originalContent);
-      const pageContent = this.renderPageContent(page, basePath, projectTitle, assetExportPathMap);
+      const detectedLibraries = providedDetectedLibraries ?? this.detectContentLibraries(originalContent);
+      const pageContent = this.renderPageContent(page, basePath, projectTitle, assetExportPathMap, {
+        author: options.author,
+        description: options.description,
+        license: options.license,
+        language: options.language,
+        translatedLicense: options.navLabels?.license
+      });
       const total = totalPages ?? allPages.length;
       const currentIdx = currentPageIndex ?? allPages.findIndex((p) => p.id === page.id);
       const bodyClassStr = bodyClass || "exe-export exe-web-site";
@@ -4016,14 +4596,15 @@ ${contentHtml}
         projectSubtitle: options.projectSubtitle,
         currentPageIndex: currentIdx,
         totalPages: total,
-        addPagination
+        addPagination,
+        pageLabel: options.navLabels?.page
       });
       const searchBoxHtml = addSearchBox ? `<div id="exe-client-search" data-block-order-string="Caja %e" data-no-results-string="Sin resultados.">
 </div>` : "";
-      const madeWithExeHtml = addExeLink ? this.renderMadeWithEXe() : "";
+      const madeWithExeHtml = addExeLink ? this.renderMadeWithEXe(language, options.navLabels) : "";
       const pageFilenameMap = options.pageFilenameMap;
       const navHtml = hideNavigation ? "" : this.renderNavigation(allPages, page.id, basePath, pageFilenameMap);
-      const navButtonsHtml = hideNavButtons ? "" : this.renderNavButtons(page, allPages, basePath, language, pageFilenameMap);
+      const navButtonsHtml = hideNavButtons ? "" : this.renderNavButtons(page, allPages, basePath, options.navLabels, pageFilenameMap);
       return `<!DOCTYPE html>
 <html lang="${language}" id="exe-${isIndex ? "index" : page.id}">
 <head>
@@ -4031,11 +4612,11 @@ ${this.renderHead({ pageTitle, basePath, usedIdevices, customStyles, extraHeadSc
 </head>
 <body class="${bodyClassStr}"${onLoadAttr}${onUnloadAttr}>
 <script>document.body.className+=" js"<\/script>
-<div class="exe-content exe-export pre-js siteNav-hidden"> ${navHtml}<main id="${page.id}" class="page"> ${searchBoxHtml}
+<div class="exe-content exe-export pre-js siteNav-hidden">${bodyClassStr.includes("exe-web-site") ? `<a href="#${page.id}" id="skipNav">${trans("Skip to content", {}, language)}</a> ` : ""}${navHtml}<main id="${page.id}" class="page"> ${searchBoxHtml}
 ${pageHeaderHtml}<div id="page-content-${page.id}" class="page-content">
 ${pageContent}
 </div></main>${navButtonsHtml}
-${this.renderFooterSection({ license, licenseUrl, userFooterContent })}
+${this.renderFooterSection({ license, licenseUrl, userFooterContent, language, navLabels: options.navLabels })}
 </div>
 ${madeWithExeHtml}
 </body>
@@ -4320,8 +4901,8 @@ ${extraHeadScripts}`;
      * @returns Header HTML
      */
     renderPageHeader(page, options) {
-      const { projectTitle, projectSubtitle, currentPageIndex, totalPages, addPagination } = options;
-      const pageCounterHtml = addPagination ? ` <p class="page-counter"> <span class="page-counter-label">P\xE1gina </span><span class="page-counter-content"> <strong class="page-counter-current-page">${currentPageIndex + 1}</strong><span class="page-counter-sep">/</span><strong class="page-counter-total">${totalPages}</strong></span></p>
+      const { projectTitle, projectSubtitle, currentPageIndex, totalPages, addPagination, pageLabel } = options;
+      const pageCounterHtml = addPagination ? ` <p class="page-counter"> <span class="page-counter-label">${pageLabel || "Page"} </span><span class="page-counter-content"> <strong class="page-counter-current-page">${currentPageIndex + 1}</strong><span class="page-counter-sep">/</span><strong class="page-counter-total">${totalPages}</strong></span></p>
 ` : "";
       const hideTitle = this.shouldHidePageTitle(page);
       const effectiveTitle = this.getEffectivePageTitle(page);
@@ -4329,8 +4910,8 @@ ${extraHeadScripts}`;
       const subtitleHtml = projectSubtitle ? `
 <p class="package-subtitle">${this.escapeHtml(projectSubtitle)}</p>` : "";
       return `<header class="main-header">${pageCounterHtml}
-<div class="package-header"><h1 class="package-title">${this.escapeHtml(projectTitle)}</h1>${subtitleHtml}</div>
-<div class="page-header"><h2 class="${pageTitleClass}">${this.escapeHtml(effectiveTitle)}</h2></div>
+<div class="package-header"><p class="package-title">${this.escapeHtml(projectTitle)}</p>${subtitleHtml}</div>
+<div class="page-header"><h1 class="${pageTitleClass}">${this.escapeHtml(effectiveTitle)}</h1></div>
 </header>`;
     }
     /**
@@ -4341,7 +4922,7 @@ ${extraHeadScripts}`;
      * @param assetExportPathMap - Map of asset UUID to export path for URL transformation
      * @returns Content HTML
      */
-    renderPageContent(page, basePath, projectTitle, assetExportPathMap) {
+    renderPageContent(page, basePath, projectTitle, assetExportPathMap, metadata) {
       let html = "";
       for (const block of page.blocks || []) {
         html += this.ideviceRenderer.renderBlock(block, {
@@ -4352,6 +4933,53 @@ ${extraHeadScripts}`;
       }
       if (projectTitle) {
         html = this.replaceElpxProtocol(html, projectTitle);
+      }
+      if (html.includes("exe-prop-")) {
+        const safeTitle = this.escapeHtml(projectTitle || "-");
+        const safeAuthor = this.escapeHtml(metadata?.author || "-");
+        const safeDesc = this.escapeHtml(metadata?.description || "-");
+        const safeLicense = this.escapeHtml(metadata?.license ? formatShortLicenseText(metadata.license) : "-");
+        let safeLicenseHtml = safeLicense;
+        if (metadata?.license) {
+          const shortText = formatShortLicenseText(metadata.license);
+          const isStandardCC = shortText.startsWith("Creative Commons");
+          if (isStandardCC) {
+            const licenseUrl = getLicenseUrl(metadata.license);
+            if (licenseUrl) {
+              const cssClass = getLicenseClass(metadata.license);
+              const classAttr = cssClass ? ` class="${cssClass}"` : "";
+              safeLicenseHtml = `<a href="${licenseUrl}" rel="license"${classAttr}><span></span>${safeLicense}</a>`;
+            }
+          } else if (["propietary license", "not appropriate", "public domain"].includes(
+            metadata.license.toLowerCase().trim()
+          )) {
+            let displayName = metadata.license;
+            if (metadata.license.toLowerCase().trim() === "propietary license")
+              displayName = "Proprietary license";
+            if (metadata.license.toLowerCase().trim() === "not appropriate") displayName = "Not appropriate";
+            if (metadata.license.toLowerCase().trim() === "public domain") displayName = "Public domain";
+            safeLicenseHtml = this.escapeHtml(
+              metadata.translatedLicense || trans(displayName, {}, metadata.language)
+            );
+          }
+        }
+        html = html.replace(/<td class="mceNonEditable exe-prop-locked\s*"[^>]*>/g, "<td>");
+        html = html.replace(
+          /<span class="exe-prop-title[^>]*>.*?<\/span>/g,
+          `<span class="exe-prop-title">${safeTitle}</span>`
+        );
+        html = html.replace(
+          /<span class="exe-prop-author[^>]*>.*?<\/span>/g,
+          `<span class="exe-prop-author">${safeAuthor}</span>`
+        );
+        html = html.replace(
+          /<span class="exe-prop-description[^>]*>.*?<\/span>/g,
+          `<span class="exe-prop-description">${safeDesc}</span>`
+        );
+        html = html.replace(
+          /<span class="exe-prop-license[^>]*>[\s\S]*?(?=<\/td>|<\/p>|<\/div>|<\/li>|$)/g,
+          `<span class="exe-prop-license">${safeLicenseHtml}</span>`
+        );
       }
       return html;
     }
@@ -4383,24 +5011,25 @@ ${extraHeadScripts}`;
       if (!content || !content.includes("exe-package:elp")) {
         return content;
       }
-      let result = content.replace(
-        /href="exe-package:elp"/g,
-        `href="#" onclick="if(typeof downloadElpx==='function')downloadElpx();return false;"`
-      );
+      let result = content.replace(/href="exe-package:elp"/g, `href="#" onclick="${ELPX_DOWNLOAD_ONCLICK}"`);
       const safeTitle = this.escapeHtml(projectTitle);
       result = result.replace(/download="exe-package:elp-name"/g, `download="${safeTitle}.elpx"`);
       return result;
     }
     /**
-     * Render navigation buttons (prev/next links)
-     * Outputs English text with data-i18n attributes for runtime translation via $exe_i18n.
+     * Render navigation buttons (prev/next links).
+     * Uses pre-translated labels resolved at export time from XLF translations,
+     * so the exported HTML already contains the correct text for the content language.
      * @param page - Current page
      * @param allPages - All pages
      * @param basePath - Base path
-     * @param _language - Deprecated, translation now happens at runtime via $exe_i18n
+     * @param navLabels - Translated labels ({ previous, next }); defaults to English
+     * @param pageFilenameMap - Optional map for collision-safe filenames
      * @returns Navigation buttons HTML
      */
-    renderNavButtons(page, allPages, basePath, _language = "en", pageFilenameMap) {
+    renderNavButtons(page, allPages, basePath, navLabels, pageFilenameMap) {
+      const prevLabel = navLabels?.previous || "Previous";
+      const nextLabel = navLabels?.next || "Next";
       const currentIndex = allPages.findIndex((p) => p.id === page.id);
       const prevPage = currentIndex > 0 ? allPages[currentIndex - 1] : null;
       const nextPage = currentIndex < allPages.length - 1 ? allPages[currentIndex + 1] : null;
@@ -4408,16 +5037,18 @@ ${extraHeadScripts}`;
       if (prevPage) {
         const link = this.getPageLink(prevPage, allPages, basePath, pageFilenameMap);
         parts.push(
-          `<a href="${link}" title="Previous" class="nav-button nav-button-left"><span>Previous</span></a>`
+          `<a href="${link}" title="${prevLabel}" class="nav-button nav-button-left"><span>${prevLabel}</span></a>`
         );
       } else {
-        parts.push('<span class="nav-button nav-button-left" aria-hidden="true"><span>Previous</span></span>');
+        parts.push(`<span class="nav-button nav-button-left" aria-hidden="true"><span>${prevLabel}</span></span>`);
       }
       if (nextPage) {
         const link = this.getPageLink(nextPage, allPages, basePath, pageFilenameMap);
-        parts.push(`<a href="${link}" title="Next" class="nav-button nav-button-right"><span>Next</span></a>`);
+        parts.push(
+          `<a href="${link}" title="${nextLabel}" class="nav-button nav-button-right"><span>${nextLabel}</span></a>`
+        );
       } else {
-        parts.push('<span class="nav-button nav-button-right" aria-hidden="true"><span>Next</span></span>');
+        parts.push(`<span class="nav-button nav-button-right" aria-hidden="true"><span>${nextLabel}</span></span>`);
       }
       parts.push("</div>");
       return parts.join("\n");
@@ -4431,8 +5062,8 @@ ${extraHeadScripts}`;
      * @returns Pagination HTML
      * @deprecated Use renderNavButtons instead
      */
-    renderPagination(page, allPages, basePath, language = "en") {
-      return this.renderNavButtons(page, allPages, basePath, language);
+    renderPagination(page, allPages, basePath) {
+      return this.renderNavButtons(page, allPages, basePath);
     }
     /**
      * Render complete footer section with license and optional user content
@@ -4440,7 +5071,7 @@ ${extraHeadScripts}`;
      * @returns Footer HTML with siteFooter wrapper
      */
     renderFooterSection(options) {
-      const { license, licenseUrl = "", userFooterContent } = options;
+      const { license, licenseUrl = "", userFooterContent, language = "en", navLabels } = options;
       let userFooterHtml = "";
       if (userFooterContent) {
         userFooterHtml = `<div id="siteUserFooter"> <div>${userFooterContent}</div>
@@ -4450,18 +5081,24 @@ ${extraHeadScripts}`;
         return `<footer id="siteFooter"><div id="siteFooterContent">${userFooterHtml}</div></footer>`;
       }
       const licenseText = formatLicenseText(license);
+      const translatedLicenseText = navLabels?.license || trans(licenseText, {}, language);
       const licenseClass = getLicenseClass(license);
-      const licenseContent = licenseUrl ? `<a href="${licenseUrl}" class="license">${licenseText}</a>` : `<span class="license">${licenseText}</span>`;
-      return `<footer id="siteFooter"><div id="siteFooterContent"> <div id="packageLicense" class="${licenseClass}"> <p> <span class="license-label">Licencia: </span>${licenseContent}</p>
+      const licenseLabel = navLabels?.licenseLabel || trans("License", {}, language);
+      const licenseContent = licenseUrl ? `<a href="${licenseUrl}" class="license">${translatedLicenseText}</a>` : `<span class="license">${translatedLicenseText}</span>`;
+      return `<footer id="siteFooter"><div id="siteFooterContent"> <div id="packageLicense" class="${licenseClass}"> <p> <span class="license-label">${licenseLabel}: </span>${licenseContent}</p>
 </div>
 ${userFooterHtml}</div></footer>`;
     }
     /**
-     * Render "Made with eXeLearning" credit
+     * Render "Made with eXeLearning" credit in the document language.
+     * @param language - Document language code (e.g. 'es', 'en')
+     * @param navLabels - Pre-translated labels (browser-side exports supply these via fetchNavLabels)
      * @returns Made with eXe HTML
      */
-    renderMadeWithEXe() {
-      return `<p id="made-with-eXe"> <a href="https://exelearning.net/" target="_blank" rel="noopener"> <span>Creado con eXeLearning <span>(nueva ventana)</span></span></a></p>`;
+    renderMadeWithEXe(language = "en", navLabels) {
+      const madeWithText = navLabels?.madeWith || trans("Made with eXeLearning", {}, language);
+      const newWindowText = navLabels?.newWindow || trans("New window", {}, language);
+      return `<p id="made-with-eXe"> <a href="https://exelearning.net/" target="_blank" rel="noopener"> <span>${madeWithText} <span>(${newWindowText})</span></span></a></p>`;
     }
     /**
      * Render license div (inside main, before pagination)
@@ -4571,6 +5208,7 @@ ${userFooterHtml}</div></footer>`;
         usedIdevices = [],
         license = "",
         licenseUrl = "",
+        description = "",
         faviconPath = "libs/favicon.ico",
         faviconType = "image/x-icon",
         addExeLink = true,
@@ -4578,23 +5216,29 @@ ${userFooterHtml}</div></footer>`;
         version,
         detectedLibraries = [],
         addMathJax = false,
-        addAccessibilityToolbar = false
+        addAccessibilityToolbar = false,
+        navLabels
       } = options;
       let contentHtml = "";
-      const allContentParts = [];
+      const effectiveDetectedLibraries = detectedLibraries.length > 0 ? detectedLibraries : this.detectContentLibrariesForPages(allPages);
       for (const page of allPages) {
         const hideTitle = this.shouldHidePageTitle(page);
         const effectiveTitle = this.getEffectivePageTitle(page);
         const pageTitleClass = hideTitle ? "page-title sr-av" : "page-title";
-        allContentParts.push(this.collectPageContent(page));
-        contentHtml += `<section>
+        contentHtml += `<section id="section-${page.id}">
 <header class="main-header">
 <div class="page-header">
 <h1 class="${pageTitleClass}">${this.escapeHtml(effectiveTitle)}</h1>
 </div>
 </header>
 <div class="page-content">
-${this.renderPageContent(page, "", projectTitle)}
+${this.renderPageContent(page, "", projectTitle, void 0, {
+          author: options.author,
+          description: options.description,
+          license: options.license,
+          language: options.language,
+          translatedLicense: navLabels?.license
+        })}
 </div>
 </section>
 `;
@@ -4607,22 +5251,6 @@ ${this.renderPageContent(page, "", projectTitle)}
 ${jsScripts[i]}`;
         if (cssLinks[i]) {
           ideviceIncludes += cssLinks[i];
-        }
-      }
-      const contentLibraries = this.detectContentLibraries(allContentParts.join("\n"));
-      let libIncludes = "";
-      for (const libName of contentLibraries) {
-        const libPattern = LIBRARY_PATTERNS.find((p) => p.name === libName);
-        if (!libPattern) continue;
-        const jsFiles = libPattern.files.filter((f) => f.endsWith(".js"));
-        const cssFiles = libPattern.files.filter((f) => f.endsWith(".css"));
-        for (const jsFile of jsFiles) {
-          libIncludes += `
-<script src="libs/${jsFile}"> <\/script>`;
-        }
-        for (const cssFile of cssFiles) {
-          libIncludes += `
-<link rel="stylesheet" href="libs/${cssFile}">`;
         }
       }
       return `<!DOCTYPE html>
@@ -4638,7 +5266,7 @@ ${jsScripts[i]}`;
 <script src="libs/common.js"> <\/script>
 <script src="libs/exe_export.js"> <\/script>
 <script src="libs/bootstrap/bootstrap.bundle.min.js"> <\/script>
-<link rel="stylesheet" href="libs/bootstrap/bootstrap.min.css">${ideviceIncludes}${libIncludes}
+<link rel="stylesheet" href="libs/bootstrap/bootstrap.min.css">${ideviceIncludes}
 <link rel="stylesheet" href="content/css/base.css">
 <script src="theme/style.js"> <\/script>
 <link rel="stylesheet" href="theme/style.css">
@@ -4646,7 +5274,7 @@ ${this.renderFavicon("", faviconPath, faviconType)}
 ${customStyles ? `<style>
 ${customStyles}
 </style>` : ""}
-${this.renderDetectedLibraries(detectedLibraries, "")}
+${this.renderDetectedLibraries(effectiveDetectedLibraries, "")}
 ${addAccessibilityToolbar ? `<script src="libs/exe_atools/exe_atools.js"> <\/script>
 <link rel="stylesheet" href="libs/exe_atools/exe_atools.css">` : ""}
 ${addMathJax ? `<script src="libs/exe_math/tex-mml-svg.js"> <\/script>` : ""}
@@ -4655,13 +5283,13 @@ ${addMathJax ? `<script src="libs/exe_math/tex-mml-svg.js"> <\/script>` : ""}
 <script>document.body.className+=" js"<\/script>
 <div class="exe-content exe-export pre-js siteNav-hidden">
 <main class="page">
-<header class="package-header"><h1 class="package-title">${this.escapeHtml(projectTitle)}</h1>${projectSubtitle ? `
+<header class="package-header"><p class="package-title">${this.escapeHtml(projectTitle)}</p>${projectSubtitle ? `
 <p class="package-subtitle">${this.escapeHtml(projectSubtitle)}</p>` : ""}</header>
 ${contentHtml}
 </main>
-${this.renderFooterSection({ license, licenseUrl, userFooterContent })}
+${this.renderFooterSection({ license, licenseUrl, userFooterContent, language, navLabels })}
 </div>
-${addExeLink ? this.renderMadeWithEXe() : ""}
+${addExeLink ? this.renderMadeWithEXe(language, navLabels) : ""}
 </body>
 </html>`;
     }
@@ -4724,7 +5352,7 @@ ${addExeLink ? this.renderMadeWithEXe() : ""}
             found = html.includes(`class="${lib.pattern}"`) || html.includes(`class='${lib.pattern}'`) || new RegExp(`class="[^"]*\\b${lib.pattern}\\b[^"]*"`, "i").test(html) || new RegExp(`class='[^']*\\b${lib.pattern}\\b[^']*'`, "i").test(html);
             break;
           case "rel":
-            found = html.includes(`rel="${lib.pattern}"`) || html.includes(`rel='${lib.pattern}'`);
+            found = new RegExp(`rel="[^"]*${lib.pattern}[^"]*"`, "i").test(html) || new RegExp(`rel='[^']*${lib.pattern}[^']*'`, "i").test(html);
             break;
           case "regex":
             found = lib.pattern.test(html);
@@ -4732,6 +5360,15 @@ ${addExeLink ? this.renderMadeWithEXe() : ""}
         }
         if (found) {
           detectedLibs.add(lib.name);
+        }
+      }
+      return Array.from(detectedLibs);
+    }
+    detectContentLibrariesForPages(pages) {
+      const detectedLibs = /* @__PURE__ */ new Set();
+      for (const page of pages) {
+        for (const libName of this.detectContentLibraries(this.collectPageContent(page))) {
+          detectedLibs.add(libName);
         }
       }
       return Array.from(detectedLibs);
@@ -4794,6 +5431,11 @@ ${addExeLink ? this.renderMadeWithEXe() : ""}
       this.filesToInclude = /* @__PURE__ */ new Set();
       this.detectedPatterns = [];
     }
+    resetDetection() {
+      this.detectedLibraries.clear();
+      this.filesToInclude.clear();
+      this.detectedPatterns = [];
+    }
     /**
      * Detect all required libraries by scanning HTML content
      * @param html - HTML content to scan
@@ -4801,25 +5443,38 @@ ${addExeLink ? this.renderMadeWithEXe() : ""}
      * @returns Detected libraries info
      */
     detectLibraries(html, options = {}) {
-      this.detectedLibraries.clear();
-      this.filesToInclude.clear();
-      this.detectedPatterns = [];
+      this.resetDetection();
+      this.scanHtmlFragment(html, options);
+      return this.finalizeDetection(options);
+    }
+    /**
+     * Detect all required libraries by scanning multiple HTML fragments incrementally.
+     * This avoids building one giant concatenated HTML string in memory.
+     */
+    detectLibrariesFromFragments(htmlFragments, options = {}) {
+      this.resetDetection();
+      for (const html of htmlFragments) {
+        this.scanHtmlFragment(html, options);
+      }
+      return this.finalizeDetection(options);
+    }
+    scanHtmlFragment(html, options) {
       if (!html || typeof html !== "string") {
-        return this._buildResult();
+        return;
       }
       for (const lib of LIBRARY_PATTERNS) {
         if (options.skipMathJax && (lib.name === "exe_math" || lib.name === "exe_math_datagame")) {
           continue;
         }
         if (this._matchesPattern(html, lib)) {
-          if (lib.requiresLatexCheck) {
-            if (!this._hasLatexInDataGame(html)) {
-              continue;
-            }
+          if (lib.requiresLatexCheck && !this._hasLatexInDataGame(html)) {
+            continue;
           }
           this._addLibrary(lib);
         }
       }
+    }
+    finalizeDetection(options) {
       if (options.includeAccessibilityToolbar) {
         const atoolsLib = LIBRARY_PATTERNS.find((l) => l.name === "exe_atools");
         if (atoolsLib) {
@@ -4946,6 +5601,17 @@ ${addExeLink ? this.renderMadeWithEXe() : ""}
      */
     getAllRequiredFilesWithPatterns(html, options = {}) {
       const detected = this.detectLibraries(html, options);
+      return this.buildRequiredFilesResult(detected, options);
+    }
+    /**
+     * Get all files needed for export with pattern information from HTML fragments.
+     * This incremental API avoids concatenating all content into one large string.
+     */
+    getAllRequiredFilesWithPatternsFromFragments(htmlFragments, options = {}) {
+      const detected = this.detectLibrariesFromFragments(htmlFragments, options);
+      return this.buildRequiredFilesResult(detected, options);
+    }
+    buildRequiredFilesResult(detected, options) {
       const files = new Set(this.getBaseLibraries());
       for (const file of detected.files) {
         files.add(file);
@@ -4989,7 +5655,7 @@ ${addExeLink ? this.renderMadeWithEXe() : ""}
   };
 
   // src/shared/export/exporters/BaseExporter.ts
-  var BaseExporter = class {
+  var BaseExporter = class _BaseExporter {
     constructor(document2, resources, assets, zip2) {
       // Cache for asset filename lookups
       this.assetFilenameMap = null;
@@ -5002,6 +5668,62 @@ ${addExeLink ? this.renderMadeWithEXe() : ""}
       this.ideviceRenderer = new IdeviceRenderer();
       this.pageRenderer = new PageRenderer(this.ideviceRenderer);
       this.libraryDetector = new LibraryDetector();
+    }
+    isElpxExportDebugEnabled() {
+      const browserGlobal = globalThis;
+      return browserGlobal.window?.eXeLearning?.config?.debugElpxExport === true || browserGlobal.eXeLearning?.config?.debugElpxExport === true;
+    }
+    logElpxExportDebugPhase(phase, context = {}) {
+      if (!this.isElpxExportDebugEnabled()) {
+        return;
+      }
+      const browserGlobal = globalThis;
+      const trace = browserGlobal.window?.__currentElpxExportTrace;
+      if (!trace) {
+        return;
+      }
+      const now = globalThis.performance?.now ? globalThis.performance.now() : Date.now();
+      const entry = {
+        phase,
+        ts: (/* @__PURE__ */ new Date()).toISOString(),
+        elapsedMs: Math.round(now - trace.startedMs),
+        ...context
+      };
+      trace.entries.push(entry);
+      console.log("[ELPX Export DEBUG]", entry);
+    }
+    // =========================================================================
+    // i18n Content Generation
+    // =========================================================================
+    /**
+     * Fetch the pre-built, pre-translated `common_i18n.js` content for the given language.
+     * The file is generated at build time by `scripts/build-i18n-bundles.js` and contains
+     * resolved string literals (no c_() calls) ready to include in the export ZIP.
+     */
+    async generateI18nContent(language) {
+      return this.resources.fetchI18nFile(language);
+    }
+    /**
+     * Fetch translated labels for navigation buttons (Previous / Next / Page counter).
+     * Labels are resolved from XLF translations so the exported HTML already
+     * contains the correct text for the content language — no runtime JS needed.
+     */
+    async fetchNavLabels(language, license) {
+      const translations = await this.resources.fetchI18nTranslations(language);
+      let translatedLicense = license;
+      if (license) {
+        const key = formatLicenseText(license);
+        translatedLicense = translations.get(key) || key;
+      }
+      return {
+        previous: translations.get("Previous") || "Previous",
+        next: translations.get("Next") || "Next",
+        page: translations.get("Page") || "Page",
+        license: translatedLicense,
+        licenseLabel: translations.get("License") || "License",
+        madeWith: translations.get("Made with eXeLearning") || "Made with eXeLearning",
+        newWindow: translations.get("New window") || "New window"
+      };
     }
     // =========================================================================
     // Structure Access Methods
@@ -5147,6 +5869,72 @@ ${addExeLink ? this.renderMadeWithEXe() : ""}
       const random = Math.random().toString(36).substring(2, 8);
       return `${prefix}${timestamp}${random}`.toUpperCase();
     }
+    /**
+     * Stable identifier used in SCORM/IMS manifests and LOM catalog/entry.
+     *
+     * Derives from the project's odeIdentifier so the LMS treats updated
+     * re-uploads as the same course (preserving learner tracking). Honours
+     * an explicit `scormIdentifier` override from project metadata.
+     *
+     * Resolution order:
+     * 1. `meta.scormIdentifier` if set (user override -- used verbatim).
+     * 2. `'eXe-MANIFEST-' + meta.odeIdentifier` (default -- shares root with content.xml).
+     * 3. `'eXe-MANIFEST-' + generateOdeId()` (fallback for legacy projects).
+     *
+     * The result is memoized per exporter instance: a single export call must
+     * always observe the same manifest identifier so the manifest, the
+     * organization identifier and the LOM catalog/entry stay consistent.
+     *
+     * The returned string is the FINAL `manifest@identifier` value. Manifest
+     * generators must use it as-is (i.e. they must NOT prepend their own
+     * `eXe-MANIFEST-` prefix).
+     *
+     * Related: exelearning/exelearning#1785.
+     */
+    getManifestIdentifier() {
+      if (this._manifestIdentifier !== void 0) {
+        return this._manifestIdentifier;
+      }
+      const meta = this.getMetadata();
+      if (meta.scormIdentifier) {
+        this._manifestIdentifier = meta.scormIdentifier;
+      } else if (meta.odeIdentifier) {
+        this._manifestIdentifier = "eXe-MANIFEST-" + meta.odeIdentifier;
+      } else {
+        this._manifestIdentifier = "eXe-MANIFEST-" + generateOdeId();
+      }
+      return this._manifestIdentifier;
+    }
+    /**
+     * Bare project identifier (without the `eXe-MANIFEST-` prefix).
+     *
+     * Used for the manifest `organization@identifier` (`eXe-<bareId>`) and
+     * for the LOM `catalog/entry` (`ODE-<bareId>`) so a single project
+     * identity flows through every artifact in the export.
+     */
+    getBareProjectIdentifier() {
+      const fullId = this.getManifestIdentifier();
+      const PREFIX = "eXe-MANIFEST-";
+      return fullId.startsWith(PREFIX) ? fullId.slice(PREFIX.length) : fullId;
+    }
+    // =========================================================================
+    // Asset Iteration
+    // =========================================================================
+    /**
+     * Iterate over all assets using the most efficient method available.
+     * Uses forEachAsset() when supported (streaming, memory-efficient),
+     * otherwise falls back to getAllAssets().
+     */
+    async forEachAsset(callback) {
+      if (this.assets.forEachAsset) {
+        await this.assets.forEachAsset(callback);
+      } else {
+        const assets = await this.assets.getAllAssets();
+        for (const asset of assets) {
+          await callback(asset);
+        }
+      }
+    }
     // =========================================================================
     // File Handling
     // =========================================================================
@@ -5165,15 +5953,15 @@ ${addExeLink ? this.renderMadeWithEXe() : ""}
     async addAssetsToZip(prefix = "") {
       let assetsAdded = 0;
       try {
-        const assets = await this.assets.getAllAssets();
-        for (const asset of assets) {
+        const processAsset = async (asset) => {
           const assetId = asset.id;
           const filename = asset.filename || `asset-${assetId}`;
           const assetPath = asset.originalPath || `${assetId}/${filename}`;
           const zipPath = prefix ? `${prefix}${assetPath}` : assetPath;
           this.zip.addFile(zipPath, asset.data);
           assetsAdded++;
-        }
+        };
+        await this.forEachAsset(processAsset);
       } catch (e) {
         console.warn("[BaseExporter] Failed to add assets to ZIP:", e);
       }
@@ -5182,24 +5970,41 @@ ${addExeLink ? this.renderMadeWithEXe() : ""}
     /**
      * Add assets to ZIP with content/resources/ prefix
      * Uses folderPath-based structure for cleaner exports
+     *
+     * Each asset is written exactly once, under its resolved export path
+     * (the friendly filename derived from metadata). HTML and content.xml
+     * always reference the same path because both transformations resolve
+     * `asset://uuid.ext` URLs through {@link buildAssetExportPathMap}, so a
+     * literal `content/resources/<uuid><ext>` URL only appears for genuinely
+     * missing assets — and writing the file under that path would not help,
+     * because the asset is not in the iteration in the first place.
+     *
      * @param trackingList - Optional array to track added file paths (for ELPX manifest)
      */
     async addAssetsToZipWithResourcePath(trackingList) {
       let assetsAdded = 0;
       try {
-        const assets = await this.assets.getAllAssets();
+        this.logElpxExportDebugPhase("exporter:assets-to-zip:start");
         const exportPathMap = await this.buildAssetExportPathMap();
-        for (const asset of assets) {
+        const processAsset = async (asset) => {
           const exportPath = exportPathMap.get(asset.id);
           if (!exportPath) {
             console.warn(`[BaseExporter] No export path for asset: ${asset.id}`);
-            continue;
+            return;
           }
           const zipPath = `content/resources/${exportPath}`;
+          if (this.zip.hasFile(zipPath)) {
+            return;
+          }
           this.zip.addFile(zipPath, asset.data);
           if (trackingList) trackingList.push(zipPath);
           assetsAdded++;
-        }
+        };
+        await this.forEachAsset(processAsset);
+        this.logElpxExportDebugPhase("exporter:assets-to-zip:end", {
+          assetsAdded,
+          exportPaths: exportPathMap.size
+        });
       } catch (e) {
         console.warn("[BaseExporter] Failed to add assets to ZIP:", e);
       }
@@ -5247,33 +6052,7 @@ ${addExeLink ? this.renderMadeWithEXe() : ""}
      * Get file extension from MIME type
      */
     getExtensionFromMime(mime) {
-      const mimeToExt = {
-        "image/jpeg": ".jpg",
-        "image/png": ".png",
-        "image/gif": ".gif",
-        "image/webp": ".webp",
-        "image/svg+xml": ".svg",
-        "image/bmp": ".bmp",
-        "image/tiff": ".tiff",
-        "image/x-icon": ".ico",
-        "application/pdf": ".pdf",
-        "video/mp4": ".mp4",
-        "video/webm": ".webm",
-        "video/ogg": ".ogv",
-        "video/quicktime": ".mov",
-        "audio/mpeg": ".mp3",
-        "audio/ogg": ".ogg",
-        "audio/wav": ".wav",
-        "audio/webm": ".weba",
-        "application/zip": ".zip",
-        "application/json": ".json",
-        "text/plain": ".txt",
-        "text/html": ".html",
-        "text/css": ".css",
-        "application/javascript": ".js",
-        "application/octet-stream": ".bin"
-      };
-      return mimeToExt[mime] || ".bin";
+      return getExtensionFromMimeType(mime, true);
     }
     /**
      * Build asset filename map for URL transformation
@@ -5284,15 +6063,27 @@ ${addExeLink ? this.renderMadeWithEXe() : ""}
       }
       this.assetFilenameMap = /* @__PURE__ */ new Map();
       try {
-        const assets = await this.assets.getAllAssets();
-        for (const asset of assets) {
-          const id = asset.id;
-          let filename = asset.filename;
-          if (!filename) {
-            const ext = this.getExtensionFromMime(asset.mime || "application/octet-stream");
-            filename = `asset-${id.substring(0, 8)}${ext}`;
+        if (this.assets.listAssetMetadata) {
+          const metadata = await this.assets.listAssetMetadata();
+          for (const item of metadata) {
+            let filename = item.filename;
+            if (!filename) {
+              const ext = this.getExtensionFromMime(item.mime || "application/octet-stream");
+              filename = `asset-${item.id.substring(0, 8)}${ext}`;
+            }
+            this.assetFilenameMap.set(item.id, filename);
           }
-          this.assetFilenameMap.set(id, filename);
+        } else {
+          const assets = await this.assets.getAllAssets();
+          for (const asset of assets) {
+            const id = asset.id;
+            let filename = asset.filename;
+            if (!filename) {
+              const ext = this.getExtensionFromMime(asset.mime || "application/octet-stream");
+              filename = `asset-${id.substring(0, 8)}${ext}`;
+            }
+            this.assetFilenameMap.set(id, filename);
+          }
         }
       } catch (e) {
         console.warn("[BaseExporter] Failed to build asset map:", e);
@@ -5313,10 +6104,16 @@ ${addExeLink ? this.renderMadeWithEXe() : ""}
       this.assetExportPathMap = /* @__PURE__ */ new Map();
       const usedPaths = /* @__PURE__ */ new Set();
       try {
-        const assets = await this.assets.getAllAssets();
-        for (const asset of assets) {
-          let folderPath = asset.folderPath || "";
-          const filename = asset.filename || `asset-${asset.id.substring(0, 8)}`;
+        this.logElpxExportDebugPhase("exporter:asset-export-map:start");
+        const items = this.assets.listAssetMetadata ? await this.assets.listAssetMetadata() : (await this.assets.getAllAssets()).map((a) => ({
+          id: a.id,
+          filename: a.filename,
+          folderPath: a.folderPath,
+          mime: a.mime
+        }));
+        for (const item of items) {
+          let folderPath = item.folderPath || "";
+          const filename = item.filename && item.filename !== "unknown" ? item.filename : this._deriveFilenameFromMime(item.id, item.mime);
           if (folderPath === filename) {
             folderPath = "";
           } else if (folderPath.endsWith(`/${filename}`)) {
@@ -5332,12 +6129,23 @@ ${addExeLink ? this.renderMadeWithEXe() : ""}
             counter++;
           }
           usedPaths.add(finalPath.toLowerCase());
-          this.assetExportPathMap.set(asset.id, finalPath);
+          this.assetExportPathMap.set(item.id, finalPath);
         }
+        this.logElpxExportDebugPhase("exporter:asset-export-map:end", {
+          assets: items.length,
+          uniquePaths: this.assetExportPathMap.size
+        });
       } catch (e) {
         console.warn("[BaseExporter] Failed to build asset export path map:", e);
       }
       return this.assetExportPathMap;
+    }
+    /**
+     * Derive a fallback export filename from MIME type and asset ID.
+     * Used when an asset has no filename or has the placeholder value 'unknown'.
+     */
+    _deriveFilenameFromMime(assetId, mime) {
+      return deriveFilenameFromMime(assetId, mime);
     }
     /**
      * Convert asset:// URLs directly to {{context_path}}/content/resources/ format
@@ -5360,6 +6168,9 @@ ${addExeLink ? this.renderMadeWithEXe() : ""}
         if (exportPath) {
           return `{{context_path}}/content/resources/${exportPath}`;
         }
+        console.warn(
+          `[BaseExporter] Unresolved asset reference in HTML; falling back to literal UUID URL: asset://${uuid}${ext || ""}`
+        );
         return `{{context_path}}/content/resources/${uuid}${ext || ""}`;
       });
       result = result.replace(/asset:\/\/([^"'\s]+)/g, (_match, assetPath) => {
@@ -5388,6 +6199,14 @@ ${addExeLink ? this.renderMadeWithEXe() : ""}
      * so the XML content keeps the original protocol for re-import compatibility
      */
     async preprocessPagesForExport(pages) {
+      const componentCount = pages.reduce((total, page) => {
+        const blocks = page.blocks || [];
+        return total + blocks.reduce((blockTotal, block) => blockTotal + (block.components?.length || 0), 0);
+      }, 0);
+      this.logElpxExportDebugPhase("exporter:preprocess-pages:start", {
+        pages: pages.length,
+        components: componentCount
+      });
       const clonedPages = JSON.parse(JSON.stringify(pages));
       const pageUrlMap = this.buildPageUrlMap(clonedPages);
       for (let pageIndex = 0; pageIndex < clonedPages.length; pageIndex++) {
@@ -5407,6 +6226,10 @@ ${addExeLink ? this.renderMadeWithEXe() : ""}
           }
         }
       }
+      this.logElpxExportDebugPhase("exporter:preprocess-pages:end", {
+        pages: clonedPages.length,
+        components: componentCount
+      });
       return clonedPages;
     }
     /**
@@ -5491,11 +6314,14 @@ ${addExeLink ? this.renderMadeWithEXe() : ""}
       if (!content || !content.includes("exe-node:")) {
         return content;
       }
-      return content.replace(/href=["']exe-node:([^"']+)["']/gi, (match, pageId) => {
+      return content.replace(/href=["']exe-node:([^"']+)["']/gi, (match, pageIdWithAnchor) => {
+        const hashIdx = pageIdWithAnchor.indexOf("#");
+        const pageId = hashIdx !== -1 ? pageIdWithAnchor.substring(0, hashIdx) : pageIdWithAnchor;
+        const anchorFragment = hashIdx !== -1 ? pageIdWithAnchor.substring(hashIdx) : "";
         const pageUrls = pageUrlMap.get(pageId);
         if (pageUrls) {
           const url = isFromIndex ? pageUrls.url : pageUrls.urlFromSubpage;
-          return `href="${url}"`;
+          return `href="${url}${anchorFragment}"`;
         }
         console.warn(`[BaseExporter] Internal link target not found: ${pageId}`);
         return match;
@@ -5514,10 +6340,7 @@ ${addExeLink ? this.renderMadeWithEXe() : ""}
       if (!content.includes("exe-package:elp")) {
         return content;
       }
-      let result = content.replace(
-        /href="exe-package:elp"/g,
-        `href="#" onclick="if(typeof downloadElpx==='function')downloadElpx();return false;"`
-      );
+      let result = content.replace(/href="exe-package:elp"/g, `href="#" onclick="${ELPX_DOWNLOAD_ONCLICK}"`);
       const safeTitle = this.escapeXml(projectTitle);
       result = result.replace(/download="exe-package:elp-name"/g, `download="${safeTitle}.elpx"`);
       return result;
@@ -5537,6 +6360,30 @@ ${addExeLink ? this.renderMadeWithEXe() : ""}
         }
       }
       return htmlParts.join("\n");
+    }
+    /**
+     * Yield component HTML fragments lazily so callers can detect libraries
+     * without building one giant intermediate string.
+     */
+    *iteratePageContentFragments(pages) {
+      for (const page of pages) {
+        for (const block of page.blocks || []) {
+          for (const component of block.components || []) {
+            if (component.content) {
+              yield component.content;
+            }
+          }
+        }
+      }
+    }
+    /**
+     * Detect required libraries across all page fragments incrementally.
+     */
+    getRequiredLibraryFilesForPages(pages, options = {}) {
+      return this.libraryDetector.getAllRequiredFilesWithPatternsFromFragments(
+        this.iteratePageContentFragments(pages),
+        options
+      );
     }
     // =========================================================================
     // Download Source File iDevice Detection
@@ -5569,9 +6416,65 @@ ${addExeLink ? this.renderMadeWithEXe() : ""}
       }
       return false;
     }
-    // =========================================================================
-    // ELPX Manifest Generation (for download-source-file iDevice)
-    // =========================================================================
+    static {
+      // =========================================================================
+      // ELPX Download Support (for download-source-file iDevice)
+      // =========================================================================
+      /** Library files required for client-side ELPX download */
+      this.ELPX_LIB_FILES = ["fflate/fflate.umd.js", "exe_elpx_download/exe_elpx_download.js"];
+    }
+    /**
+     * Ensure ELPX download libraries (fflate, exe_elpx_download) are present in the ZIP.
+     * Call after library detection step so we only fetch what's missing.
+     */
+    async ensureElpxDownloadLibraries(addFile, commonFiles) {
+      const missingLibs = _BaseExporter.ELPX_LIB_FILES.filter((f) => !this.zip.hasFile(`libs/${f}`));
+      if (missingLibs.length === 0) return;
+      try {
+        const libContents = await this.resources.fetchLibraryFiles(missingLibs);
+        for (const [libPath, content] of libContents) {
+          addFile(`libs/${libPath}`, content);
+          if (commonFiles) commonFiles.push(`libs/${libPath}`);
+        }
+      } catch {
+      }
+    }
+    /**
+     * Generate ELPX manifest and add it to the ZIP.
+     * Also adds HTML page paths to the file list before generating.
+     *
+     * @param fileList - Tracked file paths to include in manifest
+     * @param pageFileUrls - HTML page file URLs to add to the file list
+     * @param commonFiles - Optional SCORM/IMS common files array to update
+     */
+    addElpxManifestToZip(fileList, pageFileUrls, commonFiles) {
+      for (const url of pageFileUrls) {
+        if (!fileList.includes(url)) {
+          fileList.push(url);
+        }
+      }
+      fileList.push("libs/elpx-manifest.js");
+      const manifestJs = this.generateElpxManifestFile(fileList);
+      this.zip.addFile("libs/elpx-manifest.js", manifestJs);
+      if (commonFiles) commonFiles.push("libs/elpx-manifest.js");
+    }
+    /**
+     * Inject ELPX download script tags into HTML before </body> for pages
+     * that contain download-source-file iDevice or exe-package:elp links.
+     *
+     * @returns Modified HTML with injected scripts, or original HTML if not applicable
+     */
+    injectElpxScripts(html, page, isIndex) {
+      if (!this.pageHasDownloadSourceFile(page)) return html;
+      const basePath = isIndex ? "" : "../";
+      const fflateScript = `<script src="${basePath}libs/fflate/fflate.umd.js"> <\/script>`;
+      const elpxDownloadScript = `<script src="${basePath}libs/exe_elpx_download/exe_elpx_download.js"> <\/script>`;
+      const manifestScript = `<script src="${basePath}libs/elpx-manifest.js"> <\/script>`;
+      return html.replace(/<\/body>/i, `${fflateScript}
+${elpxDownloadScript}
+${manifestScript}
+</body>`);
+    }
     /**
      * Generate ELPX manifest as a standalone JS file
      * Used for HTML5 exports where the manifest is a separate file
@@ -5814,743 +6717,6 @@ ${FONT_SELECTORS} {
     }
   };
 
-  // src/shared/export/generators/I18nGenerator.ts
-  var TRANSLATIONS = {
-    // Navigation
-    previous: {
-      en: "Previous",
-      es: "Anterior",
-      ca: "Anterior",
-      va: "Anterior",
-      gl: "Anterior",
-      eu: "Aurrekoa",
-      pt: "Anterior",
-      eo: "Antauxe",
-      ro: "Anterior"
-    },
-    next: {
-      en: "Next",
-      es: "Siguiente",
-      ca: "Seg\xFCent",
-      va: "Seg\xFCent",
-      gl: "Seguinte",
-      eu: "Hurrengoa",
-      pt: "Pr\xF3ximo",
-      eo: "Sekvanta",
-      ro: "Urm\u0103tor"
-    },
-    menu: {
-      en: "Menu",
-      es: "Men\xFA",
-      ca: "Men\xFA",
-      va: "Men\xFA",
-      gl: "Men\xFA",
-      eu: "Menua",
-      pt: "Menu",
-      eo: "Menuo",
-      ro: "Meniu"
-    },
-    // Toggle/visibility
-    show: {
-      en: "Show",
-      es: "Mostrar",
-      ca: "Mostra",
-      va: "Mostra",
-      gl: "Amosar",
-      eu: "Erakutsi",
-      pt: "Mostrar",
-      eo: "Montri",
-      ro: "Afi\u0219eaz\u0103"
-    },
-    hide: {
-      en: "Hide",
-      es: "Ocultar",
-      ca: "Amaga",
-      va: "Amaga",
-      gl: "Ocultar",
-      eu: "Ezkutatu",
-      pt: "Ocultar",
-      eo: "Ka\u015Di",
-      ro: "Ascunde"
-    },
-    toggleContent: {
-      en: "Toggle content",
-      es: "Ocultar/Mostrar contenido",
-      ca: "Commuta el contingut",
-      va: "Alternar contingut",
-      gl: "Ocultar/Amosar contido",
-      eu: "Edukia erakutsi/ezkutatu",
-      pt: "Alternar conte\xFAdo",
-      eo: "\u015Calti enhavon",
-      ro: "Comut\u0103 con\u021Binutul"
-    },
-    // Feedback
-    showFeedback: {
-      en: "Show feedback",
-      es: "Mostrar retroalimentaci\xF3n",
-      ca: "Mostra la retroalimentaci\xF3",
-      va: "Mostra la retroalimentaci\xF3",
-      gl: "Mostrar retroalimentaci\xF3n",
-      eu: "Erakutsi feedbacka",
-      pt: "Mostrar feedback",
-      eo: "Montri komentaron",
-      ro: "Afi\u0219eaz\u0103 feedback"
-    },
-    hideFeedback: {
-      en: "Hide feedback",
-      es: "Ocultar retroalimentaci\xF3n",
-      ca: "Amaga la retroalimentaci\xF3",
-      va: "Amaga la retroalimentaci\xF3",
-      gl: "Ocultar retroalimentaci\xF3n",
-      eu: "Ezkutatu feedbacka",
-      pt: "Ocultar feedback",
-      eo: "Ka\u015Di komentaron",
-      ro: "Ascunde feedback"
-    },
-    correct: {
-      en: "Correct",
-      es: "Correcto",
-      ca: "Correcte",
-      va: "Correcte",
-      gl: "Correcto",
-      eu: "Zuzena",
-      pt: "Correto",
-      eo: "\u011Custe",
-      ro: "Corect"
-    },
-    incorrect: {
-      en: "Incorrect",
-      es: "Incorrecto",
-      ca: "Incorrecte",
-      va: "Incorrecte",
-      gl: "Incorrecto",
-      eu: "Okerra",
-      pt: "Incorreto",
-      eo: "Mal\u011Duste",
-      ro: "Incorect"
-    },
-    yourScoreIs: {
-      en: "Your score",
-      es: "Tu puntuaci\xF3n",
-      ca: "La teva puntuaci\xF3",
-      va: "La teua puntuaci\xF3",
-      gl: "A t\xFAa puntuaci\xF3n",
-      eu: "Zure puntuazioa",
-      pt: "Sua pontua\xE7\xE3o",
-      eo: "Via poentaro",
-      ro: "Scorul t\u0103u"
-    },
-    solution: {
-      en: "Solution",
-      es: "Soluci\xF3n",
-      ca: "Soluci\xF3",
-      va: "Soluci\xF3",
-      gl: "Soluci\xF3n",
-      eu: "Irtenbidea",
-      pt: "Solu\xE7\xE3o",
-      eo: "Solvo",
-      ro: "Solu\u021Bie"
-    },
-    // Actions
-    download: {
-      en: "Download",
-      es: "Descargar",
-      ca: "Descarrega",
-      va: "Descarrega",
-      gl: "Descargar",
-      eu: "Deskargatu",
-      pt: "Baixar",
-      eo: "El\u015Duti",
-      ro: "Descarc\u0103"
-    },
-    print: {
-      en: "Print",
-      es: "Imprimir",
-      ca: "Imprimeix",
-      va: "Imprimeix",
-      gl: "Imprimir",
-      eu: "Inprimatu",
-      pt: "Imprimir",
-      eo: "Presi",
-      ro: "Imprim\u0103"
-    },
-    search: {
-      en: "Search",
-      es: "Buscar",
-      ca: "Cerca",
-      va: "Cerca",
-      gl: "Buscar",
-      eu: "Bilatu",
-      pt: "Buscar",
-      eo: "Ser\u0109i",
-      ro: "Caut\u0103"
-    },
-    // Errors and messages
-    dataError: {
-      en: "Data error",
-      es: "Error de datos",
-      ca: "Error de dades",
-      va: "Error de dades",
-      gl: "Erro de datos",
-      eu: "Datu errorea",
-      pt: "Erro de dados",
-      eo: "Datenaro eraro",
-      ro: "Eroare de date"
-    },
-    epubJSerror: {
-      en: "This might not work in this ePub reader",
-      es: "Esto podr\xEDa no funcionar en este lector ePub",
-      ca: "Aix\xF2 pot no funcionar en aquest lector ePub",
-      va: "A\xE7\xF2 pot no funcionar en aquest lector ePub",
-      gl: "Isto poder\xEDa non funcionar neste lector ePub",
-      eu: "Hau agian ez da ePub irakurgailu honetan funtzionatuko",
-      pt: "Isso pode n\xE3o funcionar neste leitor ePub",
-      eo: "Tio eble ne funkcios en \u0109i tiu ePub-legilo",
-      ro: "Aceasta ar putea s\u0103 nu func\u021Bioneze \xEEn acest cititor ePub"
-    },
-    epubDisabled: {
-      en: "This activity does not work in ePub format",
-      es: "Esta actividad no funciona en formato ePub",
-      ca: "Aquesta activitat no funciona en format ePub",
-      va: "Aquesta activitat no funciona en format ePub",
-      gl: "Esta actividade non funciona en formato ePub",
-      eu: "Jarduera hau ez dabil ePub formatuan",
-      pt: "Esta atividade n\xE3o funciona no formato ePub",
-      eo: "\u0108i tiu aktiveco ne funkcias en ePub-formato",
-      ro: "Aceast\u0103 activitate nu func\u021Bioneaz\u0103 \xEEn formatul ePub"
-    },
-    // Search
-    fullSearch: {
-      en: "Full search",
-      es: "B\xFAsqueda completa",
-      ca: "Cerca completa",
-      va: "Cerca completa",
-      gl: "Busca completa",
-      eu: "Bilaketa osoa",
-      pt: "Busca completa",
-      eo: "Plena ser\u0109o",
-      ro: "C\u0103utare complet\u0103"
-    },
-    noSearchResults: {
-      en: "No search results",
-      es: "Sin resultados de b\xFAsqueda",
-      ca: "Sense resultats de cerca",
-      va: "Sense resultats de cerca",
-      gl: "Sen resultados de busca",
-      eu: "Bilaketa emaitzarik ez",
-      pt: "Sem resultados de busca",
-      eo: "Neniuj ser\u0109rezultoj",
-      ro: "Niciun rezultat de c\u0103utare"
-    },
-    searchResults: {
-      en: "Search results for",
-      es: "Resultados de b\xFAsqueda para",
-      ca: "Resultats de cerca per a",
-      va: "Resultats de cerca per a",
-      gl: "Resultados de busca para",
-      eu: "Bilaketa emaitzak honentzat",
-      pt: "Resultados de busca para",
-      eo: "Ser\u0109rezultoj por",
-      ro: "Rezultate de c\u0103utare pentru"
-    },
-    hideResults: {
-      en: "Hide results",
-      es: "Ocultar resultados",
-      ca: "Amaga els resultats",
-      va: "Amaga els resultats",
-      gl: "Ocultar resultados",
-      eu: "Ezkutatu emaitzak",
-      pt: "Ocultar resultados",
-      eo: "Ka\u015Di rezultojn",
-      ro: "Ascunde rezultatele"
-    },
-    block: {
-      en: "block",
-      es: "bloque",
-      ca: "bloc",
-      va: "bloc",
-      gl: "bloque",
-      eu: "blokea",
-      pt: "bloco",
-      eo: "bloko",
-      ro: "bloc"
-    },
-    // UI elements
-    more: {
-      en: "More",
-      es: "M\xE1s",
-      ca: "M\xE9s",
-      va: "M\xE9s",
-      gl: "M\xE1is",
-      eu: "Gehiago",
-      pt: "Mais",
-      eo: "Pli",
-      ro: "Mai mult"
-    },
-    newWindow: {
-      en: "New window",
-      es: "Nueva ventana",
-      ca: "Nova finestra",
-      va: "Nova finestra",
-      gl: "Nova xanela",
-      eu: "Leiho berria",
-      pt: "Nova janela",
-      eo: "Nova fenestro",
-      ro: "Fereastr\u0103 nou\u0103"
-    },
-    fullSize: {
-      en: "Full size",
-      es: "Tama\xF1o completo",
-      ca: "Mida completa",
-      va: "Mida completa",
-      gl: "Tama\xF1o completo",
-      eu: "Tamaina osoa",
-      pt: "Tamanho completo",
-      eo: "Plena grandeco",
-      ro: "Dimensiune complet\u0103"
-    },
-    // Accessibility toolbar
-    accessibility_tools: {
-      en: "Accessibility tools",
-      es: "Herramientas de accesibilidad",
-      ca: "Eines d'accessibilitat",
-      va: "Eines d'accessibilitat",
-      gl: "Ferramentas de accesibilidade",
-      eu: "Irisgarritasun tresnak",
-      pt: "Ferramentas de acessibilidade",
-      eo: "Alireblecaj iloj",
-      ro: "Instrumente de accesibilitate"
-    },
-    close_toolbar: {
-      en: "Close",
-      es: "Cerrar",
-      ca: "Tanca",
-      va: "Tanca",
-      gl: "Pechar",
-      eu: "Itxi",
-      pt: "Fechar",
-      eo: "Fermi",
-      ro: "\xCEnchide"
-    },
-    default_font: {
-      en: "Default font",
-      es: "Fuente predeterminada",
-      ca: "Lletra predeterminada",
-      va: "Lletra predeterminada",
-      gl: "Fonte predeterminada",
-      eu: "Letra lehenetsia",
-      pt: "Fonte padr\xE3o",
-      eo: "Defa\u016Dlta tiparo",
-      ro: "Font implicit"
-    },
-    increase_text_size: {
-      en: "Increase text size",
-      es: "Aumentar tama\xF1o del texto",
-      ca: "Augmenta la mida del text",
-      va: "Augmenta la mida del text",
-      gl: "Aumentar tama\xF1o do texto",
-      eu: "Handitu testuaren tamaina",
-      pt: "Aumentar tamanho do texto",
-      eo: "Pligrandigi tekston",
-      ro: "M\u0103re\u0219te dimensiunea textului"
-    },
-    decrease_text_size: {
-      en: "Decrease text size",
-      es: "Disminuir tama\xF1o del texto",
-      ca: "Redueix la mida del text",
-      va: "Redueix la mida del text",
-      gl: "Diminu\xEDr tama\xF1o do texto",
-      eu: "Txikitu testuaren tamaina",
-      pt: "Diminuir tamanho do texto",
-      eo: "Malpligrandigi tekston",
-      ro: "Mic\u0219oreaz\u0103 dimensiunea textului"
-    },
-    read: {
-      en: "Read",
-      es: "Leer",
-      ca: "Llegeix",
-      va: "Llig",
-      gl: "Ler",
-      eu: "Irakurri",
-      pt: "Ler",
-      eo: "Legi",
-      ro: "Cite\u0219te"
-    },
-    stop_reading: {
-      en: "Stop reading",
-      es: "Detener lectura",
-      ca: "Atura la lectura",
-      va: "Atura la lectura",
-      gl: "Deter lectura",
-      eu: "Gelditu irakurketa",
-      pt: "Parar leitura",
-      eo: "\u0108esi legadon",
-      ro: "Opre\u0219te citirea"
-    },
-    translate: {
-      en: "Translate",
-      es: "Traducir",
-      ca: "Tradueix",
-      va: "Tradueix",
-      gl: "Traducir",
-      eu: "Itzuli",
-      pt: "Traduzir",
-      eo: "Traduki",
-      ro: "Traduce"
-    },
-    drag_and_drop: {
-      en: "Drag and drop",
-      es: "Arrastrar y soltar",
-      ca: "Arrossega i deixa anar",
-      va: "Arrossega i deixa anar",
-      gl: "Arrastrar e soltar",
-      eu: "Arrastatu eta jaregin",
-      pt: "Arrastar e soltar",
-      eo: "Treni kaj faligi",
-      ro: "Trage \u0219i plaseaz\u0103"
-    },
-    reset: {
-      en: "Reset",
-      es: "Restablecer",
-      ca: "Restableix",
-      va: "Restableix",
-      gl: "Restablecer",
-      eu: "Berrezarri",
-      pt: "Reiniciar",
-      eo: "Restarigi",
-      ro: "Reseteaz\u0103"
-    },
-    mode_toggler: {
-      en: "Light/Dark mode",
-      es: "Modo claro/oscuro",
-      ca: "Mode clar/fosc",
-      va: "Mode clar/fosc",
-      gl: "Modo claro/escuro",
-      eu: "Modu argia/iluna",
-      pt: "Modo claro/escuro",
-      eo: "Hela/Malhela re\u011Dimo",
-      ro: "Mod luminos/\xEEntunecat"
-    },
-    teacher_mode: {
-      en: "Teacher mode",
-      es: "Modo profesor",
-      ca: "Mode professor",
-      va: "Mode professor",
-      gl: "Modo profesor",
-      eu: "Irakasle modua",
-      pt: "Modo professor",
-      eo: "Instruista re\u011Dimo",
-      ro: "Mod profesor"
-    },
-    // ELPX download
-    elpxGenerating: {
-      en: "Generating...",
-      es: "Generando...",
-      ca: "Generant...",
-      eu: "Sortzen...",
-      gl: "Xerando...",
-      fr: "G\xE9n\xE9ration...",
-      de: "Erstellen...",
-      it: "Generazione...",
-      pt: "Gerando..."
-    },
-    elpxFolderPickerTimeout: {
-      en: "The folder picker did not respond. This may happen when opening exported files directly from the filesystem (file:// protocol). Try opening the file through a local web server instead.",
-      es: "El selector de carpetas no respondi\xF3. Esto puede ocurrir al abrir archivos exportados directamente desde el sistema de archivos (protocolo file://). Intente abrir el archivo a trav\xE9s de un servidor web local.",
-      ca: "El selector de carpetes no va respondre. Aix\xF2 pot passar en obrir fitxers exportats directament des del sistema de fitxers (protocol file://). Proveu d'obrir el fitxer a trav\xE9s d'un servidor web local.",
-      eu: "Karpeta-hautatzaileak ez du erantzun. Hori gerta daiteke esportatutako fitxategiak fitxategi-sistematik zuzenean irekitzean (file:// protokoloa). Saiatu fitxategia web zerbitzari lokal baten bidez irekitzen.",
-      gl: "O selector de cartafoles non respondeu. Isto pode ocorrer ao abrir ficheiros exportados directamente desde o sistema de ficheiros (protocolo file://). Intente abrir o ficheiro a trav\xE9s dun servidor web local.",
-      fr: "Le s\xE9lecteur de dossier n'a pas r\xE9pondu. Cela peut se produire lors de l'ouverture de fichiers export\xE9s directement depuis le syst\xE8me de fichiers (protocole file://). Essayez d'ouvrir le fichier via un serveur web local.",
-      de: "Die Ordnerauswahl hat nicht reagiert. Dies kann auftreten, wenn exportierte Dateien direkt aus dem Dateisystem ge\xF6ffnet werden (file://-Protokoll). Versuchen Sie, die Datei \xFCber einen lokalen Webserver zu \xF6ffnen.",
-      it: "Il selettore cartelle non ha risposto. Questo pu\xF2 accadere quando si aprono file esportati direttamente dal file system (protocollo file://). Provare ad aprire il file tramite un server web locale.",
-      pt: "O seletor de pastas n\xE3o respondeu. Isso pode acontecer ao abrir arquivos exportados diretamente do sistema de arquivos (protocolo file://). Tente abrir o arquivo atrav\xE9s de um servidor web local."
-    },
-    elpxFolderPickerEmpty: {
-      en: "No files were returned by the folder picker. This is a known limitation when opening exported files with the file:// protocol in some browsers. Try using a different browser or opening the file through a local web server.",
-      es: "El selector de carpetas no devolvi\xF3 archivos. Esta es una limitaci\xF3n conocida al abrir archivos exportados con el protocolo file:// en algunos navegadores. Intente usar un navegador diferente o abrir el archivo a trav\xE9s de un servidor web local.",
-      ca: "El selector de carpetes no va retornar fitxers. Aquesta \xE9s una limitaci\xF3 coneguda en obrir fitxers exportats amb el protocol file:// en alguns navegadors. Proveu d'usar un navegador diferent o d'obrir el fitxer a trav\xE9s d'un servidor web local.",
-      eu: "Karpeta-hautatzaileak ez du fitxategirik itzuli. Hau muga ezaguna da fitxategi esportatuak file:// protokoloarekin nabigatzaile batzuetan irekitzean. Saiatu beste nabigatzaile bat erabiltzen edo fitxategia web zerbitzari lokal baten bidez irekitzen.",
-      gl: "O selector de cartafoles non devolveu ficheiros. Esta \xE9 unha limitaci\xF3n co\xF1ecida ao abrir ficheiros exportados co protocolo file:// nalg\xFAns navegadores. Intente usar un navegador diferente ou abrir o ficheiro a trav\xE9s dun servidor web local.",
-      fr: "Le s\xE9lecteur de dossier n'a renvoy\xE9 aucun fichier. C'est une limitation connue lors de l'ouverture de fichiers export\xE9s avec le protocole file:// dans certains navigateurs. Essayez d'utiliser un autre navigateur ou d'ouvrir le fichier via un serveur web local.",
-      de: "Die Ordnerauswahl hat keine Dateien zur\xFCckgegeben. Dies ist eine bekannte Einschr\xE4nkung beim \xD6ffnen exportierter Dateien mit dem file://-Protokoll in einigen Browsern. Versuchen Sie, einen anderen Browser zu verwenden oder die Datei \xFCber einen lokalen Webserver zu \xF6ffnen.",
-      it: "Il selettore cartelle non ha restituito file. Questa \xE8 una limitazione nota quando si aprono file esportati con il protocollo file:// in alcuni browser. Provare a utilizzare un browser diverso o ad aprire il file tramite un server web locale.",
-      pt: "O seletor de pastas n\xE3o retornou arquivos. Esta \xE9 uma limita\xE7\xE3o conhecida ao abrir arquivos exportados com o protocolo file:// em alguns navegadores. Tente usar um navegador diferente ou abrir o arquivo atrav\xE9s de um servidor web local."
-    },
-    elpxFileProtocolWarning: {
-      en: "Local mode: Due to browser security policy, you will need to select the folder from which you opened this file. On a web server this will not be necessary.",
-      es: "Modo local: Por pol\xEDtica de seguridad del navegador, deber\xE1 seleccionar la carpeta desde donde abri\xF3 este fichero. En un servidor web esto no ser\xE1 necesario.",
-      ca: "Mode local: Per pol\xEDtica de seguretat del navegador, haur\xE0 de seleccionar la carpeta des d'on va obrir aquest fitxer. En un servidor web aix\xF2 no ser\xE0 necessari.",
-      eu: "Modu lokala: Nabigatzailearen segurtasun-politikaren ondorioz, fitxategi hau ireki zenuen karpeta hautatu beharko duzu. Web zerbitzari batean hori ez da beharrezkoa izango.",
-      gl: "Modo local: Por pol\xEDtica de seguridade do navegador, deber\xE1 seleccionar o cartafol desde onde abriu este ficheiro. Nun servidor web isto non ser\xE1 necesario.",
-      fr: "Mode local : En raison de la politique de s\xE9curit\xE9 du navigateur, vous devrez s\xE9lectionner le dossier \xE0 partir duquel vous avez ouvert ce fichier. Sur un serveur web, cela ne sera pas n\xE9cessaire.",
-      de: "Lokaler Modus: Aufgrund der Sicherheitsrichtlinie des Browsers m\xFCssen Sie den Ordner ausw\xE4hlen, aus dem Sie diese Datei ge\xF6ffnet haben. Auf einem Webserver ist dies nicht erforderlich.",
-      it: "Modalit\xE0 locale: A causa della politica di sicurezza del browser, dovrai selezionare la cartella da cui hai aperto questo file. Su un server web ci\xF2 non sar\xE0 necessario.",
-      pt: "Modo local: Devido \xE0 pol\xEDtica de seguran\xE7a do navegador, voc\xEA precisar\xE1 selecionar a pasta de onde abriu este arquivo. Em um servidor web isso n\xE3o ser\xE1 necess\xE1rio."
-    }
-  };
-  var GAME_TRANSLATIONS = {
-    hangManGame: {
-      en: "Hangman game",
-      es: "Juego del ahorcado",
-      ca: "Joc del penjat",
-      va: "Joc del penjat",
-      gl: "Xogo do aforcado",
-      eu: "Urkamenduaren jokoa",
-      pt: "Jogo da forca",
-      eo: "Pendumita ludo",
-      ro: "Jocul sp\xE2nzur\u0103toarea"
-    },
-    accept: {
-      en: "Accept",
-      es: "Aceptar",
-      ca: "Accepta",
-      va: "Accepta",
-      gl: "Aceptar",
-      eu: "Onartu",
-      pt: "Aceitar",
-      eo: "Akcepti",
-      ro: "Accept\u0103"
-    },
-    yes: {
-      en: "Yes",
-      es: "S\xED",
-      ca: "S\xED",
-      va: "S\xED",
-      gl: "Si",
-      eu: "Bai",
-      pt: "Sim",
-      eo: "Jes",
-      ro: "Da"
-    },
-    no: {
-      en: "No",
-      es: "No",
-      ca: "No",
-      va: "No",
-      gl: "Non",
-      eu: "Ez",
-      pt: "N\xE3o",
-      eo: "Ne",
-      ro: "Nu"
-    },
-    right: {
-      en: "Right",
-      es: "Correcto",
-      ca: "Correcte",
-      va: "Correcte",
-      gl: "Correcto",
-      eu: "Zuzena",
-      pt: "Correto",
-      eo: "\u011Custe",
-      ro: "Corect"
-    },
-    wrong: {
-      en: "Wrong",
-      es: "Incorrecto",
-      ca: "Incorrecte",
-      va: "Incorrecte",
-      gl: "Incorrecto",
-      eu: "Okerra",
-      pt: "Incorreto",
-      eo: "Mal\u011Duste",
-      ro: "Gre\u0219it"
-    },
-    rightAnswer: {
-      en: "Right answer",
-      es: "Respuesta correcta",
-      ca: "Resposta correcta",
-      va: "Resposta correcta",
-      gl: "Resposta correcta",
-      eu: "Erantzun zuzena",
-      pt: "Resposta correta",
-      eo: "\u011Custa respondo",
-      ro: "R\u0103spuns corect"
-    },
-    stat: {
-      en: "Status",
-      es: "Estado",
-      ca: "Estat",
-      va: "Estat",
-      gl: "Estado",
-      eu: "Egoera",
-      pt: "Estado",
-      eo: "Stato",
-      ro: "Stare"
-    },
-    selectedLetters: {
-      en: "Selected letters",
-      es: "Letras seleccionadas",
-      ca: "Lletres seleccionades",
-      va: "Lletres seleccionades",
-      gl: "Letras seleccionadas",
-      eu: "Hautatutako hizkiak",
-      pt: "Letras selecionadas",
-      eo: "Elektitaj literoj",
-      ro: "Litere selectate"
-    },
-    word: {
-      en: "Word",
-      es: "Palabra",
-      ca: "Paraula",
-      va: "Paraula",
-      gl: "Palabra",
-      eu: "Hitza",
-      pt: "Palavra",
-      eo: "Vorto",
-      ro: "Cuv\xE2nt"
-    },
-    words: {
-      en: "Words",
-      es: "Palabras",
-      ca: "Paraules",
-      va: "Paraules",
-      gl: "Palabras",
-      eu: "Hitzak",
-      pt: "Palavras",
-      eo: "Vortoj",
-      ro: "Cuvinte"
-    },
-    play: {
-      en: "Play",
-      es: "Jugar",
-      ca: "Juga",
-      va: "Juga",
-      gl: "Xogar",
-      eu: "Jolastu",
-      pt: "Jogar",
-      eo: "Ludi",
-      ro: "Joac\u0103"
-    },
-    playAgain: {
-      en: "Restart",
-      es: "Reiniciar",
-      ca: "Reinicia",
-      va: "Reinicia",
-      gl: "Reiniciar",
-      eu: "Berrabiarazi",
-      pt: "Reiniciar",
-      eo: "Reludi",
-      ro: "Reporne\u0219te"
-    },
-    results: {
-      en: "Results",
-      es: "Resultados",
-      ca: "Resultats",
-      va: "Resultats",
-      gl: "Resultados",
-      eu: "Emaitzak",
-      pt: "Resultados",
-      eo: "Rezultoj",
-      ro: "Rezultate"
-    },
-    total: {
-      en: "Total",
-      es: "Total",
-      ca: "Total",
-      va: "Total",
-      gl: "Total",
-      eu: "Guztira",
-      pt: "Total",
-      eo: "Sumo",
-      ro: "Total"
-    },
-    otherWord: {
-      en: "Other word",
-      es: "Otra palabra",
-      ca: "Altra paraula",
-      va: "Altra paraula",
-      gl: "Outra palabra",
-      eu: "Beste hitza",
-      pt: "Outra palavra",
-      eo: "Alia vorto",
-      ro: "Alt cuv\xE2nt"
-    },
-    gameOver: {
-      en: "Game over",
-      es: "Fin del juego",
-      ca: "Fi del joc",
-      va: "Fi del joc",
-      gl: "Fin do xogo",
-      eu: "Jokoa amaitu da",
-      pt: "Fim de jogo",
-      eo: "Ludo finita",
-      ro: "Jocul s-a terminat"
-    },
-    confirmReload: {
-      en: "Reload game?",
-      es: "\xBFRecargar el juego?",
-      ca: "Recarregar el joc?",
-      va: "Recarregar el joc?",
-      gl: "Recargar o xogo?",
-      eu: "Jokoa birkargatu?",
-      pt: "Recarregar o jogo?",
-      eo: "Re\u015Dar\u011Di la ludon?",
-      ro: "Re\xEEncarc\u0103 jocul?"
-    },
-    clickOnPlay: {
-      en: "Click Play to start",
-      es: "Haz clic en Jugar para empezar",
-      ca: "Fes clic a Juga per comen\xE7ar",
-      va: "Fes clic a Juga per a comen\xE7ar",
-      gl: "Fai clic en Xogar para comezar",
-      eu: "Sakatu Jolastu hasteko",
-      pt: "Clique em Jogar para come\xE7ar",
-      eo: "Klaku Ludi por komenci",
-      ro: "Apas\u0103 pe Joac\u0103 pentru a \xEEncepe"
-    },
-    clickOnOtherWord: {
-      en: "Click Other word to continue",
-      es: "Haz clic en Otra palabra para continuar",
-      ca: "Fes clic a Altra paraula per continuar",
-      va: "Fes clic a Altra paraula per a continuar",
-      gl: "Fai clic en Outra palabra para continuar",
-      eu: "Sakatu Beste hitza jarraitzeko",
-      pt: "Clique em Outra palavra para continuar",
-      eo: "Klaku Alia vorto por da\u016Drigi",
-      ro: "Apas\u0103 pe Alt cuv\xE2nt pentru a continua"
-    }
-  };
-  var GAME_ALPHABETS = {
-    es: "abcdefghijklmn\xF1opqrstuvwxyz",
-    ca: "abcdefghijklmnopqrstuvwxyz",
-    va: "abcdefghijklmnopqrstuvwxyz",
-    gl: "abcdefghijklmn\xF1opqrstuvwxyz",
-    eu: "abcdefghijklmnopqrstuvwxyz",
-    pt: "abcdefghijklmnopqrstuvwxyz",
-    eo: "abc\u0109defg\u011Dh\u0125ij\u0135klmnoprs\u015Dtu\u016Dvz",
-    ro: "a\u0103\xE2bcdefghi\xEEjklmnopqrs\u0219t\u021Buvwxyz",
-    en: "abcdefghijklmnopqrstuvwxyz"
-  };
-  function getTranslation(translations, key, language) {
-    const langTranslations = translations[key];
-    if (!langTranslations) {
-      return key;
-    }
-    return langTranslations[language] || langTranslations.en || key;
-  }
-  function buildTranslationsForLanguage(translations, language) {
-    const result = {};
-    for (const key of Object.keys(translations)) {
-      result[key] = getTranslation(translations, key, language);
-    }
-    return result;
-  }
-  function generateI18nScript(language) {
-    const mainTranslations = buildTranslationsForLanguage(TRANSLATIONS, language);
-    let script = `$exe_i18n=${JSON.stringify(mainTranslations)};`;
-    const gameTranslations = buildTranslationsForLanguage(GAME_TRANSLATIONS, language);
-    gameTranslations.az = GAME_ALPHABETS[language] || GAME_ALPHABETS.en;
-    script += `
-$exe_i18n.exeGames=${JSON.stringify(gameTranslations)};`;
-    script += `
-
-// Export for Node.js/CommonJS (tests)
-if (typeof module !== 'undefined' && module.exports) {
-    module.exports = $exe_i18n;
-}`;
-    return script;
-  }
-
   // src/shared/export/exporters/Html5Exporter.ts
   var Html5Exporter = class extends BaseExporter {
     getBrowserLatexPreRenderer() {
@@ -6597,7 +6763,7 @@ if (typeof module !== 'undefined' && module.exports) {
         }
         const faviconInfo = html5Options?.faviconPath ? { path: html5Options.faviconPath, type: html5Options.faviconType || "image/x-icon" } : detectedFavicon;
         const assetExportPathMap = await this.buildAssetExportPathMap();
-        const pageHtmlMap = /* @__PURE__ */ new Map();
+        const navLabels = await this.fetchNavLabels(meta.language || "en", meta.license);
         let latexWasRendered = false;
         let mermaidWasRendered = false;
         for (let i = 0; i < pages.length; i++) {
@@ -6611,7 +6777,8 @@ if (typeof module !== 'undefined' && module.exports) {
             themeRootFiles,
             faviconInfo,
             pageFilenameMap,
-            assetExportPathMap
+            assetExportPathMap,
+            navLabels
           );
           if (!meta.addMathJax) {
             const preRenderDataGameLatex = options?.preRenderDataGameLatex || this.getBrowserLatexPreRenderer()?.preRenderDataGameLatex;
@@ -6663,9 +6830,16 @@ if (typeof module !== 'undefined' && module.exports) {
               console.warn("[Html5Exporter] Mermaid pre-render failed for page:", page.title, error);
             }
           }
-          const filename = pageFilenameMap.get(page.id) || "page.html";
-          const pageFilename = i === 0 ? "index.html" : `html/${filename}`;
-          pageHtmlMap.set(pageFilename, html);
+          if (needsElpxDownload && this.pageHasDownloadSourceFile(page)) {
+            const basePath = i === 0 ? "" : "../";
+            const manifestScriptTag = `<script src="${basePath}libs/elpx-manifest.js"> <\/script>`;
+            html = html.replace(/<\/body>/i, `${manifestScriptTag}
+</body>`);
+          }
+          const pageUniqueFilename = pageFilenameMap.get(page.id) || "page.html";
+          const filename = i === 0 ? "index.html" : `html/${pageUniqueFilename}`;
+          this.zip.addFile(filename, html);
+          if (fileList) fileList.push(filename);
         }
         if (meta.addSearchBox) {
           const searchIndexContent = this.pageRenderer.generateSearchIndexFile(pages, "", pageFilenameMap);
@@ -6716,17 +6890,13 @@ if (typeof module !== 'undefined' && module.exports) {
           }
         } catch {
         }
-        const i18nContent = generateI18nScript(meta.language || "en");
+        const i18nContent = await this.generateI18nContent(meta.language || "en");
         addFile("libs/common_i18n.js", new TextEncoder().encode(i18nContent));
-        const allHtmlContent = this.collectAllHtmlContent(pages);
-        const { files: allRequiredFiles, patterns } = this.libraryDetector.getAllRequiredFilesWithPatterns(
-          allHtmlContent,
-          {
-            includeAccessibilityToolbar: meta.addAccessibilityToolbar === true,
-            includeMathJax: meta.addMathJax === true,
-            skipMathJax: latexWasRendered && !meta.addMathJax
-          }
-        );
+        const { files: allRequiredFiles, patterns } = this.getRequiredLibraryFilesForPages(pages, {
+          includeAccessibilityToolbar: meta.addAccessibilityToolbar === true,
+          includeMathJax: meta.addMathJax === true,
+          skipMathJax: latexWasRendered && !meta.addMathJax
+        });
         if (latexWasRendered) {
           console.log("[Html5Exporter] LaTeX pre-rendered - skipping MathJax library (~1MB saved)");
         }
@@ -6768,27 +6938,9 @@ if (typeof module !== 'undefined' && module.exports) {
         }
         await this.addAssetsToZipWithResourcePath(fileList);
         if (needsElpxDownload && fileList) {
-          for (const [htmlFile] of pageHtmlMap) {
-            if (!fileList.includes(htmlFile)) {
-              fileList.push(htmlFile);
-            }
-          }
           fileList.push("libs/elpx-manifest.js");
           const manifestJs = this.generateElpxManifestFile(fileList);
           this.zip.addFile("libs/elpx-manifest.js", manifestJs);
-        }
-        for (let i = 0; i < pages.length; i++) {
-          const page = pages[i];
-          const pageFilename = pageFilenameMap.get(page.id) || "page.html";
-          const filename = i === 0 ? "index.html" : `html/${pageFilename}`;
-          let html = pageHtmlMap.get(filename) || "";
-          if (needsElpxDownload && this.pageHasDownloadSourceFile(page)) {
-            const basePath = i === 0 ? "" : "../";
-            const manifestScriptTag = `<script src="${basePath}libs/elpx-manifest.js"> <\/script>`;
-            html = html.replace(/<\/body>/i, `${manifestScriptTag}
-</body>`);
-          }
-          this.zip.addFile(filename, html);
         }
         const buffer = await this.zip.generateAsync();
         return {
@@ -6815,7 +6967,7 @@ if (typeof module !== 'undefined' && module.exports) {
      * @param pageFilenameMap - Map of page IDs to unique filenames (optional, handles title collisions)
      * @param assetExportPathMap - Map of asset UUID to export path for URL transformation
      */
-    generatePageHtml(page, allPages, meta, isIndex, pageIndex, themeFiles, faviconInfo, pageFilenameMap, assetExportPathMap) {
+    generatePageHtml(page, allPages, meta, isIndex, pageIndex, themeFiles, faviconInfo, pageFilenameMap, assetExportPathMap, navLabels) {
       const basePath = isIndex ? "" : "../";
       const usedIdevices = this.getUsedIdevicesForPage(page);
       const currentPageIndex = pageIndex ?? allPages.findIndex((p) => p.id === page.id);
@@ -6868,7 +7020,9 @@ if (typeof module !== 'undefined' && module.exports) {
         // Asset URL transformation map
         assetExportPathMap,
         // Application version for generator meta tag
-        version: meta.exelearningVersion
+        version: meta.exelearningVersion,
+        // Pre-translated nav button labels (resolved from XLF at export time)
+        navLabels
       });
     }
     /**
@@ -6946,7 +7100,7 @@ if (typeof module !== 'undefined' && module.exports) {
     }
     /**
      * Generate preview files map (for Service Worker-based preview)
-     * Returns a map of file paths to content (Uint8Array or string)
+     * Returns a map of file paths to transferable ArrayBuffers
      * Same structure as ZIP export but without creating the archive
      *
      * This enables unified preview/export rendering using the eXeViewer approach:
@@ -6965,7 +7119,7 @@ if (typeof module !== 'undefined' && module.exports) {
         const pageFilenameMap = this.buildPageFilenameMap(pages);
         const fileList = needsElpxDownload ? [] : null;
         const addFile = (path, content) => {
-          files.set(path, content);
+          files.set(path, this.toPreviewArrayBuffer(content));
           if (fileList) fileList.push(path);
         };
         const {
@@ -6975,7 +7129,8 @@ if (typeof module !== 'undefined' && module.exports) {
         } = await this.prepareThemeData(themeName);
         const faviconInfo = options?.faviconPath ? { path: options.faviconPath, type: options.faviconType || "image/x-icon" } : detectedFavicon;
         const assetExportPathMap = await this.buildAssetExportPathMap();
-        const pageHtmlMap = /* @__PURE__ */ new Map();
+        const navLabels = await this.fetchNavLabels(meta.language || "en", meta.license);
+        const pageEntries = [];
         let latexWasRendered = false;
         let mermaidWasRendered = false;
         for (let i = 0; i < pages.length; i++) {
@@ -6989,7 +7144,8 @@ if (typeof module !== 'undefined' && module.exports) {
             themeRootFiles,
             faviconInfo,
             pageFilenameMap,
-            assetExportPathMap
+            assetExportPathMap,
+            navLabels
           );
           if (!meta.addMathJax) {
             const preRenderDataGameLatex = options?.preRenderDataGameLatex || this.getBrowserLatexPreRenderer()?.preRenderDataGameLatex;
@@ -7026,8 +7182,8 @@ if (typeof module !== 'undefined' && module.exports) {
             }
           }
           const uniqueFilename = pageFilenameMap.get(page.id) || "page.html";
-          const pageFilename = i === 0 ? "index.html" : `html/${uniqueFilename}`;
-          pageHtmlMap.set(pageFilename, html);
+          const filename = i === 0 ? "index.html" : `html/${uniqueFilename}`;
+          pageEntries.push({ filename, html, page, index: i });
         }
         if (meta.addSearchBox) {
           const searchIndexContent = this.pageRenderer.generateSearchIndexFile(pages, "", pageFilenameMap);
@@ -7073,17 +7229,13 @@ if (typeof module !== 'undefined' && module.exports) {
           }
         } catch {
         }
-        const i18nContent = generateI18nScript(meta.language || "en");
+        const i18nContent = await this.generateI18nContent(meta.language || "en");
         addFile("libs/common_i18n.js", new TextEncoder().encode(i18nContent));
-        const allHtmlContent = this.collectAllHtmlContent(pages);
-        const { files: allRequiredFiles, patterns } = this.libraryDetector.getAllRequiredFilesWithPatterns(
-          allHtmlContent,
-          {
-            includeAccessibilityToolbar: meta.addAccessibilityToolbar === true,
-            includeMathJax: meta.addMathJax === true,
-            skipMathJax: latexWasRendered && !meta.addMathJax
-          }
-        );
+        const { files: allRequiredFiles, patterns } = this.getRequiredLibraryFilesForPages(pages, {
+          includeAccessibilityToolbar: meta.addAccessibilityToolbar === true,
+          includeMathJax: meta.addMathJax === true,
+          skipMathJax: latexWasRendered && !meta.addMathJax
+        });
         try {
           const libFiles = await this.resources.fetchLibraryFiles(allRequiredFiles, patterns);
           for (const [libPath, content] of libFiles) {
@@ -7125,14 +7277,14 @@ if (typeof module !== 'undefined' && module.exports) {
         }
         await this.addAssetsToPreviewFiles(files, fileList);
         if (needsElpxDownload && fileList) {
-          for (const [htmlFile] of pageHtmlMap) {
-            if (!fileList.includes(htmlFile)) {
-              fileList.push(htmlFile);
+          for (const entry of pageEntries) {
+            if (!fileList.includes(entry.filename)) {
+              fileList.push(entry.filename);
             }
           }
           fileList.push("libs/elpx-manifest.js");
           const manifestJs = this.generateElpxManifestFile(fileList);
-          files.set("libs/elpx-manifest.js", manifestJs);
+          addFile("libs/elpx-manifest.js", manifestJs);
           const elpxLibFiles = ["fflate/fflate.umd.js", "exe_elpx_download/exe_elpx_download.js"];
           const missingLibs = elpxLibFiles.filter((f) => !files.has(`libs/${f}`));
           if (missingLibs.length > 0) {
@@ -7145,26 +7297,12 @@ if (typeof module !== 'undefined' && module.exports) {
             }
           }
         }
-        for (let i = 0; i < pages.length; i++) {
-          const page = pages[i];
-          const uniqueFilename = pageFilenameMap.get(page.id) || "page.html";
-          const filename = i === 0 ? "index.html" : `html/${uniqueFilename}`;
-          let html = pageHtmlMap.get(filename) || "";
-          if (needsElpxDownload && this.pageHasDownloadSourceFile(page)) {
-            const basePath = i === 0 ? "" : "../";
-            const fflateScript = `<script src="${basePath}libs/fflate/fflate.umd.js"> <\/script>`;
-            const elpxDownloadScript = `<script src="${basePath}libs/exe_elpx_download/exe_elpx_download.js"> <\/script>`;
-            const manifestScriptTag = `<script src="${basePath}libs/elpx-manifest.js"> <\/script>`;
-            html = html.replace(
-              /<\/body>/i,
-              `${fflateScript}
-${elpxDownloadScript}
-${manifestScriptTag}
-</body>`
-            );
+        for (const entry of pageEntries) {
+          let { html } = entry;
+          if (needsElpxDownload) {
+            html = this.injectElpxScripts(html, entry.page, entry.index === 0);
           }
-          const encoder = new TextEncoder();
-          files.set(filename, encoder.encode(html));
+          addFile(entry.filename, html);
         }
         return files;
       } catch (error) {
@@ -7178,24 +7316,44 @@ ${manifestScriptTag}
     async addAssetsToPreviewFiles(files, trackingList) {
       let assetsAdded = 0;
       try {
-        const assets = await this.assets.getAllAssets();
         const exportPathMap = await this.buildAssetExportPathMap();
-        for (const asset of assets) {
+        const processAsset = async (asset) => {
           const exportPath = exportPathMap.get(asset.id);
-          if (!exportPath) continue;
+          if (!exportPath) return;
           const filePath = `content/resources/${exportPath}`;
-          files.set(filePath, asset.data);
+          files.set(filePath, await this.toPreviewAssetBuffer(asset.data));
           if (trackingList) trackingList.push(filePath);
           assetsAdded++;
-        }
+        };
+        await this.forEachAsset(processAsset);
       } catch (e) {
         console.warn("[Html5Exporter] Failed to add assets to preview files:", e);
       }
       return assetsAdded;
     }
+    toPreviewArrayBuffer(content) {
+      if (content instanceof ArrayBuffer) {
+        return content;
+      }
+      if (typeof content === "string") {
+        return new TextEncoder().encode(content).buffer;
+      }
+      if (content.byteOffset === 0 && content.byteLength === content.buffer.byteLength) {
+        return content.buffer;
+      }
+      return content.buffer.slice(content.byteOffset, content.byteOffset + content.byteLength);
+    }
+    async toPreviewAssetBuffer(content) {
+      if (content instanceof Blob) {
+        return content.arrayBuffer();
+      }
+      return this.toPreviewArrayBuffer(content);
+    }
   };
 
   // src/shared/export/exporters/PageExporter.ts
+  var NAMED_ANCHOR_RE = /<a\s+(?=[^>]*(?:\bid\b|\bname\b)=)(?![^>]*\bhref\b=)[^>]*>/gi;
+  var ID_NAME_ATTR_RE = /\b(id|name)="([^"]+)"/gi;
   var PageExporter = class extends Html5Exporter {
     /**
      * Get file suffix for PAGE format
@@ -7249,7 +7407,8 @@ ${manifestScriptTag}
             }
           }
         }
-        const html = this.generateSinglePageHtml(pages, meta, usedIdevices, faviconInfo);
+        const navLabels = await this.fetchNavLabels(meta.language || "en", meta.license);
+        const html = this.generateSinglePageHtml(pages, meta, usedIdevices, faviconInfo, [], false, navLabels);
         this.zip.addFile("index.html", html);
         const contentCssFiles = await this.resources.fetchContentCss();
         const baseCss = contentCssFiles.get("content/css/base.css");
@@ -7278,15 +7437,11 @@ ${manifestScriptTag}
           }
         } catch {
         }
-        const allHtmlContent = this.collectAllHtmlContent(pages);
-        const { files: allRequiredFiles, patterns } = this.libraryDetector.getAllRequiredFilesWithPatterns(
-          allHtmlContent,
-          {
-            includeAccessibilityToolbar: meta.addAccessibilityToolbar === true,
-            includeMathJax: meta.addMathJax === true
-            // MATHJAX is included if requested
-          }
-        );
+        const { files: allRequiredFiles, patterns } = this.getRequiredLibraryFilesForPages(pages, {
+          includeAccessibilityToolbar: meta.addAccessibilityToolbar === true,
+          includeMathJax: meta.addMathJax === true
+          // MATHJAX is included if requested
+        });
         try {
           const libFiles = await this.resources.fetchLibraryFiles(allRequiredFiles, patterns);
           for (const [libPath, content] of libFiles) {
@@ -7297,7 +7452,7 @@ ${manifestScriptTag}
           }
         } catch {
         }
-        const i18nContent = generateI18nScript(meta.language || "en");
+        const i18nContent = await this.generateI18nContent(meta.language || "en");
         this.zip.addFile("libs/common_i18n.js", i18nContent);
         const singlePageHtml = await this.generateSinglePageHtml(
           pages,
@@ -7305,7 +7460,8 @@ ${manifestScriptTag}
           usedIdevices,
           faviconInfo,
           patterns.map((p) => p.name),
-          meta.addMathJax === true
+          meta.addMathJax === true,
+          navLabels
         );
         this.zip.addFile(options?.filename || "index.html", singlePageHtml);
         const cssFiles = await this.resources.fetchContentCss();
@@ -7335,7 +7491,7 @@ ${manifestScriptTag}
     /**
      * Generate single-page HTML with all pages
      */
-    generateSinglePageHtml(pages, meta, usedIdevices, faviconInfo, detectedLibraries = [], addMathJax = false) {
+    generateSinglePageHtml(pages, meta, usedIdevices, faviconInfo, detectedLibraries = [], addMathJax = false, navLabels) {
       return this.pageRenderer.renderSinglePage(pages, {
         projectTitle: meta.title || "eXeLearning",
         projectSubtitle: meta.subtitle || "",
@@ -7344,13 +7500,59 @@ ${manifestScriptTag}
         usedIdevices,
         author: meta.author || "",
         license: meta.license || "",
+        licenseUrl: meta.licenseUrl || "",
         faviconPath: faviconInfo?.path,
         faviconType: faviconInfo?.type,
         // Application version for generator meta tag
         version: meta.exelearningVersion,
         detectedLibraries,
-        addMathJax
+        linkToElp: meta.exportSource !== false,
+        addMathJax,
+        addExeLink: meta.addExeLink ?? true,
+        // Pre-translated nav labels (resolved from XLF at export time)
+        navLabels
       });
+    }
+    /**
+     * Override pre-processing to namespace named anchors before resolving internal links.
+     * In single-page export all pages share one HTML document, so anchor ids like "intro"
+     * on different pages would collide. We prefix them with the page id (e.g. "page-2--intro")
+     * so that exe-node:page-2#intro resolves unambiguously.
+     */
+    async preprocessPagesForExport(pages) {
+      const clonedPages = JSON.parse(JSON.stringify(pages));
+      const pageUrlMap = this.buildPageUrlMap(clonedPages);
+      for (let pageIndex = 0; pageIndex < clonedPages.length; pageIndex++) {
+        const page = clonedPages[pageIndex];
+        const isIndex = pageIndex === 0;
+        for (const block of page.blocks || []) {
+          for (const component of block.components || []) {
+            if (component.content) {
+              component.content = await this.addFilenamesToAssetUrls(component.content);
+              component.content = this.namespaceSinglePageAnchors(component.content, page.id);
+              component.content = this.replaceInternalLinks(component.content, pageUrlMap, isIndex);
+            }
+            if (component.properties && Object.keys(component.properties).length > 0) {
+              const propsStr = JSON.stringify(component.properties);
+              const processedStr = await this.addFilenamesToAssetUrls(propsStr);
+              component.properties = JSON.parse(processedStr);
+            }
+          }
+        }
+      }
+      return clonedPages;
+    }
+    /**
+     * Prefix id/name attributes on named anchors (<a> without href) with the page id.
+     * This avoids collisions when all pages are merged into a single HTML document.
+     * E.g. <a id="intro"> on page "page-2" becomes <a id="page-2--intro">
+     */
+    namespaceSinglePageAnchors(content, pageId) {
+      if (!content) return content;
+      return content.replace(
+        NAMED_ANCHOR_RE,
+        (match) => match.replace(ID_NAME_ATTR_RE, (_, attr, value) => `${attr}="${pageId}--${value}"`)
+      );
     }
     /**
      * Override page URL map for single-page export
@@ -7367,6 +7569,30 @@ ${manifestScriptTag}
         });
       }
       return map;
+    }
+    /**
+     * Override internal link replacement for single-page export.
+     * When a link carries its own anchor (exe-node:pageId#anchor), use just #anchor
+     * since all content is in the same document. Without an anchor, use #section-pageId.
+     */
+    replaceInternalLinks(content, pageUrlMap, isFromIndex) {
+      if (!content || !content.includes("exe-node:")) {
+        return content;
+      }
+      return content.replace(/href=["']exe-node:([^"']+)["']/gi, (match, pageIdWithAnchor) => {
+        const hashIdx = pageIdWithAnchor.indexOf("#");
+        const pageId = hashIdx !== -1 ? pageIdWithAnchor.substring(0, hashIdx) : pageIdWithAnchor;
+        const anchorFragment = hashIdx !== -1 ? pageIdWithAnchor.substring(hashIdx) : "";
+        if (!pageUrlMap.has(pageId)) {
+          console.warn(`[PageExporter] Internal link target not found: ${pageId}`);
+          return match;
+        }
+        if (anchorFragment) {
+          return `href="#${pageId}--${anchorFragment.substring(1)}"`;
+        }
+        const pageUrl = pageUrlMap.get(pageId);
+        return `href="${isFromIndex ? pageUrl.url : pageUrl.urlFromSubpage}"`;
+      });
     }
     /**
      * Get CSS specific to single-page layout
@@ -7421,14 +7647,19 @@ html {
   // src/shared/export/generators/Scorm12Manifest.ts
   var Scorm12ManifestGenerator = class {
     /**
-     * @param projectId - Unique project identifier
+     * @param projectId - Bare project identifier (used for organization id and resource ids)
      * @param pages - Pages from navigation structure
      * @param metadata - Project metadata
+     * @param manifestIdentifier - Optional pre-built manifest@identifier. When provided
+     *   it is used verbatim (no `eXe-MANIFEST-` prefix is prepended). Pass this from
+     *   BaseExporter.getManifestIdentifier() so re-exports of the same project produce
+     *   a stable identifier the LMS can track (see exelearning/exelearning#1785).
      */
-    constructor(projectId, pages, metadata = {}) {
+    constructor(projectId, pages, metadata = {}, manifestIdentifier = null) {
       this.projectId = projectId || this.generateId();
       this.pages = pages || [];
       this.metadata = metadata;
+      this.manifestIdentifier = manifestIdentifier;
     }
     /**
      * Generate a unique ID for the project
@@ -7483,7 +7714,8 @@ html {
      * @returns Manifest opening XML
      */
     generateManifestOpen() {
-      return `<manifest identifier="eXe-MANIFEST-${this.escapeXml(this.projectId)}"
+      const identifier = this.manifestIdentifier ?? `eXe-MANIFEST-${this.projectId}`;
+      return `<manifest identifier="${this.escapeXml(identifier)}"
   xmlns="${SCORM_12_NAMESPACES.imscp}"
   xmlns:adlcp="${SCORM_12_NAMESPACES.adlcp}"
   xmlns:imsmd="${SCORM_12_NAMESPACES.imsmd}">
@@ -7631,7 +7863,7 @@ html {
   };
 
   // src/shared/export/generators/LomMetadata.ts
-  var TRANSLATIONS2 = {
+  var TRANSLATIONS = {
     "Metadata creation date": {
       en: "Metadata creation date",
       es: "Fecha de creaci\xF3n de los metadatos",
@@ -7854,10 +8086,10 @@ html {
      */
     getLocalizedString(key, lang) {
       const langShort = lang.substring(0, 2).toLowerCase();
-      if (TRANSLATIONS2[key]?.[langShort]) {
-        return TRANSLATIONS2[key][langShort];
+      if (TRANSLATIONS[key]?.[langShort]) {
+        return TRANSLATIONS[key][langShort];
       }
-      return TRANSLATIONS2[key]?.en || key;
+      return TRANSLATIONS[key]?.en || key;
     }
     /**
      * Escape XML special characters
@@ -7892,20 +8124,32 @@ html {
         let pages = this.buildPageList();
         const meta = this.getMetadata();
         const themeName = options?.theme || meta.theme || "base";
-        const projectId = this.generateProjectId();
+        const manifestIdentifier = this.getManifestIdentifier();
+        const projectId = this.getBareProjectIdentifier();
         pages = await this.preprocessPagesForExport(pages);
         pages = pages.filter((p) => this.isPageVisible(p, pages));
         const pageFilenameMap = this.buildPageFilenameMap(pages);
-        this.manifestGenerator = new Scorm12ManifestGenerator(projectId, pages, {
-          identifier: projectId,
+        const needsElpxDownload = this.needsElpxDownloadSupport(pages);
+        const fileList = needsElpxDownload ? [] : null;
+        const addFile = (path, content) => {
+          this.zip.addFile(path, content);
+          if (fileList) fileList.push(path);
+        };
+        this.manifestGenerator = new Scorm12ManifestGenerator(
+          projectId,
           pages,
-          version: "1.2",
-          title: meta.title || "eXeLearning",
-          language: meta.language || "en",
-          author: meta.author || "",
-          description: meta.description || "",
-          license: meta.license || ""
-        });
+          {
+            identifier: manifestIdentifier,
+            pages,
+            version: "1.2",
+            title: meta.title || "eXeLearning",
+            language: meta.language || "en",
+            author: meta.author || "",
+            description: meta.description || "",
+            license: meta.license || ""
+          },
+          manifestIdentifier
+        );
         this.lomGenerator = new LomMetadataGenerator(projectId, {
           title: meta.title || "eXeLearning",
           language: meta.language || "en",
@@ -7917,6 +8161,8 @@ html {
         const pageFiles = {};
         const { themeFilesMap, themeRootFiles, faviconInfo } = await this.prepareThemeData(themeName);
         this.ideviceRenderer.setThemeIconFiles(themeFilesMap);
+        const navLabels = await this.fetchNavLabels(meta.language || "en", meta.license);
+        const pageHtmlMap = /* @__PURE__ */ new Map();
         let latexWasRendered = false;
         let mermaidWasRendered = false;
         for (let i = 0; i < pages.length; i++) {
@@ -7930,7 +8176,8 @@ html {
             themeRootFiles,
             i,
             faviconInfo,
-            pageFilenameMap
+            pageFilenameMap,
+            navLabels
           );
           if (!meta.addMathJax) {
             if (options?.preRenderDataGameLatex) {
@@ -7982,7 +8229,7 @@ html {
           }
           const uniqueFilename = pageFilenameMap.get(page.id) || "page.html";
           const pageFilename = isIndex ? "index.html" : `html/${uniqueFilename}`;
-          this.zip.addFile(pageFilename, html);
+          pageHtmlMap.set(pageFilename, html);
           pageFiles[page.id] = {
             fileUrl: pageFilename,
             files: []
@@ -8005,23 +8252,23 @@ html {
           const encoder = new TextEncoder();
           baseCss = encoder.encode(baseCssText);
         }
-        this.zip.addFile("content/css/base.css", baseCss);
+        addFile("content/css/base.css", baseCss);
         commonFiles.push("content/css/base.css");
         if (themeFilesMap) {
           for (const [filePath, content] of themeFilesMap) {
-            this.zip.addFile(`theme/${filePath}`, content);
+            addFile(`theme/${filePath}`, content);
             commonFiles.push(`theme/${filePath}`);
           }
         } else {
-          this.zip.addFile("theme/style.css", this.getFallbackThemeCss());
-          this.zip.addFile("theme/style.js", this.getFallbackThemeJs());
+          addFile("theme/style.css", this.getFallbackThemeCss());
+          addFile("theme/style.js", this.getFallbackThemeJs());
           commonFiles.push("theme/style.css", "theme/style.js");
         }
         if (meta.addExeLink !== false) {
           try {
             const logoData = await this.resources.fetchExeLogo();
             if (logoData) {
-              this.zip.addFile("content/img/exe_powered_logo.png", logoData);
+              addFile("content/img/exe_powered_logo.png", logoData);
               commonFiles.push("content/img/exe_powered_logo.png");
             }
           } catch {
@@ -8030,51 +8277,50 @@ html {
         try {
           const baseLibs = await this.resources.fetchBaseLibraries();
           for (const [path, content] of baseLibs) {
-            this.zip.addFile(`libs/${path}`, content);
+            addFile(`libs/${path}`, content);
             commonFiles.push(`libs/${path}`);
           }
         } catch {
         }
-        const i18nContent = generateI18nScript(meta.language || "en");
-        this.zip.addFile("libs/common_i18n.js", new TextEncoder().encode(i18nContent));
+        const i18nContent = await this.generateI18nContent(meta.language || "en");
+        addFile("libs/common_i18n.js", new TextEncoder().encode(i18nContent));
         commonFiles.push("libs/common_i18n.js");
-        const allHtmlContent = this.collectAllHtmlContent(pages);
-        const { files: allRequiredFiles, patterns } = this.libraryDetector.getAllRequiredFilesWithPatterns(
-          allHtmlContent,
-          {
-            includeAccessibilityToolbar: meta.addAccessibilityToolbar === true,
-            includeMathJax: meta.addMathJax === true,
-            skipMathJax: latexWasRendered && !meta.addMathJax
-          }
-        );
+        const { files: allRequiredFiles, patterns } = this.getRequiredLibraryFilesForPages(pages, {
+          includeAccessibilityToolbar: meta.addAccessibilityToolbar === true,
+          includeMathJax: meta.addMathJax === true,
+          skipMathJax: latexWasRendered && !meta.addMathJax
+        });
         try {
           const libFiles = await this.resources.fetchLibraryFiles(allRequiredFiles, patterns);
           for (const [libPath, content] of libFiles) {
             const zipPath = `libs/${libPath}`;
             if (!this.zip.hasFile(zipPath)) {
-              this.zip.addFile(zipPath, content);
+              addFile(zipPath, content);
               commonFiles.push(zipPath);
             }
           }
         } catch {
         }
+        if (needsElpxDownload) {
+          await this.ensureElpxDownloadLibraries(addFile, commonFiles);
+        }
         try {
           const scormFiles = await this.resources.fetchScormFiles("1.2");
           for (const [filePath, content] of scormFiles) {
-            this.zip.addFile(`libs/${filePath}`, content);
+            addFile(`libs/${filePath}`, content);
             commonFiles.push(`libs/${filePath}`);
           }
         } catch {
-          this.zip.addFile("libs/SCORM_API_wrapper.js", this.getScormApiWrapper());
-          this.zip.addFile("libs/SCOFunctions.js", this.getScoFunctions());
+          addFile("libs/SCORM_API_wrapper.js", this.getScormApiWrapper());
+          addFile("libs/SCOFunctions.js", this.getScoFunctions());
           commonFiles.push("libs/SCORM_API_wrapper.js", "libs/SCOFunctions.js");
         }
         try {
           const contentXml = await this.getContentXml();
           if (contentXml) {
-            this.zip.addFile("content.xml", contentXml);
+            addFile("content.xml", contentXml);
             commonFiles.push("content.xml");
-            this.zip.addFile(ODE_DTD_FILENAME, ODE_DTD_CONTENT);
+            addFile(ODE_DTD_FILENAME, ODE_DTD_CONTENT);
             commonFiles.push(ODE_DTD_FILENAME);
           }
         } catch {
@@ -8085,7 +8331,7 @@ html {
             const normalizedType = this.resources.normalizeIdeviceType(idevice);
             const ideviceFiles = await this.resources.fetchIdeviceResources(idevice);
             for (const [path, content] of ideviceFiles) {
-              this.zip.addFile(`idevices/${normalizedType}/${path}`, content);
+              addFile(`idevices/${normalizedType}/${path}`, content);
               commonFiles.push(`idevices/${normalizedType}/${path}`);
             }
           } catch {
@@ -8096,7 +8342,7 @@ html {
             const fontFiles = await this.resources.fetchGlobalFontFiles(meta.globalFont);
             if (fontFiles) {
               for (const [filePath, content] of fontFiles) {
-                this.zip.addFile(filePath, content);
+                addFile(filePath, content);
                 commonFiles.push(filePath);
               }
             }
@@ -8104,7 +8350,22 @@ html {
             console.warn(`[Scorm12Exporter] Failed to fetch global font files: ${meta.globalFont}`, e);
           }
         }
-        await this.addAssetsToZipWithResourcePath();
+        await this.addAssetsToZipWithResourcePath(fileList);
+        if (needsElpxDownload && fileList) {
+          const pageUrls = Object.values(pageFiles).map((pf) => pf.fileUrl);
+          this.addElpxManifestToZip(fileList, pageUrls, commonFiles);
+        }
+        for (let i = 0; i < pages.length; i++) {
+          const page = pages[i];
+          const isIndex = i === 0;
+          const uniqueFilename = pageFilenameMap.get(page.id) || "page.html";
+          const filename = isIndex ? "index.html" : `html/${uniqueFilename}`;
+          let html = pageHtmlMap.get(filename) || "";
+          if (needsElpxDownload) {
+            html = this.injectElpxScripts(html, page, isIndex);
+          }
+          this.zip.addFile(filename, html);
+        }
         const lomXml = this.lomGenerator.generate();
         this.zip.addFile("imslrm.xml", lomXml);
         const allZipFiles = this.zip.getFilePaths();
@@ -8128,7 +8389,12 @@ html {
       }
     }
     /**
-     * Generate project ID for SCORM package
+     * Generate a random low-level project ID.
+     *
+     * @deprecated Since #1785, the SCORM manifest identifier is derived from
+     * the project's odeIdentifier via {@link BaseExporter.getManifestIdentifier}
+     * so LMS tracking survives re-uploads. This helper is kept only for
+     * external callers/tests and is no longer used by the export pipeline.
      */
     generateProjectId() {
       return Date.now().toString(36) + Math.random().toString(36).substring(2, 7);
@@ -8144,7 +8410,7 @@ html {
      * @param faviconInfo - Favicon info (optional)
      * @param pageFilenameMap - Map of page IDs to unique filenames (optional, handles title collisions)
      */
-    generateScormPageHtml(page, allPages, meta, isIndex, themeFiles, pageIndex, faviconInfo, pageFilenameMap) {
+    generateScormPageHtml(page, allPages, meta, isIndex, themeFiles, pageIndex, faviconInfo, pageFilenameMap, navLabels) {
       const basePath = isIndex ? "" : "../";
       const usedIdevices = this.getUsedIdevicesForPage(page);
       let customStyles = meta.customStyles || "";
@@ -8176,8 +8442,8 @@ html {
         // Export options - SCORM specific overrides
         // SCORM/IMS exports don't use client-side search - LMS handles navigation
         addSearchBox: false,
-        // Force page counter for SCORM
-        addPagination: true,
+        addExeLink: meta.addExeLink ?? true,
+        addPagination: meta.addPagination ?? false,
         totalPages: allPages.length,
         currentPageIndex: pageIndex ?? 0,
         // SCORM-specific options
@@ -8197,6 +8463,8 @@ html {
         faviconType: faviconInfo?.type,
         // Page filename map for navigation links (handles title collisions)
         pageFilenameMap,
+        // Pre-translated nav button labels (resolved from XLF at export time)
+        navLabels,
         // Application version for generator meta tag
         version: meta.exelearningVersion
       });
@@ -8376,14 +8644,19 @@ function setScore(score, maxScore, minScore) {
   // src/shared/export/generators/Scorm2004Manifest.ts
   var Scorm2004ManifestGenerator = class {
     /**
-     * @param projectId - Unique project identifier
+     * @param projectId - Bare project identifier (used for organization id and resource ids)
      * @param pages - Pages from navigation structure
      * @param metadata - Project metadata
+     * @param manifestIdentifier - Optional pre-built manifest@identifier. When provided
+     *   it is used verbatim (no `eXe-MANIFEST-` prefix is prepended). Pass this from
+     *   BaseExporter.getManifestIdentifier() so re-exports of the same project produce
+     *   a stable identifier the LMS can track (see exelearning/exelearning#1785).
      */
-    constructor(projectId, pages, metadata = {}) {
+    constructor(projectId, pages, metadata = {}, manifestIdentifier = null) {
       this.projectId = projectId || this.generateId();
       this.pages = pages || [];
       this.metadata = metadata;
+      this.manifestIdentifier = manifestIdentifier;
     }
     /**
      * Generate a unique ID for the project
@@ -8438,7 +8711,8 @@ function setScore(score, maxScore, minScore) {
      * @returns Manifest opening XML
      */
     generateManifestOpen() {
-      return `<manifest identifier="eXe-MANIFEST-${this.escapeXml(this.projectId)}"
+      const identifier = this.manifestIdentifier ?? `eXe-MANIFEST-${this.projectId}`;
+      return `<manifest identifier="${this.escapeXml(identifier)}"
   xmlns="${SCORM_2004_NAMESPACES.imscp}"
   xmlns:adlcp="${SCORM_2004_NAMESPACES.adlcp}"
   xmlns:adlseq="${SCORM_2004_NAMESPACES.adlseq}"
@@ -8635,20 +8909,32 @@ ${indentStr}</imsss:sequencing>
         let pages = this.buildPageList();
         const meta = this.getMetadata();
         const themeName = options?.theme || meta.theme || "base";
-        const projectId = this.generateProjectId();
+        const manifestIdentifier = this.getManifestIdentifier();
+        const projectId = this.getBareProjectIdentifier();
         pages = await this.preprocessPagesForExport(pages);
         pages = pages.filter((p) => this.isPageVisible(p, pages));
         const pageFilenameMap = this.buildPageFilenameMap(pages);
-        this.manifestGenerator = new Scorm2004ManifestGenerator(projectId, pages, {
-          identifier: projectId,
+        const needsElpxDownload = this.needsElpxDownloadSupport(pages);
+        const fileList = needsElpxDownload ? [] : null;
+        const addFile = (path, content) => {
+          this.zip.addFile(path, content);
+          if (fileList) fileList.push(path);
+        };
+        this.manifestGenerator = new Scorm2004ManifestGenerator(
+          projectId,
           pages,
-          version: "2004",
-          title: meta.title || "eXeLearning",
-          language: meta.language || "en",
-          author: meta.author || "",
-          description: meta.description || "",
-          license: meta.license || ""
-        });
+          {
+            identifier: manifestIdentifier,
+            pages,
+            version: "2004",
+            title: meta.title || "eXeLearning",
+            language: meta.language || "en",
+            author: meta.author || "",
+            description: meta.description || "",
+            license: meta.license || ""
+          },
+          manifestIdentifier
+        );
         this.lomGenerator = new LomMetadataGenerator(projectId, {
           title: meta.title || "eXeLearning",
           language: meta.language || "en",
@@ -8660,6 +8946,8 @@ ${indentStr}</imsss:sequencing>
         const pageFiles = {};
         const { themeFilesMap, themeRootFiles, faviconInfo } = await this.prepareThemeData(themeName);
         this.ideviceRenderer.setThemeIconFiles(themeFilesMap);
+        const navLabels = await this.fetchNavLabels(meta.language || "en", meta.license);
+        const pageHtmlMap = /* @__PURE__ */ new Map();
         let latexWasRendered = false;
         let mermaidWasRendered = false;
         for (let i = 0; i < pages.length; i++) {
@@ -8673,7 +8961,8 @@ ${indentStr}</imsss:sequencing>
             themeRootFiles,
             i,
             faviconInfo,
-            pageFilenameMap
+            pageFilenameMap,
+            navLabels
           );
           if (!meta.addMathJax) {
             if (options?.preRenderDataGameLatex) {
@@ -8725,7 +9014,7 @@ ${indentStr}</imsss:sequencing>
           }
           const uniqueFilename = pageFilenameMap.get(page.id) || "page.html";
           const pageFilename = isIndex ? "index.html" : `html/${uniqueFilename}`;
-          this.zip.addFile(pageFilename, html);
+          pageHtmlMap.set(pageFilename, html);
           pageFiles[page.id] = {
             fileUrl: pageFilename,
             files: []
@@ -8748,66 +9037,65 @@ ${indentStr}</imsss:sequencing>
           const encoder = new TextEncoder();
           baseCss = encoder.encode(baseCssText);
         }
-        this.zip.addFile("content/css/base.css", baseCss);
+        addFile("content/css/base.css", baseCss);
         commonFiles.push("content/css/base.css");
         if (themeFilesMap) {
           for (const [filePath, content] of themeFilesMap) {
-            this.zip.addFile(`theme/${filePath}`, content);
+            addFile(`theme/${filePath}`, content);
             commonFiles.push(`theme/${filePath}`);
           }
         } else {
-          this.zip.addFile("theme/style.css", this.getFallbackThemeCss());
-          this.zip.addFile("theme/style.js", this.getFallbackThemeJs());
+          addFile("theme/style.css", this.getFallbackThemeCss());
+          addFile("theme/style.js", this.getFallbackThemeJs());
           commonFiles.push("theme/style.css", "theme/style.js");
         }
         try {
           const baseLibs = await this.resources.fetchBaseLibraries();
           for (const [path, content] of baseLibs) {
-            this.zip.addFile(`libs/${path}`, content);
+            addFile(`libs/${path}`, content);
             commonFiles.push(`libs/${path}`);
           }
         } catch {
         }
-        const i18nContent = generateI18nScript(meta.language || "en");
-        this.zip.addFile("libs/common_i18n.js", new TextEncoder().encode(i18nContent));
+        const i18nContent = await this.generateI18nContent(meta.language || "en");
+        addFile("libs/common_i18n.js", new TextEncoder().encode(i18nContent));
         commonFiles.push("libs/common_i18n.js");
-        const allHtmlContent = this.collectAllHtmlContent(pages);
-        const { files: allRequiredFiles, patterns } = this.libraryDetector.getAllRequiredFilesWithPatterns(
-          allHtmlContent,
-          {
-            includeAccessibilityToolbar: meta.addAccessibilityToolbar === true,
-            includeMathJax: meta.addMathJax === true,
-            skipMathJax: latexWasRendered && !meta.addMathJax
-          }
-        );
+        const { files: allRequiredFiles, patterns } = this.getRequiredLibraryFilesForPages(pages, {
+          includeAccessibilityToolbar: meta.addAccessibilityToolbar === true,
+          includeMathJax: meta.addMathJax === true,
+          skipMathJax: latexWasRendered && !meta.addMathJax
+        });
         try {
           const libFiles = await this.resources.fetchLibraryFiles(allRequiredFiles, patterns);
           for (const [libPath, content] of libFiles) {
             const zipPath = `libs/${libPath}`;
             if (!this.zip.hasFile(zipPath)) {
-              this.zip.addFile(zipPath, content);
+              addFile(zipPath, content);
               commonFiles.push(zipPath);
             }
           }
         } catch {
         }
+        if (needsElpxDownload) {
+          await this.ensureElpxDownloadLibraries(addFile, commonFiles);
+        }
         try {
           const scormFiles = await this.resources.fetchScormFiles("2004");
           for (const [filePath, content] of scormFiles) {
-            this.zip.addFile(`libs/${filePath}`, content);
+            addFile(`libs/${filePath}`, content);
             commonFiles.push(`libs/${filePath}`);
           }
         } catch {
-          this.zip.addFile("libs/SCORM_API_wrapper.js", this.getScorm2004ApiWrapper());
-          this.zip.addFile("libs/SCOFunctions.js", this.getSco2004Functions());
+          addFile("libs/SCORM_API_wrapper.js", this.getScorm2004ApiWrapper());
+          addFile("libs/SCOFunctions.js", this.getSco2004Functions());
           commonFiles.push("libs/SCORM_API_wrapper.js", "libs/SCOFunctions.js");
         }
         try {
           const contentXml = await this.getContentXml();
           if (contentXml) {
-            this.zip.addFile("content.xml", contentXml);
+            addFile("content.xml", contentXml);
             commonFiles.push("content.xml");
-            this.zip.addFile(ODE_DTD_FILENAME, ODE_DTD_CONTENT);
+            addFile(ODE_DTD_FILENAME, ODE_DTD_CONTENT);
             commonFiles.push(ODE_DTD_FILENAME);
           }
         } catch {
@@ -8818,7 +9106,7 @@ ${indentStr}</imsss:sequencing>
             const normalizedType = this.resources.normalizeIdeviceType(idevice);
             const ideviceFiles = await this.resources.fetchIdeviceResources(idevice);
             for (const [path, content] of ideviceFiles) {
-              this.zip.addFile(`idevices/${normalizedType}/${path}`, content);
+              addFile(`idevices/${normalizedType}/${path}`, content);
               commonFiles.push(`idevices/${normalizedType}/${path}`);
             }
           } catch {
@@ -8829,7 +9117,7 @@ ${indentStr}</imsss:sequencing>
             const fontFiles = await this.resources.fetchGlobalFontFiles(meta.globalFont);
             if (fontFiles) {
               for (const [filePath, content] of fontFiles) {
-                this.zip.addFile(filePath, content);
+                addFile(filePath, content);
                 commonFiles.push(filePath);
               }
             }
@@ -8837,7 +9125,22 @@ ${indentStr}</imsss:sequencing>
             console.warn(`[Scorm2004Exporter] Failed to fetch global font files: ${meta.globalFont}`, e);
           }
         }
-        await this.addAssetsToZipWithResourcePath();
+        await this.addAssetsToZipWithResourcePath(fileList);
+        if (needsElpxDownload && fileList) {
+          const pageUrls = Object.values(pageFiles).map((pf) => pf.fileUrl);
+          this.addElpxManifestToZip(fileList, pageUrls, commonFiles);
+        }
+        for (let i = 0; i < pages.length; i++) {
+          const page = pages[i];
+          const isIndex = i === 0;
+          const uniqueFilename = pageFilenameMap.get(page.id) || "page.html";
+          const filename = isIndex ? "index.html" : `html/${uniqueFilename}`;
+          let html = pageHtmlMap.get(filename) || "";
+          if (needsElpxDownload) {
+            html = this.injectElpxScripts(html, page, isIndex);
+          }
+          this.zip.addFile(filename, html);
+        }
         const lomXml = this.lomGenerator.generate();
         this.zip.addFile("imslrm.xml", lomXml);
         const allZipFiles = this.zip.getFilePaths();
@@ -8861,7 +9164,12 @@ ${indentStr}</imsss:sequencing>
       }
     }
     /**
-     * Generate project ID for SCORM package
+     * Generate a random low-level project ID.
+     *
+     * @deprecated Since #1785, the SCORM manifest identifier is derived from
+     * the project's odeIdentifier via {@link BaseExporter.getManifestIdentifier}
+     * so LMS tracking survives re-uploads. This helper is kept only for
+     * external callers/tests and is no longer used by the export pipeline.
      */
     generateProjectId() {
       return Date.now().toString(36) + Math.random().toString(36).substring(2, 7);
@@ -8877,7 +9185,7 @@ ${indentStr}</imsss:sequencing>
      * @param faviconInfo - Favicon info (optional)
      * @param pageFilenameMap - Map of page IDs to unique filenames (optional, handles title collisions)
      */
-    generateScorm2004PageHtml(page, allPages, meta, isIndex, themeFiles, pageIndex, faviconInfo, pageFilenameMap) {
+    generateScorm2004PageHtml(page, allPages, meta, isIndex, themeFiles, pageIndex, faviconInfo, pageFilenameMap, navLabels) {
       const basePath = isIndex ? "" : "../";
       const usedIdevices = this.getUsedIdevicesForPage(page);
       let customStyles = meta.customStyles || "";
@@ -8906,31 +9214,25 @@ ${indentStr}</imsss:sequencing>
         license: meta.license || "",
         description: meta.description || "",
         licenseUrl: meta.licenseUrl || "",
-        // Export options - SCORM specific overrides
-        // SCORM/IMS exports don't use client-side search - LMS handles navigation
         addSearchBox: false,
-        // Force page counter for SCORM
-        addPagination: true,
+        addExeLink: meta.addExeLink ?? true,
+        addPagination: meta.addPagination ?? false,
         totalPages: allPages.length,
         currentPageIndex: pageIndex ?? 0,
-        // SCORM 2004-specific options
         isScorm: true,
         scormVersion: "2004",
         bodyClass,
         extraHeadScripts: this.getScorm2004HeadScripts(basePath),
         onLoadScript: "loadPage()",
         onUnloadScript: "unloadPage()",
-        // Hide navigation elements - LMS handles navigation in SCORM
         hideNavigation: true,
         hideNavButtons: true,
-        // Theme files for HTML head includes
         themeFiles: themeFiles || [],
-        // Favicon options
         faviconPath: faviconInfo?.path,
         faviconType: faviconInfo?.type,
-        // Page filename map for navigation links (handles title collisions)
         pageFilenameMap,
-        // Application version for generator meta tag
+        // Pre-translated nav button labels (resolved from XLF at export time)
+        navLabels,
         version: meta.exelearningVersion
       });
     }
@@ -9122,14 +9424,19 @@ function setScore(score, maxScore, minScore) {
   // src/shared/export/generators/ImsManifest.ts
   var ImsManifestGenerator = class {
     /**
-     * @param projectId - Unique project identifier
+     * @param projectId - Bare project identifier (used for organization id and resource ids)
      * @param pages - Pages from navigation structure
      * @param metadata - Project metadata
+     * @param manifestIdentifier - Optional pre-built manifest@identifier. When provided
+     *   it is used verbatim (no `eXe-MANIFEST-` prefix is prepended). Pass this from
+     *   BaseExporter.getManifestIdentifier() so re-exports of the same project produce
+     *   a stable identifier the LMS can track (see exelearning/exelearning#1785).
      */
-    constructor(projectId, pages, metadata = {}) {
+    constructor(projectId, pages, metadata = {}, manifestIdentifier = null) {
       this.projectId = projectId || this.generateId();
       this.pages = pages || [];
       this.metadata = metadata;
+      this.manifestIdentifier = manifestIdentifier;
     }
     /**
      * Generate a unique ID for the project
@@ -9184,7 +9491,8 @@ function setScore(score, maxScore, minScore) {
      * @returns Manifest opening XML
      */
     generateManifestOpen() {
-      return `<manifest identifier="eXe-MANIFEST-${this.escapeXml(this.projectId)}"
+      const identifier = this.manifestIdentifier ?? `eXe-MANIFEST-${this.projectId}`;
+      return `<manifest identifier="${this.escapeXml(identifier)}"
   xmlns="${IMS_NAMESPACES.imscp}"
   xmlns:imsmd="${IMS_NAMESPACES.imsmd}">
 `;
@@ -9387,23 +9695,37 @@ function setScore(score, maxScore, minScore) {
         let pages = this.buildPageList();
         const meta = this.getMetadata();
         const themeName = options?.theme || meta.theme || "base";
-        const projectId = this.generateProjectId();
+        const manifestIdentifier = this.getManifestIdentifier();
+        const projectId = this.getBareProjectIdentifier();
         pages = await this.preprocessPagesForExport(pages);
         pages = pages.filter((p) => this.isPageVisible(p, pages));
         const pageFilenameMap = this.buildPageFilenameMap(pages);
-        this.manifestGenerator = new ImsManifestGenerator(projectId, pages, {
-          identifier: projectId,
+        const needsElpxDownload = this.needsElpxDownloadSupport(pages);
+        const fileList = needsElpxDownload ? [] : null;
+        const addFile = (path, content) => {
+          this.zip.addFile(path, content);
+          if (fileList) fileList.push(path);
+        };
+        this.manifestGenerator = new ImsManifestGenerator(
+          projectId,
           pages,
-          title: meta.title || "eXeLearning",
-          language: meta.language || "en",
-          author: meta.author || "",
-          description: meta.description || "",
-          license: meta.license || ""
-        });
+          {
+            identifier: manifestIdentifier,
+            pages,
+            title: meta.title || "eXeLearning",
+            language: meta.language || "en",
+            author: meta.author || "",
+            description: meta.description || "",
+            license: meta.license || ""
+          },
+          manifestIdentifier
+        );
         const commonFiles = [];
         const pageFiles = {};
         const { themeFilesMap, themeRootFiles, faviconInfo } = await this.prepareThemeData(themeName);
         this.ideviceRenderer.setThemeIconFiles(themeFilesMap);
+        const navLabels = await this.fetchNavLabels(meta.language || "en", meta.license);
+        const pageHtmlMap = /* @__PURE__ */ new Map();
         let latexWasRendered = false;
         let mermaidWasRendered = false;
         for (let i = 0; i < pages.length; i++) {
@@ -9417,7 +9739,8 @@ function setScore(score, maxScore, minScore) {
             themeRootFiles,
             i,
             faviconInfo,
-            pageFilenameMap
+            pageFilenameMap,
+            navLabels
           );
           if (!meta.addMathJax) {
             if (options?.preRenderDataGameLatex) {
@@ -9465,7 +9788,7 @@ function setScore(score, maxScore, minScore) {
           }
           const uniqueFilename = pageFilenameMap.get(page.id) || "page.html";
           const pageFilename = isIndex ? "index.html" : `html/${uniqueFilename}`;
-          this.zip.addFile(pageFilename, html);
+          pageHtmlMap.set(pageFilename, html);
           pageFiles[page.id] = {
             fileUrl: pageFilename,
             files: []
@@ -9488,48 +9811,57 @@ function setScore(score, maxScore, minScore) {
           const encoder = new TextEncoder();
           baseCss = encoder.encode(baseCssText);
         }
-        this.zip.addFile("content/css/base.css", baseCss);
+        addFile("content/css/base.css", baseCss);
         commonFiles.push("content/css/base.css");
+        if (meta.addExeLink !== false) {
+          try {
+            const logoData = await this.resources.fetchExeLogo();
+            if (logoData) {
+              addFile("content/img/exe_powered_logo.png", logoData);
+              commonFiles.push("content/img/exe_powered_logo.png");
+            }
+          } catch {
+          }
+        }
         if (themeFilesMap) {
           for (const [filePath, content] of themeFilesMap) {
-            this.zip.addFile(`theme/${filePath}`, content);
+            addFile(`theme/${filePath}`, content);
             commonFiles.push(`theme/${filePath}`);
           }
         } else {
-          this.zip.addFile("theme/style.css", this.getFallbackThemeCss());
-          this.zip.addFile("theme/style.js", this.getFallbackThemeJs());
+          addFile("theme/style.css", this.getFallbackThemeCss());
+          addFile("theme/style.js", this.getFallbackThemeJs());
           commonFiles.push("theme/style.css", "theme/style.js");
         }
         try {
           const baseLibs = await this.resources.fetchBaseLibraries();
           for (const [path, content] of baseLibs) {
-            this.zip.addFile(`libs/${path}`, content);
+            addFile(`libs/${path}`, content);
             commonFiles.push(`libs/${path}`);
           }
         } catch {
         }
-        const i18nContent = generateI18nScript(meta.language || "en");
-        this.zip.addFile("libs/common_i18n.js", new TextEncoder().encode(i18nContent));
+        const i18nContent = await this.generateI18nContent(meta.language || "en");
+        addFile("libs/common_i18n.js", new TextEncoder().encode(i18nContent));
         commonFiles.push("libs/common_i18n.js");
-        const allHtmlContent = this.collectAllHtmlContent(pages);
-        const { files: allRequiredFiles, patterns } = this.libraryDetector.getAllRequiredFilesWithPatterns(
-          allHtmlContent,
-          {
-            includeAccessibilityToolbar: meta.addAccessibilityToolbar === true,
-            includeMathJax: meta.addMathJax === true,
-            skipMathJax: latexWasRendered && !meta.addMathJax
-          }
-        );
+        const { files: allRequiredFiles, patterns } = this.getRequiredLibraryFilesForPages(pages, {
+          includeAccessibilityToolbar: meta.addAccessibilityToolbar === true,
+          includeMathJax: meta.addMathJax === true,
+          skipMathJax: latexWasRendered && !meta.addMathJax
+        });
         try {
           const libFiles = await this.resources.fetchLibraryFiles(allRequiredFiles, patterns);
           for (const [libPath, content] of libFiles) {
             const zipPath = `libs/${libPath}`;
             if (!this.zip.hasFile(zipPath)) {
-              this.zip.addFile(zipPath, content);
+              addFile(zipPath, content);
               commonFiles.push(zipPath);
             }
           }
         } catch {
+        }
+        if (needsElpxDownload) {
+          await this.ensureElpxDownloadLibraries(addFile, commonFiles);
         }
         const usedIdevices = this.getUsedIdevices(pages);
         for (const idevice of usedIdevices) {
@@ -9537,7 +9869,7 @@ function setScore(score, maxScore, minScore) {
             const normalizedType = this.resources.normalizeIdeviceType(idevice);
             const ideviceFiles = await this.resources.fetchIdeviceResources(idevice);
             for (const [path, content] of ideviceFiles) {
-              this.zip.addFile(`idevices/${normalizedType}/${path}`, content);
+              addFile(`idevices/${normalizedType}/${path}`, content);
               commonFiles.push(`idevices/${normalizedType}/${path}`);
             }
           } catch {
@@ -9548,7 +9880,7 @@ function setScore(score, maxScore, minScore) {
             const fontFiles = await this.resources.fetchGlobalFontFiles(meta.globalFont);
             if (fontFiles) {
               for (const [filePath, content] of fontFiles) {
-                this.zip.addFile(filePath, content);
+                addFile(filePath, content);
                 commonFiles.push(filePath);
               }
             }
@@ -9556,11 +9888,26 @@ function setScore(score, maxScore, minScore) {
             console.warn(`[ImsExporter] Failed to fetch global font files: ${meta.globalFont}`, e);
           }
         }
-        await this.addAssetsToZipWithResourcePath();
+        await this.addAssetsToZipWithResourcePath(fileList);
         const contentXml = generateOdeXml(meta, pages);
-        this.zip.addFile("content.xml", contentXml);
-        this.zip.addFile(ODE_DTD_FILENAME, ODE_DTD_CONTENT);
+        addFile("content.xml", contentXml);
+        addFile(ODE_DTD_FILENAME, ODE_DTD_CONTENT);
         commonFiles.push("content.xml", ODE_DTD_FILENAME);
+        if (needsElpxDownload && fileList) {
+          const pageUrls = Object.values(pageFiles).map((pf) => pf.fileUrl);
+          this.addElpxManifestToZip(fileList, pageUrls, commonFiles);
+        }
+        for (let i = 0; i < pages.length; i++) {
+          const page = pages[i];
+          const isIndex = i === 0;
+          const uniqueFilename = pageFilenameMap.get(page.id) || "page.html";
+          const filename = isIndex ? "index.html" : `html/${uniqueFilename}`;
+          let html = pageHtmlMap.get(filename) || "";
+          if (needsElpxDownload) {
+            html = this.injectElpxScripts(html, page, isIndex);
+          }
+          this.zip.addFile(filename, html);
+        }
         const allZipFiles = this.zip.getFilePaths();
         const manifestXml = this.manifestGenerator.generate({
           commonFiles,
@@ -9582,7 +9929,12 @@ function setScore(score, maxScore, minScore) {
       }
     }
     /**
-     * Generate project ID for IMS package
+     * Generate a random low-level project ID.
+     *
+     * @deprecated Since #1785, the IMS manifest identifier is derived from
+     * the project's odeIdentifier via {@link BaseExporter.getManifestIdentifier}
+     * so LMS tracking survives re-uploads. This helper is kept only for
+     * external callers/tests and is no longer used by the export pipeline.
      */
     generateProjectId() {
       return Date.now().toString(36) + Math.random().toString(36).substring(2, 7);
@@ -9598,7 +9950,7 @@ function setScore(score, maxScore, minScore) {
      * @param faviconInfo - Favicon info (optional)
      * @param pageFilenameMap - Map of page IDs to unique filenames (optional, handles title collisions)
      */
-    generateImsPageHtml(page, allPages, meta, isIndex, themeFiles, pageIndex, faviconInfo, pageFilenameMap) {
+    generateImsPageHtml(page, allPages, meta, isIndex, themeFiles, pageIndex, faviconInfo, pageFilenameMap, navLabels) {
       const basePath = isIndex ? "" : "../";
       const usedIdevices = this.getUsedIdevicesForPage(page);
       let customStyles = meta.customStyles || "";
@@ -9630,8 +9982,8 @@ function setScore(score, maxScore, minScore) {
         // Export options - IMS specific overrides
         // IMS exports don't use client-side search - LMS handles navigation
         addSearchBox: false,
-        // Force page counter for IMS
-        addPagination: true,
+        addExeLink: meta.addExeLink ?? true,
+        addPagination: meta.addPagination ?? false,
         totalPages: allPages.length,
         currentPageIndex: pageIndex ?? 0,
         bodyClass,
@@ -9645,21 +9997,15 @@ function setScore(score, maxScore, minScore) {
         faviconType: faviconInfo?.type,
         // Page filename map for navigation links (handles title collisions)
         pageFilenameMap,
+        // Pre-translated nav button labels (resolved from XLF at export time)
+        navLabels,
         // Application version for generator meta tag
         version: meta.exelearningVersion
       });
     }
   };
 
-  // src/shared/export/exporters/Epub3Exporter.ts
-  var EPUB3_NAMESPACES = {
-    OPF: "http://www.idpf.org/2007/opf",
-    DC: "http://purl.org/dc/elements/1.1/",
-    XHTML: "http://www.w3.org/1999/xhtml",
-    EPUB: "http://www.idpf.org/2007/ops",
-    CONTAINER: "urn:oasis:names:tc:opendocument:xmlns:container"
-  };
-  var EPUB3_MIMETYPE = "application/epub+zip";
+  // src/shared/utils/html-constants.ts
   var VOID_ELEMENTS = [
     "area",
     "base",
@@ -9676,6 +10022,16 @@ function setScore(score, maxScore, minScore) {
     "track",
     "wbr"
   ];
+
+  // src/shared/export/exporters/Epub3Exporter.ts
+  var EPUB3_NAMESPACES = {
+    OPF: "http://www.idpf.org/2007/opf",
+    DC: "http://purl.org/dc/elements/1.1/",
+    XHTML: "http://www.w3.org/1999/xhtml",
+    EPUB: "http://www.idpf.org/2007/ops",
+    CONTAINER: "urn:oasis:names:tc:opendocument:xmlns:container"
+  };
+  var EPUB3_MIMETYPE = "application/epub+zip";
   var MIME_TYPES = {
     ".xhtml": "application/xhtml+xml",
     ".html": "application/xhtml+xml",
@@ -9740,11 +10096,21 @@ function setScore(score, maxScore, minScore) {
         const navXhtml = this.generateNavXhtml(pages, meta, pageFilenameMap);
         this.zip.addFile("EPUB/nav.xhtml", navXhtml);
         this.addManifestItem("nav", "nav.xhtml", "application/xhtml+xml", "nav");
+        const navLabels = await this.fetchNavLabels(meta.language || "en", meta.license);
         let latexWasRendered = false;
         let mermaidWasRendered = false;
         for (let i = 0; i < pages.length; i++) {
           const page = pages[i];
-          let xhtml = this.generatePageXhtml(page, pages, meta, i === 0, i, themeRootFiles, faviconInfo);
+          let xhtml = this.generatePageXhtml(
+            page,
+            pages,
+            meta,
+            i === 0,
+            i,
+            themeRootFiles,
+            faviconInfo,
+            navLabels
+          );
           if (!meta.addMathJax) {
             if (options?.preRenderDataGameLatex) {
               try {
@@ -9800,13 +10166,15 @@ function setScore(score, maxScore, minScore) {
         }
         this.zip.addFile("EPUB/content/css/base.css", baseCss);
         this.addManifestItem("css-base", "content/css/base.css", "text/css");
-        try {
-          const logoData = await this.resources.fetchExeLogo();
-          if (logoData) {
-            this.zip.addFile("EPUB/content/img/exe_powered_logo.png", logoData);
-            this.addManifestItem("exe-logo", "content/img/exe_powered_logo.png", "image/png");
+        if (meta.addExeLink !== false) {
+          try {
+            const logoData = await this.resources.fetchExeLogo();
+            if (logoData) {
+              this.zip.addFile("EPUB/content/img/exe_powered_logo.png", logoData);
+              this.addManifestItem("exe-logo", "content/img/exe_powered_logo.png", "image/png");
+            }
+          } catch {
           }
-        } catch {
         }
         if (themeFilesMap) {
           for (const [filePath, content] of themeFilesMap) {
@@ -9819,13 +10187,9 @@ function setScore(score, maxScore, minScore) {
           this.zip.addFile("EPUB/theme/style.css", this.getFallbackThemeCss());
           this.addManifestItem("theme-css", "theme/style.css", "text/css");
         }
-        const allHtmlContent = this.collectAllHtmlContent(pages);
-        const { files: allRequiredFiles, patterns } = this.libraryDetector.getAllRequiredFilesWithPatterns(
-          allHtmlContent,
-          {
-            includeAccessibilityToolbar: meta.addAccessibilityToolbar === true
-          }
-        );
+        const { files: allRequiredFiles, patterns } = this.getRequiredLibraryFilesForPages(pages, {
+          includeAccessibilityToolbar: meta.addAccessibilityToolbar === true
+        });
         try {
           const libFiles = await this.resources.fetchLibraryFiles(allRequiredFiles, patterns);
           for (const [path, content] of libFiles) {
@@ -9848,7 +10212,7 @@ function setScore(score, maxScore, minScore) {
           } catch {
           }
         }
-        const i18nContent = generateI18nScript(meta.language || "en");
+        const i18nContent = await this.generateI18nContent(meta.language || "en");
         this.zip.addFile("EPUB/libs/common_i18n.js", i18nContent);
         this.addManifestItem("common-i18n", "libs/common_i18n.js", "application/javascript");
         const guardsScript = this.generateEpubGuardsScript();
@@ -10103,7 +10467,7 @@ function setScore(score, maxScore, minScore) {
      * @param themeFiles - List of root-level theme CSS/JS files
      * @param faviconInfo - Favicon info for theme or default
      */
-    generatePageXhtml(page, allPages, meta, isIndex, pageIndex, themeFiles, faviconInfo) {
+    generatePageXhtml(page, allPages, meta, isIndex, pageIndex, themeFiles, faviconInfo, navLabels) {
       const lang = meta.language || "en";
       const basePath = isIndex ? "" : "../";
       const usedIdevices = this.getUsedIdevicesForPage(page);
@@ -10143,10 +10507,12 @@ function setScore(score, maxScore, minScore) {
         hideNavigation: true,
         // Hide nav buttons - EPUB reader handles navigation
         hideNavButtons: true,
-        // Page counter (only if user has the option enabled)
+        addExeLink: meta.addExeLink ?? true,
         addPagination: meta.addPagination === true,
         totalPages: allPages.length,
         currentPageIndex: pageIndex,
+        // Pre-translated labels (resolved from XLF at export time)
+        navLabels,
         // Application version for generator meta tag
         version: meta.exelearningVersion,
         // EPUB-specific: load guard script for duplicate execution protection
@@ -10194,12 +10560,11 @@ ${xhtml}`;
     async addEpubAssets() {
       let assetsAdded = 0;
       try {
-        const assets = await this.assets.getAllAssets();
         const exportPathMap = await this.buildAssetExportPathMap();
-        for (const asset of assets) {
+        const processAsset = async (asset) => {
           const exportPath = exportPathMap.get(asset.id);
           if (!exportPath) {
-            continue;
+            return;
           }
           const zipPath = `content/resources/${exportPath}`;
           this.zip.addFile(`EPUB/${zipPath}`, asset.data);
@@ -10207,7 +10572,8 @@ ${xhtml}`;
           const mimeType = MIME_TYPES[ext] || asset.mime || "application/octet-stream";
           this.addManifestItem(this.generateUniqueId(`asset-${asset.id}`), zipPath, mimeType);
           assetsAdded++;
-        }
+        };
+        await this.forEachAsset(processAsset);
       } catch (e) {
         console.warn("[Epub3Exporter] Failed to add assets:", e);
       }
@@ -10472,6 +10838,32 @@ ${originalCode}
   // src/shared/export/exporters/ElpxExporter.ts
   var ElpxExporter = class extends Html5Exporter {
     /**
+     * Decode screenshot from base64 data URL or raw base64 to Uint8Array.
+     * Returns null if the data is not valid PNG.
+     */
+    decodeScreenshotToBuffer(screenshot) {
+      try {
+        let base64Data = screenshot;
+        if (base64Data.startsWith("data:")) {
+          const commaIndex = base64Data.indexOf(",");
+          if (commaIndex === -1) return null;
+          base64Data = base64Data.substring(commaIndex + 1);
+        }
+        const binaryString = atob(base64Data);
+        const bytes = new Uint8Array(binaryString.length);
+        for (let i = 0; i < binaryString.length; i++) {
+          bytes[i] = binaryString.charCodeAt(i);
+        }
+        if (bytes.length >= 8 && bytes[0] === 137 && bytes[1] === 80 && bytes[2] === 78 && bytes[3] === 71 && bytes[4] === 13 && bytes[5] === 10 && bytes[6] === 26 && bytes[7] === 10) {
+          return bytes;
+        }
+        console.warn("[ElpxExporter] Screenshot data is not a valid PNG");
+        return null;
+      } catch {
+        return null;
+      }
+    }
+    /**
      * Get file extension for ELPX format
      */
     getFileExtension() {
@@ -10494,11 +10886,18 @@ ${originalCode}
       const exportFilename = options?.filename || this.buildFilename();
       const elpxOptions = options;
       try {
+        this.logElpxExportDebugPhase("exporter:elpx:start");
         let pages = this.buildPageList();
+        this.logElpxExportDebugPhase("exporter:build-page-list:end", {
+          pages: pages.length
+        });
         const meta = this.getMetadata();
         const themeName = elpxOptions?.theme || meta.theme || "base";
         const needsElpxDownload = this.needsElpxDownloadSupport(pages);
         pages = await this.preprocessPagesForExport(pages);
+        this.logElpxExportDebugPhase("exporter:prepare-theme:start", {
+          theme: themeName
+        });
         const pageFilenameMap = this.buildPageFilenameMap(pages);
         const fileList = needsElpxDownload ? [] : null;
         const addFile = (path, content) => {
@@ -10506,8 +10905,22 @@ ${originalCode}
           if (fileList) fileList.push(path);
         };
         const { themeFilesMap, themeRootFiles, faviconInfo } = await this.prepareThemeData(themeName);
+        this.logElpxExportDebugPhase("exporter:prepare-theme:end", {
+          theme: themeName,
+          themeFiles: themeFilesMap?.size || 0
+        });
+        this.logElpxExportDebugPhase("exporter:nav-labels:start", {
+          language: meta.language || "en"
+        });
+        const navLabels = await this.fetchNavLabels(meta.language || "en", meta.license);
+        this.logElpxExportDebugPhase("exporter:nav-labels:end", {
+          language: meta.language || "en"
+        });
         const pageHtmlMap = /* @__PURE__ */ new Map();
         let mermaidWasRendered = false;
+        this.logElpxExportDebugPhase("exporter:generate-pages:start", {
+          pages: pages.length
+        });
         for (let i = 0; i < pages.length; i++) {
           const page = pages[i];
           let html = this.generatePageHtml(
@@ -10518,7 +10931,9 @@ ${originalCode}
             i,
             themeRootFiles,
             faviconInfo,
-            pageFilenameMap
+            pageFilenameMap,
+            void 0,
+            navLabels
           );
           if (options?.preRenderMermaid) {
             try {
@@ -10538,10 +10953,14 @@ ${originalCode}
           const pageFilename = i === 0 ? "index.html" : `html/${uniqueFilename}`;
           pageHtmlMap.set(pageFilename, html);
         }
+        this.logElpxExportDebugPhase("exporter:generate-pages:end", {
+          pages: pageHtmlMap.size
+        });
         if (meta.addSearchBox) {
           const searchIndexContent = this.pageRenderer.generateSearchIndexFile(pages, "", pageFilenameMap);
           addFile("search_index.js", searchIndexContent);
         }
+        this.logElpxExportDebugPhase("exporter:content-css:start");
         const contentCssFiles = await this.resources.fetchContentCss();
         let baseCss = contentCssFiles.get("content/css/base.css");
         if (!baseCss) {
@@ -10555,6 +10974,9 @@ ${originalCode}
           baseCss = encoder.encode(baseCssText);
         }
         addFile("content/css/base.css", baseCss);
+        this.logElpxExportDebugPhase("exporter:content-css:end", {
+          files: contentCssFiles.size
+        });
         try {
           const logoData = await this.resources.fetchExeLogo();
           if (logoData) {
@@ -10571,22 +10993,26 @@ ${originalCode}
           addFile("theme/style.js", this.getFallbackThemeJs());
         }
         try {
+          this.logElpxExportDebugPhase("exporter:base-libs:start");
           const baseLibs = await this.resources.fetchBaseLibraries();
           for (const [libPath, content] of baseLibs) {
             addFile(`libs/${libPath}`, content);
           }
+          this.logElpxExportDebugPhase("exporter:base-libs:end", {
+            files: baseLibs.size
+          });
         } catch {
         }
-        const i18nContent = generateI18nScript(meta.language || "en");
+        const i18nContent = await this.generateI18nContent(meta.language || "en");
         addFile("libs/common_i18n.js", i18nContent);
-        const allHtmlContent = this.collectAllHtmlContent(pages);
-        const { files: allRequiredFiles, patterns } = this.libraryDetector.getAllRequiredFilesWithPatterns(
-          allHtmlContent,
-          {
-            includeAccessibilityToolbar: meta.addAccessibilityToolbar === true
-          }
-        );
+        const { files: allRequiredFiles, patterns } = this.getRequiredLibraryFilesForPages(pages, {
+          includeAccessibilityToolbar: meta.addAccessibilityToolbar === true
+        });
         try {
+          this.logElpxExportDebugPhase("exporter:content-libs:start", {
+            requestedFiles: allRequiredFiles.length,
+            patterns: patterns.length
+          });
           const libFiles = await this.resources.fetchLibraryFiles(allRequiredFiles, patterns);
           for (const [libPath, content] of libFiles) {
             const zipPath = `libs/${libPath}`;
@@ -10594,9 +11020,15 @@ ${originalCode}
               addFile(zipPath, content);
             }
           }
+          this.logElpxExportDebugPhase("exporter:content-libs:end", {
+            files: libFiles.size
+          });
         } catch {
         }
         const usedIdevices = this.getUsedIdevices(pages);
+        this.logElpxExportDebugPhase("exporter:idevice-resources:start", {
+          idevices: usedIdevices.length
+        });
         for (const idevice of usedIdevices) {
           try {
             const normalizedType = this.resources.normalizeIdeviceType(idevice);
@@ -10607,6 +11039,9 @@ ${originalCode}
           } catch {
           }
         }
+        this.logElpxExportDebugPhase("exporter:idevice-resources:end", {
+          idevices: usedIdevices.length
+        });
         await this.addAssetsToZipWithResourcePath(fileList);
         if (needsElpxDownload && fileList) {
           for (const [htmlFile] of pageHtmlMap) {
@@ -10646,7 +11081,38 @@ ${formatValidationErrors(validation)}`);
         }
         this.zip.addFile("content.xml", contentXml);
         this.zip.addFile(ODE_DTD_FILENAME, ODE_DTD_CONTENT);
+        let screenshotBuffer = null;
+        if (meta.screenshot) {
+          screenshotBuffer = this.decodeScreenshotToBuffer(meta.screenshot);
+        }
+        if (!screenshotBuffer && options?.generateScreenshot) {
+          try {
+            const firstPageHtml = pageHtmlMap.get("index.html");
+            if (firstPageHtml) {
+              const dataUrl = await options.generateScreenshot(firstPageHtml);
+              if (dataUrl) {
+                screenshotBuffer = this.decodeScreenshotToBuffer(dataUrl);
+              }
+            }
+          } catch (error) {
+            console.warn("[ElpxExporter] Screenshot auto-generation failed:", error);
+          }
+        }
+        if (screenshotBuffer) {
+          this.zip.addFile("screenshot.png", screenshotBuffer);
+        }
+        this.logElpxExportDebugPhase("exporter:zip-generate:start", {
+          zipFiles: fileList?.length || this.zip.getFilePaths?.().length || null
+        });
         const buffer = await this.zip.generateAsync();
+        const zipStats = this.zip.getLastGenerateStats?.() || null;
+        this.logElpxExportDebugPhase("exporter:zip-generate:end", {
+          bytes: buffer.byteLength,
+          deflatedFiles: zipStats?.deflatedFiles ?? null,
+          storedFiles: zipStats?.storedFiles ?? null,
+          deflatedBytes: zipStats?.deflatedBytes ?? null,
+          storedBytes: zipStats?.storedBytes ?? null
+        });
         return {
           success: true,
           filename: exportFilename,
@@ -10954,12 +11420,7 @@ ${logoCss}
       this.assetExportPathMap = /* @__PURE__ */ new Map();
       this.assetFilenameMap = /* @__PURE__ */ new Map();
       try {
-        const assets = await this.assets.getAllAssets();
-        console.log(`[PrintPreview] Building asset map for ${assets.length} assets`);
-        if (assets.length > 0) {
-          console.log("[PrintPreview] First asset sample:", assets[0]);
-        }
-        for (const asset of assets) {
+        const processAsset = async (asset) => {
           let blobUrl = "";
           if (asset.data) {
             try {
@@ -10980,10 +11441,25 @@ ${logoCss}
               this.assetFilenameMap.set(asset.filename, blobUrl);
             }
           }
-        }
+        };
+        await this.iterateAssets(processAsset);
         console.log("[PrintPreview] Asset map built. Size:", this.assetExportPathMap.size);
       } catch (e) {
         console.warn("[PrintPreviewExporter] Failed to build asset map:", e);
+      }
+    }
+    /**
+     * Iterate over all assets using the most efficient method available.
+     * Uses forEachAsset() when supported (streaming), otherwise falls back to getAllAssets().
+     */
+    async iterateAssets(callback) {
+      if (this.assets.forEachAsset) {
+        await this.assets.forEachAsset(callback);
+      } else {
+        const assets = await this.assets.getAllAssets();
+        for (const asset of assets) {
+          await callback(asset);
+        }
       }
     }
     /**
@@ -11528,7 +12004,6 @@ $(function() {
      */
     async addComponentAssetsToZip(block, singleComponent) {
       try {
-        const allAssets = await this.assets.getAllAssets();
         const exportPathMap = await this.buildAssetExportPathMap();
         const components = singleComponent ? [singleComponent] : block.components || [];
         const usedAssetIds = /* @__PURE__ */ new Set();
@@ -11548,7 +12023,7 @@ $(function() {
         }
         console.log(`[ComponentExporter] Found ${usedAssetIds.size} referenced assets`);
         let addedCount = 0;
-        for (const asset of allAssets) {
+        const processAsset = async (asset) => {
           if (usedAssetIds.has(asset.id)) {
             const exportPath = exportPathMap.get(asset.id);
             if (exportPath) {
@@ -11560,7 +12035,8 @@ $(function() {
               console.warn(`[ComponentExporter] No export path for asset: ${asset.id}`);
             }
           }
-        }
+        };
+        await this.forEachAsset(processAsset);
         console.log(`[ComponentExporter] Added ${addedCount} assets to ZIP`);
       } catch (e) {
         console.warn("[ComponentExporter] Failed to add assets:", e);
@@ -11641,12 +12117,8 @@ $(function() {
       }
       let assetsAdded = 0;
       try {
-        const allAssets = await this.assets.getAllAssets();
         const exportPathMap = await this.buildAssetExportPathMap();
-        console.log(
-          `[PageElpxExporter] Filtering ${allAssets.length} total assets, keeping ${this.filteredAssetIds.size} referenced`
-        );
-        for (const asset of allAssets) {
+        const processAsset = async (asset) => {
           if (this.filteredAssetIds.has(asset.id)) {
             const exportPath = exportPathMap.get(asset.id);
             if (exportPath) {
@@ -11654,12 +12126,12 @@ $(function() {
               this.zip.addFile(zipPath, asset.data);
               if (trackingList) trackingList.push(zipPath);
               assetsAdded++;
-              console.log(`[PageElpxExporter] Added referenced asset: ${zipPath}`);
             } else {
               console.warn(`[PageElpxExporter] No export path for referenced asset: ${asset.id}`);
             }
           }
-        }
+        };
+        await this.forEachAsset(processAsset);
         console.log(`[PageElpxExporter] Added ${assetsAdded} filtered assets to ZIP`);
       } catch (e) {
         console.warn("[PageElpxExporter] Failed to add assets to ZIP:", e);
@@ -12101,24 +12573,7 @@ $(function() {
       const mermaidHooks = getMermaidPreRendererHooks();
       const exportOptions = { ...options, ...latexHooks, ...mermaidHooks };
       const filesMap = await exporter.generateForPreview(exportOptions);
-      const files = {};
-      for (const [path, content] of filesMap) {
-        if (content instanceof Uint8Array) {
-          files[path] = content.buffer.slice(
-            content.byteOffset,
-            content.byteOffset + content.byteLength
-          );
-        } else if (typeof content === "string") {
-          const encoder = new TextEncoder();
-          const encoded = encoder.encode(content);
-          files[path] = encoded.buffer.slice(
-            encoded.byteOffset,
-            encoded.byteOffset + encoded.byteLength
-          );
-        } else {
-          files[path] = content;
-        }
-      }
+      const files = Object.fromEntries(filesMap);
       console.log(`[SharedExporters] Generated ${Object.keys(files).length} preview files for SW`);
       return {
         success: true,
