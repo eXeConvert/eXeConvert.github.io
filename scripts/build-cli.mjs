@@ -1,9 +1,10 @@
-import { cp, mkdir, rm, writeFile } from 'node:fs/promises';
+import { cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 
 const rootDir = dirname(fileURLToPath(new URL('../package.json', import.meta.url)));
+const { version } = JSON.parse(await readFile(resolve(rootDir, 'package.json'), 'utf8'));
 const distDir = resolve(rootDir, 'dist/cli');
 const publicSourceDir = resolve(rootDir, 'app/public');
 const publicTargetDir = resolve(distDir, 'app/public');
@@ -29,6 +30,11 @@ function run(command, args) {
 
 await rm(distDir, { recursive: true, force: true });
 await run(process.execPath, [tscPath, '-p', 'tsconfig.cli.build.json']);
+
+// Replace __CLI_VERSION__ placeholder with the actual package version
+const cliBundle = resolve(distDir, 'cli/execonvert.js');
+const cliSource = await readFile(cliBundle, 'utf8');
+await writeFile(cliBundle, cliSource.replace(/__CLI_VERSION__/g, version), 'utf8');
 await mkdir(publicTargetDir, { recursive: true });
 await cp(publicSourceDir, publicTargetDir, { recursive: true });
 await writeFile(

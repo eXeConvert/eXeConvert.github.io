@@ -9,6 +9,13 @@ Categorías usadas: **Añadido**, **Cambiado**, **Corregido**, **Eliminado**.
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-06-25
+
+### Corregido
+- `CLI_VERSION` ya no está hardcodeado: el script de build lo inyecta desde
+  `package.json` al compilar, por lo que versión del binario y versión del
+  paquete npm siempre coinciden sin intervención manual.
+
 ## [0.4.1] - 2026-06-25
 
 ### Corregido
