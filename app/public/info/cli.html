@@ -133,6 +133,61 @@
         flex-wrap: wrap;
         gap: 12px;
         margin-top: 18px;
+        align-items: center;
+      }
+
+      .npm-install-inline {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+
+      .npm-or {
+        color: var(--muted);
+        font-size: 0.98rem;
+        white-space: nowrap;
+      }
+
+      .npm-cmd-wrap {
+        display: inline-flex;
+        align-items: center;
+        gap: 0;
+        border-radius: 999px;
+        border: 1.5px solid var(--line);
+        background: #182117;
+        overflow: hidden;
+        height: 48px;
+      }
+
+      .npm-cmd {
+        padding: 0 14px 0 18px;
+        color: #eef7eb;
+        font-size: 0.92rem;
+        white-space: nowrap;
+        line-height: 1;
+      }
+
+      .copy-btn {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        height: 100%;
+        padding: 0 14px;
+        background: rgba(255,255,255,0.08);
+        border: none;
+        border-left: 1px solid rgba(255,255,255,0.12);
+        color: #a8d890;
+        font-family: inherit;
+        font-size: 0.85rem;
+        font-weight: 700;
+        cursor: pointer;
+        white-space: nowrap;
+        transition: background 0.15s;
+      }
+
+      .copy-btn:hover {
+        background: rgba(255,255,255,0.16);
       }
 
       .button {
@@ -356,6 +411,13 @@
 
         <div class="cta-row">
           <a id="cli-download-button" class="button primary" href="https://github.com/eXeConvert/eXeConvert.github.io/releases/latest" target="_blank" rel="noopener">Descargar la última versión</a>
+          <div class="npm-install-inline">
+            <span id="npm-or-label" class="npm-or">o con Node.js:</span>
+            <div class="npm-cmd-wrap">
+              <code id="npm-cmd-text" class="npm-cmd">npm install -g execonvert</code>
+              <button id="npm-copy-btn" class="copy-btn">Copiar</button>
+            </div>
+          </div>
         </div>
 
       </section>
@@ -364,10 +426,6 @@
         <section class="panel">
           <h2 id="downloads-title">Qué descargar</h2>
           <div class="downloads">
-            <div class="download-card">
-              <strong id="download-npm-title">Con Node.js (todas las plataformas)</strong>
-              <p id="download-npm-text">Si tienes Node.js 22 o superior, instala con <code>npm install -g execonvert</code> o úsalo sin instalarlo con <code>npx execonvert</code>. Funciona en Linux, macOS y Windows.</p>
-            </div>
             <div class="download-card">
               <strong id="download-deb-title">Ubuntu y otros sistemas basados en Debian</strong>
               <p id="download-deb-text">Descarga el paquete <code>.deb</code> desde la última release y ábrelo con el instalador del sistema.</p>
@@ -521,6 +579,9 @@ execonvert inspect proyecto.elpx</pre>
           intro:
             "eXeConvert convierte archivos entre los formatos de eXeLearning (<code>.elpx</code>, <code>.elp</code>), Word (<code>.docx</code>), PDF y Markdown (<code>.md</code>). Esta es la versión de terminal o consola. Se usa desde una ventana de Terminal, PowerShell o cmd y es útil para convertir muchos archivos o automatizar tareas (si prefieres una interfaz gráfica, puedes usar <a href=\"../index.html\">la versión web de eXeConvert</a>).",
           downloadButton: "Descargar la última versión",
+          npmOrLabel: "o con Node.js:",
+          npmCopyBtn: "Copiar",
+          npmCopied: "Copiado",
           downloadsTitle: "Qué descargar",
           debTitle: "Ubuntu y otros sistemas basados en Debian",
           debText: "Descarga el paquete <code>.deb</code> desde la última release y ábrelo con el instalador del sistema.",
@@ -589,6 +650,9 @@ execonvert inspect proyecto.elpx</pre>
           intro:
             "eXeConvert converteix fitxers entre els formats d'eXeLearning (<code>.elpx</code>, <code>.elp</code>), Word (<code>.docx</code>), PDF i Markdown (<code>.md</code>). Aquesta és la versió de terminal o consola. Es fa servir des d'una finestra de Terminal, PowerShell o cmd i és útil per convertir molts fitxers o automatitzar tasques (si prefereixes una interfície gràfica, pots fer servir <a href=\"../index.html\">la versió web d'eXeConvert</a>).",
           downloadButton: "Descarregar l'última versió",
+          npmOrLabel: "o amb Node.js:",
+          npmCopyBtn: "Copiar",
+          npmCopied: "Copiat",
           downloadsTitle: "Què descarregar",
           debTitle: "Ubuntu i altres sistemes basats en Debian",
           debText: "Descarrega el paquet <code>.deb</code> des de l'última release i obre'l amb l'instal·lador del sistema.",
@@ -657,6 +721,9 @@ execonvert inspect proyecto.elpx</pre>
           intro:
             "eXeConvert converts files between eXeLearning formats (<code>.elpx</code>, <code>.elp</code>), Word (<code>.docx</code>), PDF, and Markdown (<code>.md</code>). This is the terminal or console version. It is used from a Terminal, PowerShell, or cmd window and is useful for converting many files or automating tasks (if you prefer a graphical interface, you can use <a href=\"../index.html\">the web version of eXeConvert</a>).",
           downloadButton: "Download the latest version",
+          npmOrLabel: "or with Node.js:",
+          npmCopyBtn: "Copy",
+          npmCopied: "Copied",
           downloadsTitle: "What to download",
           debTitle: "Ubuntu and other Debian-based systems",
           debText: "Download the <code>.deb</code> package from the latest release and open it with the system installer.",
@@ -766,6 +833,8 @@ execonvert inspect proyecto.elpx</pre>
         setText("cli-subtitle", copy.subtitle);
         setHtml("cli-intro", copy.intro);
         setText("cli-download-button", copy.downloadButton);
+        setText("npm-or-label", copy.npmOrLabel);
+        setText("npm-copy-btn", copy.npmCopyBtn);
         setText("downloads-title", copy.downloadsTitle);
         setText("download-deb-title", copy.debTitle);
         setHtml("download-deb-text", copy.debText);
@@ -775,8 +844,6 @@ execonvert inspect proyecto.elpx</pre>
         setHtml("download-windows-text", copy.windowsText);
         setText("download-macos-title", copy.macosTitle);
         setHtml("download-macos-text", copy.macosText);
-        setText("download-npm-title", copy.npmTitle);
-        setHtml("download-npm-text", copy.npmText);
         setHtml("cli-note", copy.note);
         setText("first-use-title", copy.firstUseTitle);
         setText("step-1-title", copy.step1Title);
@@ -952,6 +1019,20 @@ execonvert inspect proyecto.elpx</pre>
         }
         persistLocale(locale);
         applyTranslations(locale);
+      });
+
+      document.getElementById("npm-copy-btn")?.addEventListener("click", () => {
+        const cmd = document.getElementById("npm-cmd-text")?.textContent || "npm install -g execonvert";
+        navigator.clipboard.writeText(cmd).then(() => {
+          const btn = document.getElementById("npm-copy-btn");
+          const locale = document.documentElement.lang || activeLocale;
+          const copy = translations[locale] || translations.es;
+          const original = copy.npmCopyBtn;
+          if (btn) {
+            btn.textContent = copy.npmCopied;
+            setTimeout(() => { btn.textContent = original; }, 2000);
+          }
+        });
       });
 
       document.getElementById("footer-privacy-link")?.addEventListener("click", event => {
