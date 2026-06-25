@@ -380,6 +380,10 @@
               <strong id="download-macos-title">macOS</strong>
               <p id="download-macos-text">Descarga el instalador <code>.pkg</code> y sigue el proceso habitual de instalación.</p>
             </div>
+            <div class="download-card">
+              <strong id="download-npm-title">Con Node.js (todas las plataformas)</strong>
+              <p id="download-npm-text">Si tienes Node.js 22 o superior, instala con <code>npm install -g execonvert</code> o úsalo sin instalarlo con <code>npx execonvert</code>. Funciona en Linux, macOS y Windows.</p>
+            </div>
           </div>
 
           <div id="cli-note" class="note">
@@ -526,6 +530,8 @@ execonvert inspect proyecto.elpx</pre>
           windowsText: "Descarga el instalador <code>.exe</code> y sigue el asistente.",
           macosTitle: "macOS",
           macosText: "Descarga el instalador <code>.pkg</code> y sigue el proceso habitual de instalación.",
+          npmTitle: "Con Node.js (todas las plataformas)",
+          npmText: "Si tienes Node.js 22 o superior, instala con <code>npm install -g execonvert</code> o úsalo sin instalarlo con <code>npx execonvert</code>. Funciona en Linux, macOS y Windows.",
           note:
             "<strong>Importante:</strong> la CLI está pensada para terminal. Si prefieres trabajar con una interfaz gráfica, usa <a href=\"../index.html\">la página principal de eXeConvert</a>.",
           firstUseTitle: "Primer uso",
@@ -592,6 +598,8 @@ execonvert inspect proyecto.elpx</pre>
           windowsText: "Descarrega l'instal·lador <code>.exe</code> i segueix l'assistent.",
           macosTitle: "macOS",
           macosText: "Descarrega l'instal·lador <code>.pkg</code> i segueix el procés habitual d'instal·lació.",
+          npmTitle: "Amb Node.js (totes les plataformes)",
+          npmText: "Si tens Node.js 22 o superior, instal·la amb <code>npm install -g execonvert</code> o utilitza'l sense instal·lar amb <code>npx execonvert</code>. Funciona a Linux, macOS i Windows.",
           note:
             "<strong>Important:</strong> la CLI està pensada per al terminal. Si prefereixes treballar amb una interfície gràfica, fes servir <a href=\"../index.html\">la pàgina principal d'eXeConvert</a>.",
           firstUseTitle: "Primer ús",
@@ -658,6 +666,8 @@ execonvert inspect proyecto.elpx</pre>
           windowsText: "Download the <code>.exe</code> installer and follow the setup wizard.",
           macosTitle: "macOS",
           macosText: "Download the <code>.pkg</code> installer and follow the usual installation process.",
+          npmTitle: "With Node.js (all platforms)",
+          npmText: "If you have Node.js 22 or higher, install with <code>npm install -g execonvert</code> or run without installing with <code>npx execonvert</code>. Works on Linux, macOS, and Windows.",
           note:
             "<strong>Important:</strong> the CLI is intended for terminal use. If you prefer a graphical interface, use <a href=\"../index.html\">the main eXeConvert page</a>.",
           firstUseTitle: "First steps",
@@ -765,6 +775,8 @@ execonvert inspect proyecto.elpx</pre>
         setHtml("download-windows-text", copy.windowsText);
         setText("download-macos-title", copy.macosTitle);
         setHtml("download-macos-text", copy.macosText);
+        setText("download-npm-title", copy.npmTitle);
+        setHtml("download-npm-text", copy.npmText);
         setHtml("cli-note", copy.note);
         setText("first-use-title", copy.firstUseTitle);
         setText("step-1-title", copy.step1Title);
