@@ -9,6 +9,8 @@ Categorías usadas: **Añadido**, **Cambiado**, **Corregido**, **Eliminado**.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-06-25
+
 ### Añadido
 - Script `scripts/sync-exe-bundles.sh` y comando `npm run sync:exe` para
   actualizar el runtime embebido de eXeLearning (`app/public/exelearning/`)
