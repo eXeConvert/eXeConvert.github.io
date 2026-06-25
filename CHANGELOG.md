@@ -15,6 +15,7 @@ Categorías usadas: **Añadido**, **Cambiado**, **Corregido**, **Eliminado**.
   desde la última release estable, registrando versión, tag y commit en
   `app/public/exelearning/runtime-source.json`. Una sola fuente cubre web y
   escritorio, porque el build de la CLI copia `app/public/` tal cual.
+- Este `CHANGELOG.md`, incluido también en el paquete npm distribuible.
 
 ## [0.3.1] - 2026-05-12
 

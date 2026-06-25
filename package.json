@@ -10,6 +10,7 @@
     "bin",
     "dist/cli",
     "README.md",
+    "CHANGELOG.md",
     "THIRD_PARTY_NOTICES.md"
   ],
   "engines": {
