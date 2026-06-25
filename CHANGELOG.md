@@ -17,6 +17,12 @@ Categorías usadas: **Añadido**, **Cambiado**, **Corregido**, **Eliminado**.
   escritorio, porque el build de la CLI copia `app/public/` tal cual.
 - Este `CHANGELOG.md`, incluido también en el paquete npm distribuible.
 
+### Cambiado
+- Runtime embebido de eXeLearning actualizado a **v4.0.1**. El paquete de temas
+  pasa de incluir solo `base` a incluir los 6 oficiales (`base`, `flux`, `neo`,
+  `nova`, `universal`, `zen`), lo que habilita la conversión de proyectos con
+  cualquiera de esos temas. _(Pendiente de validar con pruebas de conversión.)_
+
 ## [0.3.1] - 2026-05-12
 
 ### Corregido
