@@ -9,6 +9,12 @@ Categorías usadas: **Añadido**, **Cambiado**, **Corregido**, **Eliminado**.
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-06-25
+
+### Corregido
+- La versión reportada por `execonvert --version` mostraba `0.3.1` en lugar de `0.4.0`
+  porque `CLI_VERSION` estaba hardcodeado en el fuente y no se actualizó en el bump anterior.
+
 ## [0.4.0] - 2026-06-25
 
 ### Añadido
