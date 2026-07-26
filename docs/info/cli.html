@@ -993,17 +993,21 @@ execonvert inspect proyecto.elpx</pre>
       }
 
       function scheduleAnalyticsLoad() {
-        if ("requestIdleCallback" in window) {
-          window.requestIdleCallback(loadAnalyticsInBackground, { timeout: 2000 });
-          return;
-        }
-        const run = () => {
-          window.setTimeout(loadAnalyticsInBackground, 0);
+        // Un <script async> inyectado antes de que se dispare «load» retrasa ese
+        // evento hasta que la peticion termina. Si el servidor de estadisticas se
+        // cuelga, «load» no llegaria a dispararse nunca. Por eso se espera siempre
+        // a «load» antes de programar nada.
+        const programar = () => {
+          if ("requestIdleCallback" in window) {
+            window.requestIdleCallback(loadAnalyticsInBackground, { timeout: 2000 });
+          } else {
+            window.setTimeout(loadAnalyticsInBackground, 0);
+          }
         };
         if (document.readyState === "complete") {
-          run();
+          programar();
         } else {
-          window.addEventListener("load", run, { once: true });
+          window.addEventListener("load", programar, { once: true });
         }
       }
 
