@@ -597,15 +597,22 @@ function loadAnalyticsSummary(): void {
 function scheduleAnalyticsLoad(): void {
   if (!shouldTrackAnalytics()) return;
   const run = () => window.setTimeout(loadAnalyticsSummary, 0);
-  if (typeof window.requestIdleCallback === 'function') {
-    window.requestIdleCallback(run, { timeout: 2500 });
-    return;
-  }
+  // Un <script async> inyectado antes de que se dispare «load» retrasa ese
+  // evento hasta que la peticion termina. Si el servidor de estadisticas se
+  // cuelga, «load» no llegaria a dispararse nunca. Por eso se espera siempre
+  // a «load» antes de programar nada.
+  const programar = () => {
+    if (typeof window.requestIdleCallback === 'function') {
+      window.requestIdleCallback(run, { timeout: 2500 });
+    } else {
+      window.setTimeout(run, 0);
+    }
+  };
   if (document.readyState === 'complete') {
-    run();
+    programar();
     return;
   }
-  window.addEventListener('load', run, { once: true });
+  window.addEventListener('load', programar, { once: true });
 }
 
 languageSelect.addEventListener('change', () => {
