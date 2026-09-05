@@ -1,6 +1,9 @@
 import { unzipSync, zipSync } from 'fflate';
 import mammoth from 'mammoth';
 import { MathMLToLaTeX } from 'mathml-to-latex';
+import { XMLSerializer as XmldomSerializer } from '@xmldom/xmldom';
+// @ts-expect-error the vendored omml2mathml ships no TypeScript declarations.
+import omml2mathml from './vendor/omml2mathml/index.js';
 import temml from 'temml';
 
 export interface DocxImportProgress {
@@ -63,10 +66,6 @@ interface PreviewPageInfo {
 }
 
 const EXECONVERT_SIGNATURE = 'eXeConvert v0.2.2';
-
-type OmmlToMathMl = (element: Element) => Element;
-
-let cachedOmml2mathml: OmmlToMathMl | null = null;
 
 export async function convertDocxToElpx(
   file: File,
@@ -355,65 +354,16 @@ async function preprocessDocxMath(inputBuffer: ArrayBuffer): Promise<{ arrayBuff
 
 async function convertOmmlElementToLatex(element: Element): Promise<string> {
   try {
-    const mathElement = (await loadOmml2MathMl())(element) as Element;
-    const mathMl = new XMLSerializer().serializeToString(mathElement);
+    const mathElement = omml2mathml(element) as unknown as Node;
+    // El árbol MathML lo construye @xmldom/xmldom, así que lo serializa el suyo:
+    // el XMLSerializer global es el del entorno (linkedom en la CLI) y no
+    // entiende esos nodos.
+    const mathMl = new XmldomSerializer().serializeToString(mathElement);
     const latex = normalizeLatexValue(MathMLToLaTeX.convert(mathMl));
     return latex || '?';
   } catch {
     return '?';
   }
-}
-
-async function loadOmml2MathMl(): Promise<OmmlToMathMl> {
-  if (cachedOmml2mathml) {
-    return cachedOmml2mathml;
-  }
-
-  const cliRequire = (globalThis as typeof globalThis & {
-    __execonvertRequire?: (id: string) => unknown;
-  }).__execonvertRequire;
-
-  if (typeof cliRequire === 'function') {
-    const loaded = cliRequire('omml2mathml') as { default?: OmmlToMathMl } | OmmlToMathMl;
-    cachedOmml2mathml = typeof loaded === 'function' ? loaded : loaded.default ?? null;
-  }
-
-  if (cachedOmml2mathml) {
-    return cachedOmml2mathml;
-  }
-
-  try {
-    // @ts-expect-error omml2mathml does not ship TypeScript declarations.
-    const loaded = await import('omml2mathml') as { default?: OmmlToMathMl } | OmmlToMathMl;
-    cachedOmml2mathml = typeof loaded === 'function' ? loaded : loaded.default ?? null;
-  } catch (error) {
-    if (typeof process !== 'undefined' && typeof process.emitWarning === 'function') {
-      const originalEmitWarning = process.emitWarning.bind(process);
-      process.emitWarning = ((warning: string | Error, ...args: unknown[]) => {
-        const warningCode = typeof args[0] === 'string' ? args[0] : undefined;
-        const warningMessage = typeof warning === 'string' ? warning : warning.message;
-        if (warningCode === 'DEP0040' && warningMessage.includes('`punycode` module is deprecated')) {
-          return;
-        }
-        return originalEmitWarning(warning as never, ...(args as []));
-      }) as typeof process.emitWarning;
-      try {
-        // @ts-expect-error omml2mathml does not ship TypeScript declarations.
-        const loaded = await import('omml2mathml') as { default?: OmmlToMathMl } | OmmlToMathMl;
-        cachedOmml2mathml = typeof loaded === 'function' ? loaded : loaded.default ?? null;
-      } finally {
-        process.emitWarning = originalEmitWarning;
-      }
-    } else {
-      throw error;
-    }
-  }
-
-  if (!cachedOmml2mathml) {
-    throw new Error('No se ha podido cargar omml2mathml.');
-  }
-
-  return cachedOmml2mathml;
 }
 
 function replaceMathNodeWithPlaceholder(document: XMLDocument, mathNode: Element, placeholder: string): void {

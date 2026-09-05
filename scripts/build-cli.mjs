@@ -37,6 +37,11 @@ const cliSource = await readFile(cliBundle, 'utf8');
 await writeFile(cliBundle, cliSource.replace(/__CLI_VERSION__/g, version), 'utf8');
 await mkdir(publicTargetDir, { recursive: true });
 await cp(publicSourceDir, publicTargetDir, { recursive: true });
+
+// tsc only emits TypeScript, and the vendored omml2mathml is plain JavaScript.
+const vendorSourceDir = fileURLToPath(new URL('../src/vendor', import.meta.url));
+const vendorTargetDir = resolve(distDir, 'src/vendor');
+await cp(vendorSourceDir, vendorTargetDir, { recursive: true });
 await writeFile(
   resolve(distDir, 'package.json'),
   JSON.stringify(

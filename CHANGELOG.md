@@ -9,6 +9,20 @@ Categorías usadas: **Añadido**, **Cambiado**, **Corregido**, **Eliminado**.
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-09-05
+
+### Cambiado
+- La conversión de fórmulas OMML de `.docx` ya no depende del paquete
+  `omml2mathml`, abandonado desde 2017. Se incorpora una copia en
+  `src/vendor/omml2mathml/` (Apache-2.0) cuya única modificación funcional es
+  crear el documento de salida con `@xmldom/xmldom` en lugar de `get-dom`.
+  Con ello desaparecen del árbol `jsdom@9`, `request`, `har-validator`, `abab`,
+  `uuid@3`, `content-type-parser` y `whatwg-encoding`: instalar el paquete pasa
+  de mostrar siete avisos de dependencias obsoletas a uno solo, y las alertas de
+  seguridad en dependencias de producción bajan de 15 a 7, sin ninguna crítica.
+  La conversión se ha comprobado contra los 178 casos de prueba del proyecto
+  original.
+
 ## [0.5.0] - 2026-09-05
 
 ### Añadido

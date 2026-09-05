@@ -27,6 +27,25 @@ Included resources in this repository:
 - `app/public/exelearning/bundles/manifest.json`
   - Supporting resource bundles required by the reused eXeLearning browser import/export runtime.
 
+## Vendored copy of omml2mathml
+
+- Source project: https://github.com/scienceai/omml2mathml
+- Project license: Apache-2.0 (see `src/vendor/omml2mathml/LICENSE`)
+
+Included in this repository:
+
+- `src/vendor/omml2mathml/index.js`
+- `src/vendor/omml2mathml/operators.js`
+  - Copied verbatim from omml2mathml 1.3.0, converted from CommonJS to ES
+    modules, and with the `get-dom` import replaced by `./dom.js`.
+- `src/vendor/omml2mathml/dom.js`
+  - Written for this project. It supplies the empty document the converter
+    builds the MathML tree on, using `@xmldom/xmldom` instead of `get-dom`,
+    which pulled in jsdom 9 and its unmaintained dependency chain.
+
+The library has been unmaintained since 2017, so there is no upstream release
+to update to; the copy is kept here to convert OMML formulas from `.docx`.
+
 ## Additional license notes
 
 - `app/public/idevices/text/text.js` contains a header pointing to:
