@@ -75,12 +75,17 @@ json_value() {
 }
 
 resolve_tag_commit() {
-  local tag="$1" commit
-  commit="$(git ls-remote "$EXE_REPO_URL" "refs/tags/$tag^{}" | awk 'NR==1 { print $1 }')"
-  if [[ -z "$commit" ]]; then
-    commit="$(git ls-remote "$EXE_REPO_URL" "refs/tags/$tag" | awk 'NR==1 { print $1 }')"
-  fi
-  printf '%s' "$commit"
+  local tag="$1" ref_type ref_sha ref_json
+  ref_json="$(gh api "repos/$EXE_REPO_SLUG/git/ref/tags/$tag")"
+  ref_type="$(node -e 'process.stdout.write(JSON.parse(process.argv[1]).object.type)' "$ref_json")"
+  ref_sha="$(node -e 'process.stdout.write(JSON.parse(process.argv[1]).object.sha)' "$ref_json")"
+  while [[ "$ref_type" == "tag" ]]; do
+    ref_json="$(gh api "repos/$EXE_REPO_SLUG/git/tags/$ref_sha")"
+    ref_type="$(node -e 'process.stdout.write(JSON.parse(process.argv[1]).object.type)' "$ref_json")"
+    ref_sha="$(node -e 'process.stdout.write(JSON.parse(process.argv[1]).object.sha)' "$ref_json")"
+  done
+  [[ "$ref_type" == "commit" ]] || return 1
+  printf '%s' "$ref_sha"
 }
 
 latest_json="$(gh release view --repo "$EXE_REPO_SLUG" --json tagName,publishedAt,assets)"
@@ -99,10 +104,27 @@ release_asset="$(node -e '
 }
 
 current_tag="$(json_value "$RUNTIME_SOURCE_JSON" sourceReleaseTag)"
-if [[ "$FORCE" -eq 0 && -n "$current_tag" && "$current_tag" == "$latest_tag" ]]; then
-  echo "Bundles already up to date with release $latest_tag."
-  exit 0
+if [[ "$FORCE" -eq 0 && -n "$current_tag" ]]; then
+  newer="$(node - "$current_tag" "$latest_tag" <<'NODE'
+const parse = (value) => {
+  if (!/^v?(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(value)) throw new Error(`Invalid stable release tag: ${value}`);
+  return value.replace(/^v/, '').split('.').map(BigInt);
+};
+const [current, latest] = process.argv.slice(2).map(parse);
+let newer = false;
+for (let i = 0; i < 3; i++) {
+  if (latest[i] !== current[i]) { newer = latest[i] > current[i]; break; }
+}
+process.stdout.write(String(newer));
+NODE
+)"
+  if [[ "$newer" != "true" ]]; then
+    echo "Bundles already up to date: local $current_tag, latest stable $latest_tag."
+    exit 0
+  fi
 fi
+
+source_commit="$(resolve_tag_commit "$latest_tag")"
 
 WORK_DIR="$(mktemp -d)"
 trap 'rm -rf "$WORK_DIR"' EXIT
@@ -160,7 +182,6 @@ if [[ -d "$I18N_SRC_DIR" ]]; then
   cp -R "$I18N_SRC_DIR/." "$I18N_DIR/"
 fi
 
-source_commit="$(resolve_tag_commit "$latest_tag")"
 source_version="${latest_tag#v}"
 synced_at="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 

@@ -46,7 +46,10 @@ $exe_i18n = {
     "elpxFileProtocolWarning": "Mode local: a causa de la política de seguretat del navegador, hauràs de seleccionar la carpeta des de la qual vas obrir aquest fitxer. En un servidor web això no serà necessari.",
     "proprietaryLicense": "Llicència propietària",
     "notAppropriate": "No apropiada",
-    "publicDomain": "Domini públic"
+    "publicDomain": "Domini públic",
+    "attachment": "Adjunt",
+    "noFilesAttached": "No hi ha cap fitxer adjunt.",
+    "fileUnavailable": "Fitxer no disponible"
 };
 // The following line should only be used if the ELP contains a hangman game:
 $exe_i18n.exeGames = {

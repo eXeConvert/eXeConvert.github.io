@@ -9,6 +9,9 @@ $ErrorActionPreference = "Stop"
 New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
 $env:EXE_BUNDLE_DIR = (Resolve-Path $BundleDir).Path
 $env:EXE_VERSION = $Version
+$env:EXE_ARCH = node -p process.arch
+node (Join-Path $PSScriptRoot "write-install-channel.mjs") $BundleDir windows
+if ($LASTEXITCODE -ne 0) { throw "Could not write installation channel" }
 $env:EXE_OUTPUT_DIR = (Resolve-Path $OutputDir).Path
 
 $issPath = Join-Path $PSScriptRoot 'windows-installer.iss'

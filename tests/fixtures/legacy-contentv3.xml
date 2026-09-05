@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<instance xmlns="http://www.exelearning.org/content/v0.3" class="exe.engine.package.Package" reference="1" version="0.3">
+  <dictionary>
+    <string role="key" value="_title"/><unicode value="Prueba de compatibilidad"/>
+    <string role="key" value="_lang"/><unicode value="es"/>
+    <string role="key" value="_style"/><unicode value="base"/>
+    <string role="key" value="root"/>
+    <instance class="exe.engine.node.Node" reference="2">
+      <dictionary>
+        <string role="key" value="_title"/><unicode value="Inicio"/>
+        <string role="key" value="idevices"/>
+        <list>
+          <instance class="exe.engine.freetextidevice.FreeTextIdevice" reference="3">
+            <dictionary>
+              <string role="key" value="_title"/><unicode value="Actividad de prueba"/>
+              <string role="key" value="content"/>
+              <unicode value="&lt;p&gt;Marcador de compatibilidad: células y números.&lt;/p&gt;&lt;p&gt;\(\frac{1}{2} + \sqrt{4}\)&lt;/p&gt;&lt;p&gt;&lt;img src=&quot;resources/circle.svg&quot; alt=&quot;Círculo de prueba&quot; /&gt;&lt;/p&gt;"/>
+            </dictionary>
+          </instance>
+        </list>
+        <string role="key" value="children"/>
+        <list>
+          <instance class="exe.engine.node.Node" reference="4">
+            <dictionary>
+              <string role="key" value="_title"/><unicode value="Segunda página"/>
+              <string role="key" value="idevices"/>
+              <list>
+                <instance class="exe.engine.freetextidevice.FreeTextIdevice" reference="5">
+                  <dictionary>
+                    <string role="key" value="content"/><unicode value="&lt;p&gt;Contenido de la segunda página.&lt;/p&gt;"/>
+                  </dictionary>
+                </instance>
+              </list>
+              <string role="key" value="children"/><list/>
+            </dictionary>
+          </instance>
+        </list>
+      </dictionary>
+    </instance>
+  </dictionary>
+</instance>

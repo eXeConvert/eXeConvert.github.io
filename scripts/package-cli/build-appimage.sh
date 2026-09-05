@@ -15,6 +15,7 @@ trap 'rm -rf "$APPDIR"' EXIT
 
 mkdir -p "$APPDIR/usr/lib/execonvert" "$APPDIR/usr/bin"
 cp -a "$BUNDLE_DIR"/. "$APPDIR/usr/lib/execonvert/"
+node "$(dirname "$0")/write-install-channel.mjs" "$APPDIR/usr/lib/execonvert" appimage
 
 cat >"$APPDIR/usr/bin/execonvert" <<'EOF'
 #!/bin/sh

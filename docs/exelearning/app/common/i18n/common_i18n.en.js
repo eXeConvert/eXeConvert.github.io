@@ -46,7 +46,10 @@ $exe_i18n = {
     "elpxFileProtocolWarning": "Local mode: Due to browser security policy, you will need to select the folder from which you opened this file. On a web server this will not be necessary.",
     "proprietaryLicense": "Proprietary license",
     "notAppropriate": "Not appropriate",
-    "publicDomain": "Public domain"
+    "publicDomain": "Public domain",
+    "attachment": "Attachment",
+    "noFilesAttached": "No files attached.",
+    "fileUnavailable": "File unavailable"
 };
 // The following line should only be used if the ELP contains a hangman game:
 $exe_i18n.exeGames = {

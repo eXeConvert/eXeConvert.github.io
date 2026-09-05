@@ -14,6 +14,7 @@ trap 'rm -rf "$PKG_ROOT"' EXIT
 
 mkdir -p "$PKG_ROOT/DEBIAN" "$PKG_ROOT/opt/execonvert" "$PKG_ROOT/usr/bin"
 cp -a "$BUNDLE_DIR"/. "$PKG_ROOT/opt/execonvert/"
+node "$(dirname "$0")/write-install-channel.mjs" "$PKG_ROOT/opt/execonvert" deb
 
 cat >"$PKG_ROOT/usr/bin/execonvert" <<'EOF'
 #!/bin/sh

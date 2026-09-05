@@ -46,7 +46,10 @@ $exe_i18n = {
     "elpxFileProtocolWarning": "Modu lokala: nabigatzailearen segurtasun-politika dela eta, fitxategi hau irekitzeko erabili duzun karpeta aukeratu beharko duzu. Web zerbitzari batean hau ez da beharrezkoa izango.",
     "proprietaryLicense": "Jabetzaren lizentzia",
     "notAppropriate": "Ez dagokio",
-    "publicDomain": "Domeinu publikoa"
+    "publicDomain": "Domeinu publikoa",
+    "attachment": "Eranskina",
+    "noFilesAttached": "Ez dago fitxategi erantsirik.",
+    "fileUnavailable": "Fitxategia ez dago erabilgarri"
 };
 // The following line should only be used if the ELP contains a hangman game:
 $exe_i18n.exeGames = {

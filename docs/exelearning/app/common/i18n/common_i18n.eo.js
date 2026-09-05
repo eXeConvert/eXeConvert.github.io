@@ -46,7 +46,10 @@ $exe_i18n = {
     "elpxFileProtocolWarning": "Loka modo: pro la sekurecopolitiko de la retumilo, vi devos elekti la dosierujon, de kiu vi malfermis ĉi tiun dosieron. En retservilo tio ne estos necese.",
     "proprietaryLicense": "Propra licenco",
     "notAppropriate": "Ne konvena",
-    "publicDomain": "Publika domajno"
+    "publicDomain": "Publika domajno",
+    "attachment": "Aldonaĵo",
+    "noFilesAttached": "Neniu dosiero aldonita.",
+    "fileUnavailable": "Dosiero ne disponebla"
 };
 // The following line should only be used if the ELP contains a hangman game:
 $exe_i18n.exeGames = {

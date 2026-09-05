@@ -1,6 +1,6 @@
 {
   "name": "execonvert",
-  "version": "0.4.2",
+  "version": "0.5.0",
   "private": false,
   "type": "module",
   "bin": {
@@ -31,7 +31,10 @@
     "check:cli": "tsc -p tsconfig.cli.json --noEmit",
     "cli": "node ./bin/execonvert.js",
     "sync:exe": "bash scripts/sync-exe-bundles.sh",
-    "prepack": "npm run build:cli"
+    "prepack": "npm run build:cli",
+    "test:updates": "node --import tsx --test tests/updates.test.ts",
+    "test:runtime": "node scripts/test-runtime.mjs",
+    "test:cli": "node --test tests/cli-update.test.mjs"
   },
   "dependencies": {
     "@resvg/resvg-js": "^2.6.2",

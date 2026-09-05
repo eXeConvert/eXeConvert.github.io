@@ -14,6 +14,8 @@ trap 'rm -rf "$PKG_ROOT"' EXIT
 
 mkdir -p "$PKG_ROOT/usr/local/lib/execonvert" "$PKG_ROOT/usr/local/bin"
 cp -a "$BUNDLE_DIR"/. "$PKG_ROOT/usr/local/lib/execonvert/"
+node "$(dirname "$0")/write-install-channel.mjs" "$PKG_ROOT/usr/local/lib/execonvert" pkg
+PACKAGE_ARCH=$(node -p process.arch)
 
 cat >"$PKG_ROOT/usr/local/bin/execonvert" <<'EOF'
 #!/bin/sh
@@ -27,4 +29,4 @@ pkgbuild \
   --identifier io.github.execonvert.cli \
   --version "$VERSION" \
   --install-location / \
-  "$OUTPUT_DIR/execonvert-${VERSION}.pkg"
+  "$OUTPUT_DIR/execonvert-${VERSION}-${PACKAGE_ARCH}.pkg"

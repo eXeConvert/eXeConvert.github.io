@@ -17,6 +17,7 @@ import { convertElpxToMarkdown } from '../src/elpx-markdown.js';
 import { convertElpToElpx } from '../src/legacy-elp.js';
 import { convertMarkdownToElpx } from '../src/markdown-import.js';
 import { installCliRuntime } from './runtime.js';
+import { automaticCheck, autoCheckAllowed, runUpdate, updateText } from './updates.js';
 
 type InspectPage = {
   id: string;
@@ -36,7 +37,7 @@ type StructureOptions = {
 };
 
 type ParsedArgs = {
-  command: 'convert' | 'batch' | 'inspect' | 'help' | 'version';
+  command: 'convert' | 'batch' | 'inspect' | 'help' | 'version' | 'update';
   inputPath?: string;
   inputPaths?: string[];
   outputPath?: string;
@@ -45,6 +46,8 @@ type ParsedArgs = {
   locale: Locale;
   json: boolean;
   includeImages: boolean;
+  noUpdateCheck: boolean;
+  checkUpdate: boolean;
   h1: StructureValue;
   h2: Exclude<StructureValue, 'resource-title'>;
   h3: Exclude<StructureValue, 'resource-title'>;
@@ -53,7 +56,9 @@ type ParsedArgs = {
   pageIds: string[];
 };
 
-const CLI_VERSION = '__CLI_VERSION__';
+const CLI_VERSION = '__CLI_VERSION__'.startsWith('__')
+  ? String(JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8')).version)
+  : '__CLI_VERSION__';
 
 type ProgressLike = {
   phase: string;
@@ -279,6 +284,7 @@ ${t('help.usage')}:
   execonvert <input> <output> [options]
   execonvert <input1> [input2 ...] --to <format> [--out-dir <dir>] [options]
   execonvert inspect <input> [--json]
+  execonvert update [--check] [--json] [--out-dir <dir>]
 
 ${t('help.inputs')}:
   ${t('help.input.elp')}
@@ -307,6 +313,8 @@ ${t('help.options')}:
   --lang <code>           ${t('help.option.lang')}
   --help                  ${t('help.option.help')}
   --version               ${t('help.option.version')}
+  update [--check]         ${updateText(currentCliTranslator.locale, 'help')}
+  --no-update-check       ${updateText(currentCliTranslator.locale, 'disable')}
 
 ${t('help.examples')}:
   execonvert notes.md notes.elpx --h1 resource-title --h2 subpage --h3 idevice
@@ -324,6 +332,8 @@ function parseArgs(argv: string[], t: CliTranslator['t'], locale: Locale): Parse
     locale,
     json: false,
     includeImages: false,
+    noUpdateCheck: false,
+    checkUpdate: false,
     h1: 'page',
     h2: 'idevice',
     h3: 'idevice',
@@ -339,6 +349,14 @@ function parseArgs(argv: string[], t: CliTranslator['t'], locale: Locale): Parse
 
   if (args.length === 0 || args.includes('--help') || args.includes('-h')) {
     return { ...defaults, command: 'help' };
+  }
+
+  if (args[0] === 'update') {
+    args.shift();
+    const updateDefaults = { ...defaults, command: 'update' as const };
+    const parsed = parseOptionFlags(args, updateDefaults, t);
+    if (parsed.positionals.length) throw new Error('Usage: execonvert update [--check] [--json] [--out-dir <dir>]');
+    return { ...updateDefaults, ...parsed.options };
   }
 
   if (args[0] === 'inspect') {
@@ -407,8 +425,18 @@ function parseOptionFlags(args: string[], defaults: ParsedArgs, t: CliTranslator
       continue;
     }
 
+    if (defaults.command === 'update' && !['--check', '--json', '--out-dir', '--lang', '--locale'].includes(value)) {
+      throw new Error(t('error.unknownOption', { value }));
+    }
     const nextValue = args[index + 1];
     switch (value) {
+      case '--no-update-check':
+        options.noUpdateCheck = true;
+        break;
+      case '--check':
+        if (defaults.command !== 'update') throw new Error(t('error.unknownOption', { value }));
+        options.checkUpdate = true;
+        break;
       case '--lang':
       case '--locale':
         ensureOptionValue(value, nextValue, t);
@@ -967,15 +995,27 @@ async function main(): Promise<void> {
     stdout.write(`${CLI_VERSION}\n`);
     return;
   }
-  if (args.command === 'inspect') {
-    await runInspect(args.inputPath!, args.json);
+  if (args.command === 'update') {
+    await runUpdate({ current: CLI_VERSION, locale, check: args.checkUpdate, json: args.json, outDir: args.outDir });
     return;
   }
-  if (args.command === 'batch') {
-    await runBatch(args);
-    return;
+  const updateController = new AbortController();
+  if (autoCheckAllowed({ ...args, disabled: args.noUpdateCheck })) {
+    void automaticCheck(CLI_VERSION, locale, updateController.signal);
   }
-  await runConvert(args);
+  try {
+    if (args.command === 'inspect') {
+      await runInspect(args.inputPath!, args.json);
+      return;
+    }
+    if (args.command === 'batch') {
+      await runBatch(args);
+      return;
+    }
+    await runConvert(args);
+  } finally {
+    updateController.abort();
+  }
 }
 
 await main().catch(error => {

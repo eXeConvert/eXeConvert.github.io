@@ -1,0 +1,66 @@
+name: Check eXeLearning compatibility
+
+on:
+  schedule:
+    - cron: '25 6 * * 1'
+  workflow_dispatch:
+
+# This workflow prepares a tested patch; it cannot push, publish or merge.
+permissions:
+  contents: read
+
+concurrency:
+  group: check-exelearning
+  cancel-in-progress: false
+
+jobs:
+  check-runtime:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Look for a new stable eXeLearning runtime
+        id: sync
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          npm run sync:exe
+          git add -N app/public/exelearning
+          if git diff --quiet -- app/public/exelearning; then
+            echo 'changed=false' >> "$GITHUB_OUTPUT"
+            echo 'El runtime de eXeLearning ya está actualizado.' >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'changed=true' >> "$GITHUB_OUTPUT"
+          fi
+      - name: Install dependencies
+        if: steps.sync.outputs.changed == 'true'
+        run: npm ci
+      - name: Check, build and test conversions
+        if: steps.sync.outputs.changed == 'true'
+        run: |
+          npm run check
+          npm run test:updates
+          npm run build:all
+          npm run test:cli
+          npm run test:runtime
+      - name: Prepare patch for review
+        if: steps.sync.outputs.changed == 'true'
+        run: |
+          node scripts/record-runtime-update.mjs
+          git add -N CHANGELOG.md docs
+          git diff --binary -- CHANGELOG.md app/public/exelearning docs > "$RUNNER_TEMP/exelearning-update.patch"
+          cp app/public/exelearning/runtime-source.json "$RUNNER_TEMP/runtime-source.json"
+          echo 'Nueva versión de eXeLearning probada. Descarga el artefacto, revisa el parche y aplícalo con git apply. La publicación requiere revisión manual.' >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload tested runtime patch
+        if: steps.sync.outputs.changed == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: tested-exelearning-update
+          path: |
+            ${{ runner.temp }}/exelearning-update.patch
+            ${{ runner.temp }}/runtime-source.json
+          retention-days: 30

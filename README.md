@@ -103,6 +103,85 @@ Estado actual de la CLI:
 - soportado: `.elp -> .docx`
 - soportado: `.elp -> .pdf`
 
+## Actualizaciones de la CLI
+
+La CLI comprueba nuevas versiones estables de **eXeConvert** en GitHub como
+máximo una vez al día cuando se usa en una terminal interactiva. El aviso sale
+por `stderr`. No comprueba automáticamente en tuberías, CI, con `--json`, ni al
+pedir ayuda o la versión. Los errores de red no afectan a las conversiones y
+la consulta se cancela cuando termina la operación.
+
+```bash
+execonvert update --check                 # Consultar sin descargar
+execonvert update --check --json          # Resultado estructurado
+execonvert update                        # Actualizar npm o descargar el instalador
+execonvert update --out-dir ./descargas   # Elegir carpeta para instaladores
+```
+
+- **npm:** instala la versión estable anunciada en GitHub usando npm, en el
+  ámbito global o en el proyecto local donde está instalada esta copia. En un
+  proyecto local, npm puede actualizar `package.json` y el archivo de bloqueo.
+  Si npm todavía no tiene esa versión o faltan permisos, muestra el error.
+- **Debian, Windows y macOS:** descarga el instalador de su canal y arquitectura
+  y muestra dónde está para instalarlo mediante el sistema. No pide privilegios
+  ni ejecuta automáticamente el instalador.
+- **AppImage:** descarga la nueva versión, le da permiso de ejecución y conserva
+  la anterior. Hay que usar el nuevo archivo o actualizar el enlace habitual.
+- **Repositorio de desarrollo:** muestra la versión disponible; la actualización
+  del código se hace mediante Git y una nueva compilación.
+
+Las descargas de instaladores comprueban tamaño y SHA-256 antes de guardarse con
+su nombre definitivo. Si la publicación aún no tiene un instalador compatible,
+se muestra un aviso. Las nuevas publicaciones identifican la arquitectura en
+los paquetes de macOS y Windows. Los antiguos `.pkg` sin arquitectura explícita
+se descargan manualmente desde la página de versiones.
+
+Por defecto, los instaladores se guardan en la caché del usuario, bajo
+`execonvert/downloads/<versión>`. El estado de la consulta diaria se guarda en
+`execonvert/update-check.json` dentro de `$XDG_CACHE_HOME` o `~/.cache` en Linux,
+`~/Library/Caches` en macOS y `%LOCALAPPDATA%` en Windows.
+
+Para desactivar las consultas automáticas en una ejecución:
+
+```bash
+execonvert proyecto.elpx proyecto.md --no-update-check
+```
+
+Para desactivarlas de forma persistente, configura la variable de entorno
+`EXECONVERT_NO_UPDATE_CHECK=1`. La consulta explícita `update --check` sigue
+funcionando. La consulta solo solicita metadatos públicos de versiones;
+no envía los documentos del usuario.
+
+## Compatibilidad con nuevas versiones de eXeLearning
+
+El comando `update` conserva la combinación de eXeConvert y eXeLearning probada
+en cada publicación. Los componentes de eXeLearning se actualizan en el
+repositorio mediante `npm run sync:exe`.
+
+El workflow **Check eXeLearning compatibility** comprueba cada lunes a las
+06:25 UTC si hay una versión estable nueva; también se puede lanzar manualmente.
+Cuando la encuentra, sincroniza los componentes, comprueba los tipos, ejecuta
+las pruebas del actualizador, compila web y CLI y prueba las conversiones.
+Si todo pasa, adjunta un artefacto `tested-exelearning-update` con un parche
+binario y la procedencia del runtime. El parche se revisa y aplica con
+`git apply exelearning-update.patch` sobre la revisión usada por el workflow.
+No hace push, no crea releases y no publica cambios automáticamente.
+
+Las pruebas usan un `.elp` sintético con dos páginas, una imagen, fórmulas LaTeX
+y contenido en español. Comprueban `.elp → .elpx`, las exportaciones a Markdown,
+DOCX y PDF, la reimportación de Markdown/DOCX y la vista previa web en Chromium.
+Para ejecutarlas localmente:
+
+```bash
+npm run test:updates
+npm run build:all
+npm run test:cli
+npm run test:runtime
+```
+
+El workflow **Test CLI and conversions** ejecuta las pruebas del actualizador
+en Linux, Windows y macOS; las conversiones y el navegador se comprueban en Linux.
+
 ## Organización del código
 
 La web y la CLI están separadas como dos frontends distintos sobre el mismo núcleo de conversión:

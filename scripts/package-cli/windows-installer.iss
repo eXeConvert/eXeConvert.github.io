@@ -1,5 +1,6 @@
 #define MyAppName "eXeConvert CLI"
 #define MyAppVersion GetEnv("EXE_VERSION")
+#define MyArch GetEnv("EXE_ARCH")
 #define MySourceDir GetEnv("EXE_BUNDLE_DIR")
 #define MyOutputDir GetEnv("EXE_OUTPUT_DIR")
 
@@ -10,7 +11,7 @@ AppVersion={#MyAppVersion}
 DefaultDirName={autopf}\eXeConvert
 DisableProgramGroupPage=yes
 OutputDir={#MyOutputDir}
-OutputBaseFilename=execonvert-{#MyAppVersion}-setup
+OutputBaseFilename=execonvert-{#MyAppVersion}-{#MyArch}-setup
 Compression=lzma
 SolidCompression=yes
 ChangesEnvironment=yes

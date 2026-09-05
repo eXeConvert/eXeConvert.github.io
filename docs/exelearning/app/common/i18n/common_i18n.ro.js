@@ -46,7 +46,10 @@ $exe_i18n = {
     "elpxFileProtocolWarning": "Mod local: Din cauza politicii de securitate a browserului, va trebui să selectați folderul din care ați deschis acest fișier. Pe un server web, acest lucru nu va fi necesar.",
     "proprietaryLicense": "Licență proprietară",
     "notAppropriate": "Nu este adecvată",
-    "publicDomain": "Domeniu public"
+    "publicDomain": "Domeniu public",
+    "attachment": "Atașament",
+    "noFilesAttached": "Niciun fișier atașat.",
+    "fileUnavailable": "Fișier indisponibil"
 };
 // The following line should only be used if the ELP contains a hangman game:
 $exe_i18n.exeGames = {

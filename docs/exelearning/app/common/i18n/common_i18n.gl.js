@@ -46,7 +46,10 @@ $exe_i18n = {
     "elpxFileProtocolWarning": "Modo local: debido á política de seguranza do navegador, terás que seleccionar o cartafol desde o que abriches este ficheiro. Nun servidor web isto non será necesario.",
     "proprietaryLicense": "Licenza propietaria",
     "notAppropriate": "Non axeitado",
-    "publicDomain": "Dominio público"
+    "publicDomain": "Dominio público",
+    "attachment": "Anexo",
+    "noFilesAttached": "Non hai ficheiros anexos.",
+    "fileUnavailable": "Ficheiro non dispoñible"
 };
 // The following line should only be used if the ELP contains a hangman game:
 $exe_i18n.exeGames = {

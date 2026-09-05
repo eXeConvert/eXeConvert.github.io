@@ -2708,9 +2708,9 @@
       }
       ProcessingInstruction.prototype.nodeType = PROCESSING_INSTRUCTION_NODE;
       _extends(ProcessingInstruction, CharacterData);
-      function XMLSerializer() {
+      function XMLSerializer2() {
       }
-      XMLSerializer.prototype.serializeToString = function(node, options) {
+      XMLSerializer2.prototype.serializeToString = function(node, options) {
         return nodeSerializeToString.call(node, options);
       };
       Node.prototype.toString = nodeSerializeToString;
@@ -3153,7 +3153,7 @@
       exports.Text = Text2;
       exports.ProcessingInstruction = ProcessingInstruction;
       exports.walkDOM = walkDOM;
-      exports.XMLSerializer = XMLSerializer;
+      exports.XMLSerializer = XMLSerializer2;
     }
   });
 
@@ -7006,8 +7006,182 @@
     return core.slice(openingEnd + 1, closing.start);
   }
 
+  // src/shared/import/unresolvedAssetRefs.ts
+  var UNRESOLVED_REF = /\{\{context_path\}\}\/([^"'<>\s\\]+)/g;
+  function collectUnresolvedAssetRefs(text) {
+    if (!text || typeof text !== "string") return [];
+    const paths = [];
+    for (const match of text.matchAll(UNRESOLVED_REF)) {
+      const path = match[1];
+      if (path && !paths.includes(path)) paths.push(path);
+    }
+    return paths;
+  }
+  function addUnresolvedAssetRefs(report, componentId, ideviceType, text) {
+    const paths = collectUnresolvedAssetRefs(text);
+    if (paths.length === 0) return;
+    let entry = report.find((item) => item.componentId === componentId);
+    if (!entry) {
+      entry = { componentId, ideviceType, paths: [] };
+      report.push(entry);
+    }
+    for (const path of paths) {
+      if (!entry.paths.includes(path)) entry.paths.push(path);
+    }
+  }
+
+  // src/shared/import/importPolicy.ts
+  var MiB = 1024 * 1024;
+  var CONSERVATIVE_ZIP_LIMITS = {
+    maxTotalBytes: 500 * MiB,
+    // 500 MiB cumulative
+    maxEntryBytes: 200 * MiB,
+    // 200 MiB per entry
+    maxEntries: 1e4
+    // entry-count cap
+  };
+  var DEFAULT_ZIP_LIMITS = CONSERVATIVE_ZIP_LIMITS;
+  var DESKTOP_ZIP_LIMITS = {
+    maxTotalBytes: 2048 * MiB,
+    // 2 GiB cumulative
+    maxEntryBytes: 1024 * MiB,
+    // 1 GiB per entry
+    maxEntries: 1e4
+    // entry-count cap (same as conservative)
+  };
+  var DESKTOP_CONFIRM_ENTRY_BYTES = CONSERVATIVE_ZIP_LIMITS.maxEntryBytes;
+  function getZipLimitsForRuntime(runtime) {
+    return runtime === "desktop" ? DESKTOP_ZIP_LIMITS : CONSERVATIVE_ZIP_LIMITS;
+  }
+  function validateZipLimits(limits) {
+    const { maxTotalBytes, maxEntryBytes, maxEntries } = limits ?? {};
+    const isPositiveFinite = (n) => typeof n === "number" && Number.isFinite(n) && n > 0;
+    if (!isPositiveFinite(maxTotalBytes)) {
+      throw new TypeError(`Invalid maxTotalBytes: expected a positive finite number, got ${String(maxTotalBytes)}.`);
+    }
+    if (!isPositiveFinite(maxEntryBytes)) {
+      throw new TypeError(`Invalid maxEntryBytes: expected a positive finite number, got ${String(maxEntryBytes)}.`);
+    }
+    if (!isPositiveFinite(maxEntries) || !Number.isInteger(maxEntries)) {
+      throw new TypeError(`Invalid maxEntries: expected a positive integer, got ${String(maxEntries)}.`);
+    }
+    if (maxEntryBytes > maxTotalBytes) {
+      throw new RangeError(
+        `Invalid limits: maxEntryBytes (${maxEntryBytes}) cannot exceed maxTotalBytes (${maxTotalBytes}).`
+      );
+    }
+    return limits;
+  }
+  var ZipLimitError = class _ZipLimitError extends Error {
+    constructor(message, details) {
+      super(message);
+      this.name = "ZipLimitError";
+      this.details = details;
+      Object.setPrototypeOf(this, _ZipLimitError.prototype);
+    }
+  };
+  function entrySizeError(label, entryName, actual, limit) {
+    return new ZipLimitError(
+      `Entry '${entryName}' in ${label} is too large when decompressed (${actual} bytes > ${limit} byte limit).`,
+      { kind: "entry-size", archiveLabel: label, entryName, actualValue: actual, limitValue: limit }
+    );
+  }
+  function totalSizeError(label, actual, limit) {
+    return new ZipLimitError(
+      `${label} exceeds the maximum total decompressed size (${actual} bytes > ${limit} byte limit).`,
+      { kind: "total-size", archiveLabel: label, actualValue: actual, limitValue: limit }
+    );
+  }
+  function entryCountError(label, actual, limit) {
+    return new ZipLimitError(`${label} exceeds the maximum allowed number of entries (${limit}).`, {
+      kind: "entry-count",
+      archiveLabel: label,
+      actualValue: actual,
+      limitValue: limit
+    });
+  }
+  function assertInspectionWithinLimits(inspection, limits, label) {
+    validateZipLimits(limits);
+    if (inspection.entryCount > limits.maxEntries) {
+      throw entryCountError(label, inspection.entryCount, limits.maxEntries);
+    }
+    if (inspection.largestEntry && inspection.largestEntry.size > limits.maxEntryBytes) {
+      throw entrySizeError(label, inspection.largestEntry.name, inspection.largestEntry.size, limits.maxEntryBytes);
+    }
+    if (inspection.totalBytes > limits.maxTotalBytes) {
+      throw totalSizeError(label, inspection.totalBytes, limits.maxTotalBytes);
+    }
+  }
+  var ImportCancelledError = class _ImportCancelledError extends Error {
+    constructor(message = "Import cancelled by user") {
+      super(message);
+      this.name = "ImportCancelledError";
+      Object.setPrototypeOf(this, _ImportCancelledError.prototype);
+    }
+  };
+  function getDesktopExportCompatibility(assets, limits = DESKTOP_ZIP_LIMITS) {
+    let totalBytes = 0;
+    let largestAsset = null;
+    let oversizedAsset = null;
+    for (const asset of assets) {
+      const size = Number.isFinite(asset.size) && asset.size > 0 ? asset.size : 0;
+      totalBytes += size;
+      if (largestAsset === null || size > largestAsset.size) {
+        largestAsset = { name: asset.name, size };
+      }
+      if (size > limits.maxEntryBytes && (oversizedAsset === null || size > oversizedAsset.size)) {
+        oversizedAsset = { name: asset.name, size };
+      }
+    }
+    const exceedsTotal = totalBytes > limits.maxTotalBytes;
+    return {
+      compatible: oversizedAsset === null && !exceedsTotal,
+      totalBytes,
+      entryLimit: limits.maxEntryBytes,
+      totalLimit: limits.maxTotalBytes,
+      largestAsset,
+      oversizedAsset,
+      exceedsTotal
+    };
+  }
+  function formatBytes(bytes) {
+    if (!Number.isFinite(bytes) || bytes <= 0) {
+      return "0 B";
+    }
+    const units = ["B", "KB", "MB", "GB", "TB"];
+    let value = bytes;
+    let unitIndex = 0;
+    while (value >= 1024 && unitIndex < units.length - 1) {
+      value /= 1024;
+      unitIndex += 1;
+    }
+    if (unitIndex === 0) {
+      return `${value} B`;
+    }
+    return `${value.toFixed(1)} ${units[unitIndex]}`;
+  }
+
   // src/shared/import/LegacyXmlParser.ts
   var import_xmldom = __toESM(require_lib());
+
+  // src/shared/import/resolveFieldInstances.ts
+  function resolveFieldInstances(listEl, resolveReference) {
+    const result = [];
+    const children = Array.from(listEl.childNodes).filter((node) => node.nodeType === 1);
+    for (const child of children) {
+      if (child.tagName === "instance") {
+        result.push(child);
+      } else if (child.tagName === "reference") {
+        const key = child.getAttribute("key");
+        if (!key || !resolveReference) continue;
+        const referenced = resolveReference(key);
+        if (referenced) {
+          result.push(referenced);
+        }
+      }
+    }
+    return result;
+  }
 
   // src/shared/import/legacy-handlers/BaseLegacyHandler.ts
   var BaseLegacyHandler = class {
@@ -7325,8 +7499,20 @@
      */
     decodeHtmlContent(content) {
       if (!content) return "";
-      const decoded = content.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/\\n/g, "\n").replace(/\\t/g, "	").replace(/\\r(?![a-zA-Z])/g, "\r");
-      return decoded;
+      const decodedContent = content.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&apos;/g, "'").replace(/&nbsp;/g, "\xA0");
+      let token;
+      do {
+        token = `\0LTX${Math.random().toString(36).slice(2)}\0`;
+      } while (decodedContent.includes(token));
+      const latexPattern = /\\\((?:[^\\]|\\.)*?\\\)|\\\[(?:[^\\]|\\.)*?\\\]|\\begin\{[^}]+\}(?:[^\\]|\\.)*?\\end\{[^}]+\}|\$\$(?:[^$]|\\.)*?\$\$|(?<!\\)\$(?!\d+(?:[.,]\d+)?\b)(?:[^$\\]|\\.)*?(?<!\\)\$/g;
+      const latexBlocks = [];
+      const protectedContent = decodedContent.replace(latexPattern, (match) => {
+        latexBlocks.push(match);
+        return `${token}${latexBlocks.length - 1}${token}`;
+      });
+      const finalDecoded = protectedContent.replace(/\\n/g, "\n").replace(/\\t/g, "	").replace(/\\r(?![a-zA-Z])/g, "\r");
+      const tokenPattern = new RegExp(`${token}(\\d+)${token}`, "g");
+      return finalDecoded.replace(tokenPattern, (_, i) => latexBlocks[Number(i)]);
     }
     /**
      * Remove legacy outer wrapper <div class="exe-text">...</div> when present.
@@ -7378,10 +7564,17 @@
     /**
      * Extract content from "fields" list (JsIdevice format)
      *
+     * The `fields` list is the authoritative source of an iDevice's content. It may
+     * hold inline `<instance>` fields and/or `<reference key="N">` back-pointers to
+     * fields serialized elsewhere in the document, so both must be resolved. When a
+     * reference resolver is available (via `context.resolveReference`) the referenced
+     * field is read too; otherwise references are skipped. See issue #2159.
+     *
      * @param dict - Dictionary element
+     * @param context - Optional handler context providing the reference resolver
      * @returns Combined content from text fields
      */
-    extractFieldsContent(dict) {
+    extractFieldsContent(dict, context) {
       const children = this.getChildElements(dict);
       for (let i = 0; i < children.length; i++) {
         const child = children[i];
@@ -7389,7 +7582,7 @@
           const listEl = children[i + 1];
           if (listEl && listEl.tagName === "list") {
             const contents = [];
-            const fieldInstances = this.getDirectChildrenByTagName(listEl, "instance");
+            const fieldInstances = resolveFieldInstances(listEl, context?.resolveReference);
             for (const fieldInst of fieldInstances) {
               const fieldClass = fieldInst.getAttribute("class") || "";
               if (fieldClass.includes("TextAreaField") || fieldClass.includes("TextField")) {
@@ -7431,34 +7624,61 @@
       return "";
     }
     /**
-     * Extract content from any TextAreaField or TextField in the dictionary
+     * Extract content from any TextAreaField or TextField reachable within this
+     * iDevice's own object subtree (last-resort fallback).
      *
-     * @param dict - Dictionary element
+     * The search is boundary-safe: it never descends into a nested iDevice or Node
+     * `<instance>`. In the legacy pickle graph an iDevice inlines its own
+     * `_idevice` / `parentNode` / `parent` back-references as full `<instance>`
+     * elements, so an unbounded descendant search would cross into a *different*
+     * iDevice and return its content. Honouring the iDevice/Node boundary keeps the
+     * fallback scoped to the current iDevice. See issue #2159.
+     *
+     * @param dict - Dictionary element of the current iDevice
      * @returns Content or empty string
      */
     extractAnyTextFieldContent(dict) {
-      const instances = this.getDirectChildrenByTagName(dict, "instance");
-      for (const inst of instances) {
-        const className = inst.getAttribute("class") || "";
-        if (className.includes("TextAreaField") || className.includes("TextField")) {
-          const content = this.extractTextAreaFieldContent(inst);
-          if (content) {
-            return content;
+      return this.findBoundedTextFieldContent(dict);
+    }
+    /**
+     * Depth-first search for a TextAreaField/TextField instance that stays inside
+     * the current iDevice's own subtree (does not cross iDevice/Node boundaries).
+     *
+     * @param element - Element to search within
+     * @returns Content of the first matching field, or empty string
+     */
+    findBoundedTextFieldContent(element) {
+      const children = this.getChildElements(element);
+      for (const child of children) {
+        if (child.tagName === "instance") {
+          const className = child.getAttribute("class") || "";
+          if (className.includes("TextAreaField") || className.includes("TextField")) {
+            const content = this.extractTextAreaFieldContent(child);
+            if (content) {
+              return content;
+            }
+            continue;
+          }
+          if (this.isIdeviceOrNodeClass(className)) {
+            continue;
           }
         }
-      }
-      const nestedInstances = dict.getElementsByTagName("instance");
-      for (let i = 0; i < nestedInstances.length; i++) {
-        const inst = nestedInstances[i];
-        const className = inst.getAttribute("class") || "";
-        if (className.includes("TextAreaField") || className.includes("TextField")) {
-          const content = this.extractTextAreaFieldContent(inst);
-          if (content) {
-            return content;
-          }
+        const nested = this.findBoundedTextFieldContent(child);
+        if (nested) {
+          return nested;
         }
       }
       return "";
+    }
+    /**
+     * Whether a legacy class name denotes an iDevice or a Node (a content boundary).
+     *
+     * @param className - Legacy class attribute value
+     * @returns true for iDevice / Node classes
+     */
+    isIdeviceOrNodeClass(className) {
+      const lower = className.toLowerCase();
+      return lower.includes("idevice") || lower.includes(".node.node") || lower.endsWith(".node");
     }
     /**
      * Extract resource path from dictionary
@@ -7487,6 +7707,14 @@
       return true;
     }
     /**
+     * This is the generic catch-all handler.
+     * Its best-effort content must never overwrite an htmlView the parser already
+     * resolved from an authoritative field reference (issue #2159).
+     */
+    isFallback() {
+      return true;
+    }
+    /**
      * Default to 'text' iDevice for unknown types
      */
     getTargetType() {
@@ -7495,9 +7723,9 @@
     /**
      * Try to extract HTML content from various common fields
      */
-    extractHtmlView(dict, _context) {
+    extractHtmlView(dict, context) {
       if (!dict) return "";
-      const fieldsResult = this.extractFieldsContent(dict);
+      const fieldsResult = this.extractFieldsContent(dict, context);
       if (fieldsResult) {
         return this.stripLegacyExeTextWrapper(fieldsResult);
       }
@@ -8142,7 +8370,7 @@
       if (contentInst) {
         const clozeDict = this.getDirectChildByTagName(contentInst, "dictionary");
         if (clozeDict) {
-          const encodedContent = this.findDictStringValue(clozeDict, "_encodedContent");
+          const encodedContent = this.findDictStringValue(clozeDict, "content_w_resourcePaths") || this.findDictStringValue(clozeDict, "_encodedContent");
           if (encodedContent) {
             const parsedText = this.parseClozeText(encodedContent);
             if (parsedText.baseText) {
@@ -8160,7 +8388,7 @@
       if (clozeInst) {
         const clozeDict = this.getDirectChildByTagName(clozeInst, "dictionary");
         if (clozeDict) {
-          const clozeText = this.findDictStringValue(clozeDict, "_encodedContent") || this.findDictStringValue(clozeDict, "_clozeText") || this.findDictStringValue(clozeDict, "clozeText");
+          const clozeText = this.findDictStringValue(clozeDict, "content_w_resourcePaths") || this.findDictStringValue(clozeDict, "_encodedContent") || this.findDictStringValue(clozeDict, "_clozeText") || this.findDictStringValue(clozeDict, "clozeText");
           if (clozeText) {
             const parsedText = this.parseClozeText(clozeText);
             if (parsedText.baseText) {
@@ -8180,7 +8408,7 @@
       if (clozeFieldByClass) {
         const clozeDict = this.getDirectChildByTagName(clozeFieldByClass, "dictionary");
         if (clozeDict) {
-          const encodedContent = this.findDictStringValue(clozeDict, "_encodedContent");
+          const encodedContent = this.findDictStringValue(clozeDict, "content_w_resourcePaths") || this.findDictStringValue(clozeDict, "_encodedContent");
           if (encodedContent) {
             const parsedText = this.parseClozeText(encodedContent);
             if (parsedText.baseText) {
@@ -8412,7 +8640,7 @@
     extractSingleListaField(listaFieldInst) {
       const qDict = this.getDirectChildByTagName(listaFieldInst, "dictionary");
       if (!qDict) return null;
-      let baseText = this.findDictStringValue(qDict, "_encodedContent") || this.findDictStringValue(qDict, "content_w_resourcePaths") || "";
+      let baseText = this.findDictStringValue(qDict, "content_w_resourcePaths") || this.findDictStringValue(qDict, "_encodedContent") || "";
       if (!baseText) {
         const questionTextArea = this.findDictInstance(qDict, "questionTextArea");
         baseText = questionTextArea ? this.extractTextAreaFieldContent(questionTextArea) : "";
@@ -8920,62 +9148,95 @@
   // src/shared/import/legacy-handlers/FileAttachHandler.ts
   var FileAttachHandler = class extends BaseLegacyHandler {
     /**
-     * Check if this handler can process the given legacy class
+     * Check if this handler can process the given legacy class.
      */
     canHandle(className, _ideviceType) {
       return className.includes("FileAttachIdevice") || className.includes("AttachmentIdevice");
     }
     /**
-     * Get the target modern iDevice type
-     * Symfony converts to 'text' iDevice with file links in textTextarea
+     * Modern target type: the restored file-attachment iDevice.
      */
     getTargetType() {
-      return "text";
+      return "file-attachment";
     }
     /**
-     * Extract HTML content with instructions (introHTML) + file links
+     * Build an immediate static view for newly imported legacy components.
      *
-     * Matches Symfony OdeOldXmlFileAttachIdevice.php format:
-     * - First: introHTML content (instructions)
-     * - Then: <p><a href="path" target="_blank">description</a></p> for each file
+     * The canonical state remains in JSON properties and the modern iDevice will
+     * re-render from that state. The fallback htmlView is required because the
+     * workarea displays imported htmlView before the iDevice has ever been opened
+     * and saved; without it, only the generically extracted intro was visible.
      */
     extractHtmlView(dict, _context) {
       if (!dict) return "";
-      const parts = [];
-      const introHtml = this.extractIntroHtml(dict);
-      if (introHtml) {
-        parts.push(introHtml);
+      const properties = this.extractProperties(dict);
+      const intro = typeof properties.intro === "string" ? properties.intro : "";
+      const attachments = Array.isArray(properties.attachments) ? properties.attachments : [];
+      if (attachments.length === 0) return "";
+      const parts = ['<div class="fileAttachment-IDevice">'];
+      if (intro.trim()) {
+        parts.push(`<div class="fileAttachment-intro">${intro}</div>`);
       }
-      const files = this.extractFiles(dict);
-      if (files.length > 0) {
-        const fileLinks = files.map((file) => {
-          const linkText = file.description || file.displayName || file.filename;
-          return `<p><a href="${file.path}" target="_blank" download="${file.filename}">${linkText}</a></p>`;
-        }).join("");
-        parts.push(fileLinks);
+      parts.push('<ul class="fileAttachment-list">');
+      for (const attachment of attachments) {
+        const label = attachment.title || attachment.filename || "Attachment";
+        const filename = attachment.filename || label;
+        const meta = attachment.title && attachment.filename && attachment.title !== attachment.filename ? `<span class="fileAttachment-meta">${this.escapeHtml(attachment.filename)}</span>` : "";
+        parts.push(
+          `<li class="fileAttachment-item fileAttachment-item--file"><a class="fileAttachment-link" href="${this.escapeAttr(attachment.url)}" download="${this.escapeAttr(filename)}"><span class="fileAttachment-text"><span class="fileAttachment-title">${this.escapeHtml(label)}</span>` + meta + `</span></a></li>`
+        );
       }
+      parts.push("</ul>");
+      parts.push("</div>");
       return parts.join("");
     }
     /**
-     * No feedback for file attach iDevice
+     * No feedback for the file-attachment iDevice.
      */
     extractFeedback(_dict, _context) {
       return { content: "", buttonCaption: "" };
     }
     /**
-     * Extract introHTML content (instructions text)
+     * Build the modern file-attachment JSON state.
+     */
+    extractProperties(dict, _ideviceId) {
+      if (!dict) return {};
+      const intro = this.extractIntroHtml(dict);
+      const showDescriptions = this.extractShowDesc(dict);
+      const attachments = this.extractFiles(dict).map((file) => this.toAttachment(file));
+      return {
+        intro,
+        showDescriptions,
+        attachments
+      };
+    }
+    /**
+     * Convert a legacy file entry into a modern attachment.
      *
-     * Legacy structure:
-     * <string role="key" value="introHTML"/>
-     * <instance class="exe.engine.field.TextAreaField">
-     *   <dictionary>
-     *     <string role="key" value="content_w_resourcePaths"/>
-     *     <unicode value="<p>estas son las instrucciones</p>"/>
-     *   </dictionary>
-     * </instance>
-     *
-     * @param dict - Dictionary element of the iDevice
-     * @returns HTML content from introHTML
+     * The legacy file description was displayed as the link label, so it maps to
+     * the modern attachment `title`. When no real description/display name is
+     * present we leave the title empty and let the iDevice fall back to the
+     * filename.
+     */
+    toAttachment(file) {
+      let title = "";
+      if (file.description && file.description !== file.filename) {
+        title = file.description;
+      } else if (file.displayName && file.displayName !== file.filename) {
+        title = file.displayName;
+      }
+      return {
+        url: file.path,
+        // resources/<filename> -> rewritten to asset:// by the importer
+        filename: file.filename,
+        mimeType: "",
+        size: 0,
+        title,
+        description: ""
+      };
+    }
+    /**
+     * Extract introHTML content (instructions text).
      */
     extractIntroHtml(dict) {
       const introInstance = this.findDictInstance(dict, "introHTML");
@@ -8983,26 +9244,28 @@
       return this.extractTextAreaFieldContent(introInstance);
     }
     /**
-     * Extract properties for text iDevice
-     *
-     * Symfony sets textTextarea with the same HTML as htmlView
+     * Read the legacy `showDesc` flag. Defaults to true when the key is absent,
+     * mirroring the legacy default of showing file descriptions.
      */
-    extractProperties(dict, _ideviceId) {
-      const htmlView = this.extractHtmlView(dict);
-      if (htmlView) {
-        return { textTextarea: htmlView };
+    extractShowDesc(dict) {
+      const children = this.getChildElements(dict);
+      for (let i = 0; i < children.length; i++) {
+        const child = children[i];
+        if (child.tagName === "string" && child.getAttribute("role") === "key" && (child.getAttribute("value") === "showDesc" || child.getAttribute("value") === "_showDesc")) {
+          const valueEl = children[i + 1];
+          if (valueEl && valueEl.tagName === "bool") {
+            return valueEl.getAttribute("value") === "1";
+          }
+        }
       }
-      return {};
+      return true;
     }
     /**
-     * Extract files from the legacy format
+     * Extract files from the legacy format.
      *
      * FileAttachIdeviceInc structure:
      * - fileAttachmentFields: list of FileField instances
      * - Each FileField has: fileDescription (TextField), fileResource (Resource)
-     *
-     * @param dict - Dictionary element of the FileAttachIdevice
-     * @returns Array of file objects
      */
     extractFiles(dict) {
       const files = [];
@@ -9042,13 +9305,7 @@
       return files;
     }
     /**
-     * Extract file info from a dictionary
-     *
-     * FileAttachIdeviceInc FileField structure:
-     * - fileResource: Resource with _storageName (filename in ZIP)
-     * - fileDescription: TextField with content (description for link text)
-     *
-     * Based on Symfony OdeOldXmlFileAttachIdevice.php extraction
+     * Extract file info from a FileField dictionary.
      */
     extractFileFromDict(fDict) {
       const filename = this.extractResourcePath(fDict, "fileResource") || this.extractResourcePath(fDict, "_fileResource") || this.extractResourcePath(fDict, "_resource") || this.findDictStringValue(fDict, "_storageName") || this.findDictStringValue(fDict, "storageName");
@@ -9064,33 +9321,33 @@
       if (!description) {
         description = this.findDictStringValue(fDict, "_description") || this.findDictStringValue(fDict, "description") || "";
       }
-      if (!description) {
-        description = filename;
-      }
-      const displayName = this.findDictStringValue(fDict, "_displayName") || this.findDictStringValue(fDict, "displayName") || this.findDictStringValue(fDict, "_label") || this.findDictStringValue(fDict, "label") || filename;
-      const path = `resources/${filename}`;
+      const displayName = this.findDictStringValue(fDict, "_displayName") || this.findDictStringValue(fDict, "displayName") || this.findDictStringValue(fDict, "_label") || this.findDictStringValue(fDict, "label") || "";
       return {
         filename,
         displayName,
         description,
-        path
+        path: `resources/${filename}`
       };
     }
     /**
-     * Extract single file resource
+     * Extract a single file resource (older formats with no field list).
      */
     extractSingleFile(dict) {
       const filename = this.extractResourcePath(dict, "fileResource") || this.extractResourcePath(dict, "_fileResource");
       if (!filename) return null;
-      const displayName = this.findDictStringValue(dict, "_displayName") || this.findDictStringValue(dict, "displayName") || filename;
-      const path = `resources/${filename}`;
+      const displayName = this.findDictStringValue(dict, "_displayName") || this.findDictStringValue(dict, "displayName") || "";
       return {
         filename,
         displayName,
-        description: filename,
-        // Use filename as description (link text)
-        path
+        description: "",
+        path: `resources/${filename}`
       };
+    }
+    /**
+     * Escape text for safe insertion into an HTML attribute.
+     */
+    escapeAttr(value) {
+      return this.escapeHtml(value);
     }
   };
 
@@ -9869,7 +10126,7 @@
      * @param dict - Dictionary element
      * @returns HTML content with updated DataGame div
      */
-    extractHtmlView(dict, _context) {
+    extractHtmlView(dict, context) {
       if (!dict) return "";
       const contents = [];
       const children = this.getChildElements(dict);
@@ -9878,7 +10135,7 @@
         if (child.tagName === "string" && child.getAttribute("role") === "key" && child.getAttribute("value") === "fields") {
           const listEl = children[i + 1];
           if (listEl && listEl.tagName === "list") {
-            const fieldInstances = this.getChildElements(listEl).filter((el) => el.tagName === "instance");
+            const fieldInstances = resolveFieldInstances(listEl, context?.resolveReference);
             for (const fieldInst of fieldInstances) {
               const fieldClass = fieldInst.getAttribute("class") || "";
               if (fieldClass.includes("TextAreaField") || fieldClass.includes("TextField")) {
@@ -10370,10 +10627,10 @@
     ImageGalleryIdevice: "image-gallery",
     ImageMagnifierIdevice: "magnifier",
     GalleryIdevice: "image-gallery",
-    // File iDevices -> text with links
-    FileAttachIdevice: "text",
-    FileAttachIdeviceInc: "text",
-    AttachmentIdevice: "text",
+    // File iDevices -> dedicated file-attachment iDevice
+    FileAttachIdevice: "file-attachment",
+    FileAttachIdeviceInc: "file-attachment",
+    AttachmentIdevice: "file-attachment",
     // External content
     ExternalUrlIdevice: "external-website",
     GeogebraIdevice: "geogebra-activity",
@@ -10416,7 +10673,7 @@
         new ExternalUrlHandler(),
         // ExternalUrlIdevice -> external-website
         new FileAttachHandler(),
-        // FileAttachIdevice, AttachmentIdevice -> text (with file links)
+        // FileAttachIdevice, AttachmentIdevice -> file-attachment
         new ImageMagnifierHandler(),
         // ImageMagnifierIdevice -> magnifier
         new GeogebraHandler(),
@@ -10479,6 +10736,12 @@
       this.xmlContent = "";
       this.xmlDoc = null;
       this.parentRefMap = /* @__PURE__ */ new Map();
+      /**
+       * Maps an `instance` element's `reference` attribute value to the element itself.
+       * Built once per parsed document to avoid O(N²) full-document scans when resolving
+       * `<reference key="..."/>` lookups (see {@link getInstanceByReference}).
+       */
+      this.instanceByReferenceMap = /* @__PURE__ */ new Map();
       this.projectLanguage = "";
       this.logger = logger;
     }
@@ -10716,9 +10979,9 @@
       let xml = xmlContent;
       const protectedPreBlocks = [];
       const protectPreBlock = (match) => {
-        const token = `__LEGACY_PRE_BLOCK_${protectedPreBlocks.length}__`;
+        const token2 = `__LEGACY_PRE_BLOCK_${protectedPreBlocks.length}__`;
         protectedPreBlocks.push(match);
-        return token;
+        return token2;
       };
       xml = xml.replace(/<unicode\b[^>]*>/gi, (tag) => {
         return tag.replace(/\bvalue=(['"])([\s\S]*?)\1/i, (_match, quote, value) => {
@@ -10740,7 +11003,19 @@
       xml = xml.replace(/\\x([0-9A-Fa-f]{2})/g, (_match, hex) => {
         return String.fromCharCode(parseInt(hex, 16));
       });
+      const latexBlocks = [];
+      let token;
+      do {
+        token = `\0LTXP${Math.random().toString(36).slice(2)}\0`;
+      } while (xml.includes(token));
+      const latexPattern = /\\\((?:[^\\]|\\.)*?\\\)|\\\[(?:[^\\]|\\.)*?\\\]|\\begin\{[^}]+\}(?:[^\\]|\\.)*?\\end\{[^}]+\}|\$\$(?:[^$]|\\.)*?\$\$|(?<!\\)\$(?!\d+(?:[.,]\d+)?\b)(?:[^$\\]|\\.)*?(?<!\\)\$/g;
+      xml = xml.replace(latexPattern, (match) => {
+        latexBlocks.push(match);
+        return `${token}${latexBlocks.length - 1}${token}`;
+      });
       xml = xml.replace(/\\n/g, "&#10;");
+      const tokenPattern = new RegExp(`${token}(\\d+)${token}`, "g");
+      xml = xml.replace(tokenPattern, (_match, i) => latexBlocks[Number(i)]);
       return xml;
     }
     /**
@@ -10760,6 +11035,7 @@
         throw new Error(`XML parsing error: ${parseError.textContent}`);
       }
       this.buildParentReferenceMap();
+      this.buildInstanceReferenceMap();
       const nodes = this.findAllNodes();
       this.logger.log(`[LegacyXmlParser] Found ${nodes.length} legacy nodes`);
       const meta = this.extractMetadata();
@@ -10788,6 +11064,45 @@
         this.parentRefMap.set(ref, parentRef);
       }
       this.logger.log(`[LegacyXmlParser] Built parent map with ${this.parentRefMap.size} entries`);
+    }
+    /**
+     * Build a `reference` -> `instance` element map once for the current document.
+     *
+     * Legacy XML uses `<reference key="N"/>` placeholders that point back to the first
+     * `<instance reference="N">` declared in document order. Previously each placeholder
+     * was resolved with a full-document `getElementsByTagName('instance')` scan, which is
+     * O(N²) across the whole document and could pin the event loop for tens of seconds on
+     * large legacy ELP files with thousands of cross-referencing instances.
+     *
+     * This precomputes the lookup in a single O(N) pass. To preserve the previous
+     * first-match semantics (`getElementsByAttribute(...)[0]`), only the first `instance`
+     * encountered for a given `reference` value is stored.
+     */
+    buildInstanceReferenceMap() {
+      this.instanceByReferenceMap.clear();
+      if (!this.xmlDoc) return;
+      const instances = this.getElementsByTagName(this.xmlDoc, "instance");
+      for (const inst of instances) {
+        const ref = inst.getAttribute("reference");
+        if (!ref) continue;
+        if (!this.instanceByReferenceMap.has(ref)) {
+          this.instanceByReferenceMap.set(ref, inst);
+        }
+      }
+      this.logger.log(
+        `[LegacyXmlParser] Built instance reference map with ${this.instanceByReferenceMap.size} entries`
+      );
+    }
+    /**
+     * Resolve a `<reference key="..."/>` placeholder to its target `instance` element.
+     *
+     * O(1) replacement for the former
+     * `getElementsByAttribute(this.xmlDoc, 'instance', 'reference', refKey)[0]` scans.
+     * Returns `undefined` when no matching instance exists, mirroring the previous
+     * `[0]`-on-empty-array behavior so callers' missing-reference handling is unchanged.
+     */
+    getInstanceByReference(refKey) {
+      return this.instanceByReferenceMap.get(refKey);
     }
     /**
      * Find value for a key in a dictionary element
@@ -11332,9 +11647,9 @@
         "RecomendacionfpdIdevice",
         "WikipediaIdevice",
         "RssIdevice",
-        "AppletIdevice",
-        "FileAttachIdevice",
-        "AttachmentIdevice"
+        "AppletIdevice"
+        // Note: FileAttachIdevice / AttachmentIdevice are handled by FileAttachHandler,
+        // which maps them to the dedicated 'file-attachment' iDevice (see HandlerRegistry).
       ];
       for (const textType of textBasedIdevices) {
         if (className.includes(textType)) {
@@ -11383,12 +11698,7 @@
         } else if (child.tagName === "reference") {
           const refKey = child.getAttribute("key");
           if (refKey && this.xmlDoc) {
-            const referencedInstance = this.getElementsByAttribute(
-              this.xmlDoc,
-              "instance",
-              "reference",
-              refKey
-            )[0];
+            const referencedInstance = this.getInstanceByReference(refKey);
             if (referencedInstance) {
               this.logger.log(`[LegacyXmlParser] Resolved reference key=${refKey} to instance`);
               instancesToProcess.push(referencedInstance);
@@ -11577,7 +11887,10 @@
             language: this.projectLanguage,
             ideviceId: idevice.id,
             className,
-            ideviceType: rawIdeviceDir || ideviceType
+            ideviceType: rawIdeviceDir || ideviceType,
+            // Let handlers resolve <reference key="N"> fields to their instance,
+            // so the explicit fields list stays authoritative (issue #2159).
+            resolveReference: (key) => this.getInstanceByReference(key)
           };
           const handlerProps = handler.extractProperties(dict, idevice.id);
           if (handlerProps && Object.keys(handlerProps).length > 0) {
@@ -11587,7 +11900,8 @@
             );
           }
           const handlerHtml = handler.extractHtmlView(dict, handlerContext);
-          if (handlerHtml) {
+          const isFallbackHandler = typeof handler.isFallback === "function" && handler.isFallback();
+          if (handlerHtml && !(isFallbackHandler && idevice.htmlView)) {
             idevice.htmlView = handlerHtml;
             this.logger.log(`[LegacyXmlParser] Used handler htmlView (${handlerHtml.length} chars)`);
           }
@@ -11977,27 +12291,7 @@
         if (child.tagName === "string" && child.getAttribute("role") === "key" && child.getAttribute("value") === "fields") {
           const listEl = children[i + 1];
           if (listEl && listEl.tagName === "list") {
-            const directChildren = Array.from(listEl.childNodes).filter((n) => n.nodeType === 1);
-            const fieldInstances = [];
-            for (const fieldChild of directChildren) {
-              if (fieldChild.tagName === "instance") {
-                fieldInstances.push(fieldChild);
-              } else if (fieldChild.tagName === "reference") {
-                const refKey = fieldChild.getAttribute("key");
-                if (refKey && this.xmlDoc) {
-                  const referencedInstance = this.getElementsByAttribute(
-                    this.xmlDoc,
-                    "instance",
-                    "reference",
-                    refKey
-                  )[0];
-                  if (referencedInstance) {
-                    this.logger.log(`[LegacyXmlParser] Resolved field reference key=${refKey}`);
-                    fieldInstances.push(referencedInstance);
-                  }
-                }
-              }
-            }
+            const fieldInstances = resolveFieldInstances(listEl, (key) => this.getInstanceByReference(key));
             for (const fieldInst of fieldInstances) {
               const fieldClass = fieldInst.getAttribute("class") || "";
               if (fieldClass.includes("TextAreaField") || fieldClass.includes("TextField")) {
@@ -12109,12 +12403,7 @@
           if (valueEl.tagName === "reference") {
             const refKey = valueEl.getAttribute("key");
             if (refKey && this.xmlDoc) {
-              const referencedInstance = this.getElementsByAttribute(
-                this.xmlDoc,
-                "instance",
-                "reference",
-                refKey
-              )[0];
+              const referencedInstance = this.getInstanceByReference(refKey);
               if (referencedInstance) {
                 const refClass = referencedInstance.getAttribute("class") || "";
                 if (refClass.includes("TextAreaField") || refClass.includes("TextField")) {
@@ -12310,7 +12599,7 @@
       throw new Error("generateId: prefix is required");
     }
     const timestamp = Date.now().toString(36);
-    const random = Math.random().toString(36).substring(2, 11);
+    const random = Math.random().toString(36).substring(2, 11).padEnd(9, "0");
     return `${prefix}-${timestamp}-${random}`;
   }
 
@@ -12327,19 +12616,120 @@
   }
 
   // src/shared/import/ElpxImporter.ts
+  function inspectZipArchive(buffer, _label = "ELP/ELPX archive") {
+    const entries = [];
+    let totalBytes = 0;
+    let largestEntry = null;
+    unzipSync(buffer, {
+      filter: (file) => {
+        const size = file.originalSize;
+        const entry = { name: file.name, size };
+        entries.push(entry);
+        totalBytes += size;
+        if (largestEntry === null || size > largestEntry.size) {
+          largestEntry = entry;
+        }
+        return false;
+      }
+    });
+    return { entries, totalBytes, entryCount: entries.length, largestEntry };
+  }
   var ElpxImporter = class {
     /**
      * Create a new ElpxImporter
      * @param ydoc - Yjs document to populate
      * @param assetHandler - Asset handler for storing assets (optional)
      * @param logger - Logger for debug output (optional)
+     * @param zipLimits - ZIP-bomb decompression limits (optional, sensible defaults)
      */
-    constructor(ydoc, assetHandler = null, logger = defaultLogger) {
+    constructor(ydoc, assetHandler = null, logger = defaultLogger, zipLimits = {}) {
       this.assetMap = /* @__PURE__ */ new Map();
       this.onProgress = null;
+      /** Activities whose asset references the package could not satisfy (#2223). */
+      this.unresolvedAssets = [];
       this.ydoc = ydoc;
       this.assetHandler = assetHandler;
       this.logger = logger;
+      this.zipLimits = validateZipLimits({ ...DEFAULT_ZIP_LIMITS, ...zipLimits });
+    }
+    /**
+     * Decompress a ZIP buffer with hard limits enforced BEFORE inflation.
+     *
+     * fflate's `filter` callback receives each entry's `originalSize` (read from
+     * the ZIP central directory) and runs before that entry is decompressed.
+     * We use it to reject the archive the moment a per-entry, cumulative, or
+     * entry-count cap would be exceeded, throwing {@link ZipLimitError}. This
+     * guarantees the offending bytes are never materialised in memory, so a
+     * zip bomb cannot OOM the process.
+     *
+     * KNOWN LIMITATION (intentional, documented): `originalSize` is the
+     * *declared* uncompressed size in the central directory, i.e. it is
+     * attacker-controlled metadata, not a measured value. A crafted archive can
+     * understate `originalSize` so an entry passes the pre-inflation filter and
+     * then inflates to more bytes than declared. fflate decompresses
+     * synchronously and does not stream/abort mid-inflation through this filter,
+     * so we cannot enforce the cap against the *actual* inflated length here. We
+     * accept this trade-off: the declared-size check stops the common
+     * over-declared zip bomb cheaply and without inflation, and a single
+     * entry's actual overrun is bounded in practice by available memory; full
+     * defence would require a streaming inflater that aborts on byte count.
+     * `maxEntryBytes` therefore caps *declared* per-entry size, not guaranteed
+     * inflated size.
+     *
+     * @param buffer - Raw ZIP bytes
+     * @param label - Human-readable archive label for error messages
+     * @returns Map of entry path -> decompressed bytes
+     */
+    safeUnzip(buffer, label) {
+      const { maxTotalBytes, maxEntryBytes, maxEntries } = this.zipLimits;
+      let cumulativeBytes = 0;
+      let entryCount = 0;
+      return unzipSync(buffer, {
+        filter: (file) => {
+          entryCount++;
+          if (entryCount > maxEntries) {
+            throw entryCountError(label, entryCount, maxEntries);
+          }
+          const entrySize = file.originalSize;
+          if (entrySize > maxEntryBytes) {
+            throw entrySizeError(label, file.name, entrySize, maxEntryBytes);
+          }
+          cumulativeBytes += entrySize;
+          if (cumulativeBytes > maxTotalBytes) {
+            throw totalSizeError(label, cumulativeBytes, maxTotalBytes);
+          }
+          return true;
+        }
+      });
+    }
+    /**
+     * Validate an already-decompressed entry map against the same limits as
+     * {@link safeUnzip}. Used by `importFromZipContents`, whose caller provides
+     * the contents already inflated: we cannot prevent the original inflation,
+     * but we refuse to keep processing (asset writes, Y.Doc population) an
+     * archive whose materialised payload exceeds the configured caps, so the
+     * server-side path stays bounded.
+     *
+     * @param zipContents - Already-extracted entry map
+     * @param label - Human-readable archive label for error messages
+     */
+    assertZipContentsWithinLimits(zipContents, label) {
+      const { maxTotalBytes, maxEntryBytes, maxEntries } = this.zipLimits;
+      const entries = Object.entries(zipContents);
+      if (entries.length > maxEntries) {
+        throw entryCountError(label, entries.length, maxEntries);
+      }
+      let cumulativeBytes = 0;
+      for (const [name, data] of entries) {
+        const entrySize = data.length;
+        if (entrySize > maxEntryBytes) {
+          throw entrySizeError(label, name, entrySize, maxEntryBytes);
+        }
+        cumulativeBytes += entrySize;
+        if (cumulativeBytes > maxTotalBytes) {
+          throw totalSizeError(label, cumulativeBytes, maxTotalBytes);
+        }
+      }
     }
     // =========================================================================
     // DOM Query Helpers (compatible with @xmldom/xmldom)
@@ -12423,7 +12813,7 @@
       }
       this.logger.log("[ElpxImporter] Starting import from buffer");
       this.reportProgress("decompress", 0, "Decompressing...");
-      const zip = unzipSync(buffer);
+      const zip = this.safeUnzip(buffer, "ELP/ELPX archive");
       this.reportProgress("decompress", 10, "File decompressed");
       let workingZip = this.unwrapSingleTopLevelDirectory(zip);
       if (!workingZip["content.xml"] && !workingZip["contentv3.xml"]) {
@@ -12433,7 +12823,7 @@
         if (elpFiles.length === 1) {
           this.logger.log(`[ElpxImporter] Found nested ELP file: ${elpFiles[0]}, extracting...`);
           const nestedElpData = workingZip[elpFiles[0]];
-          workingZip = unzipSync(nestedElpData);
+          workingZip = this.safeUnzip(nestedElpData, `nested ELP file '${elpFiles[0]}'`);
         } else if (elpFiles.length > 1) {
           throw new Error("ZIP contains multiple ELP files. Please extract and open one at a time.");
         }
@@ -12496,6 +12886,7 @@
         this.onProgress = onProgress;
       }
       this.logger.log("[ElpxImporter] Starting import from zip contents");
+      this.assertZipContentsWithinLimits(zipContents, "extracted ELP contents");
       this.reportProgress("decompress", 10, "Files ready");
       zipContents = this.unwrapSingleTopLevelDirectory(zipContents);
       let contentFile = zipContents["content.xml"];
@@ -12545,11 +12936,24 @@
       return stats;
     }
     /**
+     * Note that an activity still carries asset references the package could
+     * not satisfy, so the caller can tell the author which files are missing
+     * instead of leaving them to read a raw placeholder in a form field (#2223).
+     *
+     * @param componentId - id of the activity the text belongs to
+     * @param ideviceType - iDevice type, so the notice can name the activity
+     * @param text - HTML or serialized properties, after asset conversion ran
+     */
+    recordUnresolvedAssets(componentId, ideviceType, text) {
+      addUnresolvedAssetRefs(this.unresolvedAssets, componentId, ideviceType, text);
+    }
+    /**
      * Import document structure from parsed XML
      */
     async importStructure(xmlDoc, zip, options = {}) {
       const { clearExisting = true, parentId = null } = options;
       const stats = { pages: 0, blocks: 0, components: 0, assets: 0 };
+      this.unresolvedAssets = [];
       this.reportProgress("assets", 10, "Extracting assets...");
       stats.assets = await this.importAssets(zip);
       this.reportProgress("assets", 50, "Assets extracted");
@@ -12667,6 +13071,7 @@
       this.reportProgress("precache", 100, "Import complete");
       stats.theme = metadataValues.theme || null;
       stats.zipContents = zip;
+      stats.missingAssets = this.unresolvedAssets;
       const { zipContents: _zip, ...statsWithoutZip } = stats;
       this.logger.log("[ElpxImporter] Import complete:", statsWithoutZip);
       return stats;
@@ -12677,6 +13082,7 @@
     async importLegacyStructure(parsedData, zip, options = {}) {
       const { clearExisting = true, parentId = null } = options;
       const stats = { pages: 0, blocks: 0, components: 0, assets: 0 };
+      this.unresolvedAssets = [];
       this.reportProgress("assets", 10, "Extracting assets...");
       stats.assets = await this.importAssets(zip);
       this.reportProgress("assets", 50, "Assets extracted");
@@ -12736,6 +13142,7 @@
       }
       this.reportProgress("precache", 100, "Import complete");
       stats.zipContents = zip;
+      stats.missingAssets = this.unresolvedAssets;
       const { zipContents: _zipLegacy, ...legacyStatsWithoutZip } = stats;
       this.logger.log("[ElpxImporter] Legacy import complete:", legacyStatsWithoutZip);
       return stats;
@@ -12816,12 +13223,26 @@
           this.logger.warn(`[ElpxImporter] Error converting asset paths for ${legacyIdevice.id}:`, convErr);
         }
       }
+      this.recordUnresolvedAssets(legacyIdevice.id, legacyIdevice.type || "unknown", htmlView);
       let properties = legacyIdevice.properties || {};
       if (legacyIdevice.type === "text" && htmlView) {
         properties = {
           ...properties,
           textTextarea: htmlView
         };
+      }
+      if (legacyIdevice.type === "scrambled-list" && htmlView) {
+        const extractedProperties = this.extractScrambledListProperties(htmlView);
+        if (extractedProperties) {
+          const previousOptions = properties.options;
+          properties = {
+            ...extractedProperties,
+            ...properties
+          };
+          if (!Array.isArray(previousOptions) || previousOptions.length === 0) {
+            properties.options = extractedProperties.options;
+          }
+        }
       }
       const componentData = {
         id: componentId,
@@ -12898,6 +13319,69 @@
     htmlHasFeedback(html) {
       if (!html) return false;
       return html.includes("feedbacktooglebutton") || html.includes("feedbackbutton") || html.includes("iDevice_buttons feedback-button") || html.includes('class="feedback-button');
+    }
+    extractScrambledListProperties(htmlView) {
+      if (!htmlView || !htmlView.includes("exe-sortableList")) return null;
+      const doc = new import_xmldom2.DOMParser().parseFromString(`<div>${htmlView}</div>`, "text/html");
+      const activity = this.getFirstElementByClass(doc, "exe-sortableList");
+      if (!activity) return null;
+      const optionsList = this.getFirstElementByClass(activity, "exe-sortableList-list") || this.getElements(activity, "ul")[0];
+      const options = optionsList ? this.getDirectChildElements(optionsList, "li").map((item) => this.getElementInnerHtml(item) || (item.textContent || "").trim()).filter((option) => option !== "") : [];
+      if (options.length === 0) return null;
+      const textAfter = this.getElementInnerHtmlByClass(activity, "exe-sortableList-textAfter");
+      return {
+        typeGame: "ScrambledList",
+        instructions: this.getElementInnerHtmlByClass(activity, "exe-sortableList-instructions"),
+        textAfter,
+        afterElement: textAfter ? `<div class="exe-sortableList-textAfter">${textAfter}</div>` : "",
+        options,
+        time: 0,
+        buttonText: this.getElementTextByClass(activity, "exe-sortableList-buttonText") || "Check",
+        rightText: this.getElementTextByClass(activity, "exe-sortableList-rightText") || "Right!",
+        wrongText: this.getElementTextByClass(activity, "exe-sortableList-wrongText") || "Sorry, that's incorrect... The right answer is:",
+        isScorm: 0,
+        textButtonScorm: "Save score",
+        repeatActivity: false,
+        weighted: 100,
+        showSolutions: true,
+        attemptsNumber: 1
+      };
+    }
+    getFirstElementByClass(parent, className) {
+      return this.getElementsByClass(parent, className)[0] || null;
+    }
+    getElementsByClass(parent, className) {
+      return this.getElements(parent, "*").filter((element) => this.elementHasClass(element, className));
+    }
+    elementHasClass(element, className) {
+      return ` ${element.getAttribute("class") || ""} `.includes(` ${className} `);
+    }
+    getDirectChildElements(parent, tagName) {
+      const normalizedTag = tagName.toLowerCase();
+      return Array.from(parent.childNodes || []).filter((child) => {
+        if (child.nodeType !== 1) return false;
+        return (child.tagName || "").toLowerCase() === normalizedTag;
+      });
+    }
+    getElementTextByClass(parent, className) {
+      const element = this.getFirstElementByClass(parent, className);
+      return (element?.textContent || "").trim();
+    }
+    getElementInnerHtmlByClass(parent, className) {
+      const element = this.getFirstElementByClass(parent, className);
+      return element ? this.getElementInnerHtml(element) : "";
+    }
+    getElementInnerHtml(element) {
+      const elementWithInnerHtml = element;
+      if (typeof elementWithInnerHtml.innerHTML === "string") {
+        return this.stripXhtmlNamespaceAttributes(elementWithInnerHtml.innerHTML).trim();
+      }
+      const serializer = new import_xmldom2.XMLSerializer();
+      const html = Array.from(element.childNodes || []).map((child) => serializer.serializeToString(child)).join("");
+      return this.stripXhtmlNamespaceAttributes(html).trim();
+    }
+    stripXhtmlNamespaceAttributes(html) {
+      return html.replace(/\s+xmlns="http:\/\/www\.w3\.org\/1999\/xhtml"/g, "");
     }
     /**
      * Extract screenshot.png from archive root and return as data URL, or undefined.
@@ -13156,6 +13640,7 @@
           }
         }
         compData.htmlView = typeof htmlContent === "string" ? htmlContent : "";
+        this.recordUnresolvedAssets(componentId, ideviceType, compData.htmlView);
       }
       const jsonPropsNode = this.getElement(compNode, "jsonProperties");
       if (jsonPropsNode) {
@@ -13198,6 +13683,7 @@
             props.ideviceId = componentId;
           }
           compData.properties = props;
+          this.recordUnresolvedAssets(componentId, ideviceType, JSON.stringify(props));
         } catch (e) {
           this.logger.warn(`[ElpxImporter] Failed to process JSON properties for ${componentId}:`, e);
         }
@@ -13781,14 +14267,14 @@
         return obj;
       }
       if (typeof obj === "string") {
-        if (obj.includes("{{context_path}}") && this.assetHandler) {
-          return this.assetHandler.convertContextPathToAssetRefs(obj, this.assetMap);
-        }
         if (obj.startsWith("resources/") && this.assetMap.size > 0) {
           const assetUrl = this.findAssetUrlForPath(obj);
           if (assetUrl) {
             return assetUrl;
           }
+        }
+        if (this.assetHandler && (obj.includes("{{context_path}}") || obj.includes("resources/"))) {
+          return this.assetHandler.convertContextPathToAssetRefs(obj, this.assetMap);
         }
         return obj;
       }
@@ -13963,33 +14449,60 @@
      * @param assetManager - AssetManager instance (optional)
      */
     constructor(documentManager, assetManager = null) {
-      this.importer = null;
       this.manager = documentManager;
       this.assetManager = assetManager;
       this.logger = getBrowserLogger2();
     }
     /**
-     * Initialize the underlying ElpxImporter with Y.Doc
+     * Build the underlying core ElpxImporter with the resolved limits.
+     *
+     * A fresh instance is created for every import so a previously-used runtime
+     * policy can never be retained (a cached importer bakes its limits in at
+     * construction). Imports happen once per file open, so this has no
+     * meaningful cost.
      */
-    getImporter() {
-      if (!this.importer) {
-        const ydoc = this.manager.getDoc();
-        const assetHandler = this.assetManager ? createBrowserAssetHandler(this.assetManager) : null;
-        this.importer = new ElpxImporter(ydoc, assetHandler, this.logger);
-      }
-      return this.importer;
+    buildImporter(limits) {
+      const ydoc = this.manager.getDoc();
+      const assetHandler = this.assetManager ? createBrowserAssetHandler(this.assetManager) : null;
+      return new ElpxImporter(ydoc, assetHandler, this.logger, limits);
     }
     /**
      * Import an .elpx file (browser File API)
      * Compatible with the old ElpxImporter.importFromFile() API
      *
+     * The archive is inspected (central directory only, no inflation) and
+     * validated against the resolved limits BEFORE anything is decompressed or
+     * any project state is mutated. When the largest entry is in the controlled
+     * range (above `confirmEntryThreshold` but within the hard limit) and a
+     * confirmation callback is supplied, the user is asked before proceeding.
+     *
      * @param file - The .elpx file to import
-     * @param options - Import options
+     * @param options - Import options (see {@link ImportFromFileOptions})
      * @returns Import statistics
      */
     async importFromFile(file, options = {}) {
       const { clearExisting = true, parentId = null, onProgress = null, clearIndexedDB = false } = options;
       this.logger.log(`[BrowserElpxImporter] Importing ${file.name}...`);
+      const arrayBuffer = await file.arrayBuffer();
+      const buffer = new Uint8Array(arrayBuffer);
+      const label = "ELP/ELPX archive";
+      const limits = validateZipLimits({ ...CONSERVATIVE_ZIP_LIMITS, ...options.zipLimits ?? {} });
+      const inspection = inspectZipArchive(buffer, label);
+      assertInspectionWithinLimits(inspection, limits, label);
+      const confirmThreshold = options.confirmEntryThreshold ?? limits.maxEntryBytes;
+      if (inspection.largestEntry && inspection.largestEntry.size > confirmThreshold && typeof options.onConfirmLargeEntry === "function") {
+        const confirmed = await options.onConfirmLargeEntry({
+          entryName: inspection.largestEntry.name,
+          entryBytes: inspection.largestEntry.size,
+          totalBytes: inspection.totalBytes,
+          entryCount: inspection.entryCount,
+          confirmThreshold,
+          hardLimitBytes: limits.maxEntryBytes
+        });
+        if (!confirmed) {
+          throw new ImportCancelledError("Large ELPX import cancelled by user");
+        }
+      }
       if (clearIndexedDB && this.assetManager && "projectId" in this.manager) {
         const dbName = `exelearning-project-${this.manager.projectId}`;
         this.logger.log(`[BrowserElpxImporter] Clearing IndexedDB: ${dbName}`);
@@ -14004,15 +14517,29 @@
           console.warn("[BrowserElpxImporter] Failed to clear IndexedDB:", e);
         }
       }
-      const arrayBuffer = await file.arrayBuffer();
-      const buffer = new Uint8Array(arrayBuffer);
-      const importer = this.getImporter();
+      if (typeof options.beforeImport === "function") {
+        await options.beforeImport();
+      }
+      const importer = this.buildImporter(limits);
       return importer.importFromBuffer(buffer, { clearExisting, parentId, onProgress });
     }
   };
   function createBrowserImporter(documentManager, assetManager = null) {
     return new BrowserElpxImporter(documentManager, assetManager);
   }
+  var importPolicyNamespace = {
+    CONSERVATIVE_ZIP_LIMITS,
+    DESKTOP_ZIP_LIMITS,
+    DESKTOP_CONFIRM_ENTRY_BYTES,
+    getZipLimitsForRuntime,
+    validateZipLimits,
+    inspectZipArchive,
+    assertInspectionWithinLimits,
+    getDesktopExportCompatibility,
+    formatBytes,
+    ZipLimitError,
+    ImportCancelledError
+  };
   if (typeof window !== "undefined") {
     window.LegacyHandlerRegistry = LegacyHandlerRegistry;
     window.LEGACY_TYPE_MAP = LEGACY_TYPE_MAP;
@@ -14021,6 +14548,7 @@
     window.ElpxImporterCore = ElpxImporter;
     window.BrowserAssetHandler = BrowserAssetHandler;
     window.createBrowserImporter = createBrowserImporter;
+    window.ExeImportPolicy = importPolicyNamespace;
     const windowExports = {
       // ElpxImporter
       ElpxImporter: BrowserElpxImporter,
@@ -14028,6 +14556,8 @@
       BrowserAssetHandler,
       createBrowserImporter,
       createBrowserAssetHandler,
+      // Import policy (single source of truth for limits + export warning)
+      importPolicy: importPolicyNamespace,
       // Registry
       LegacyHandlerRegistry,
       LEGACY_TYPE_MAP,

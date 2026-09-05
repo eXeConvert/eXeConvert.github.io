@@ -9,6 +9,26 @@ Categorías usadas: **Añadido**, **Cambiado**, **Corregido**, **Eliminado**.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-09-05
+
+### Añadido
+- Comprobación diaria de actualizaciones de eXeConvert en la CLI interactiva,
+  desactivable mediante `--no-update-check` o `EXECONVERT_NO_UPDATE_CHECK=1`.
+  No interfiere con tuberías, CI, JSON ni conversiones sin conexión.
+- `execonvert update --check` y `execonvert update`: consulta de versiones,
+  actualización mediante npm o descarga verificada de instaladores nativos.
+- Identificación del canal de instalación y de la arquitectura en los paquetes
+  nativos, con nombres explícitos de arquitectura para macOS y Windows.
+- Comprobación semanal de nuevas versiones de eXeLearning en GitHub Actions:
+  prueba las conversiones y genera un parche para revisión, sin publicarlo.
+- Pruebas del actualizador y de las conversiones de CLI y navegador con un
+  proyecto sintético que incluye páginas, imagen, fórmulas y traducciones.
+
+### Cambiado
+- Runtime embebido de eXeLearning actualizado de **v4.0.1** a **v4.0.3**,
+  incluidos los importadores, exportadores, temas, iDevices y traducciones
+  compartidos por la web y la CLI.
+
 ## [0.4.2] - 2026-06-25
 
 ### Corregido
