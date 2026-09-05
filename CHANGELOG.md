@@ -9,6 +9,18 @@ Categorías usadas: **Añadido**, **Cambiado**, **Corregido**, **Eliminado**.
 
 ## [Unreleased]
 
+## [0.5.4] - 2026-09-05
+
+### Corregido
+- Una opción mal escrita con un solo guion (por ejemplo `-o salida.elpx`) se
+  tomaba como si fuera un archivo de entrada y se descartaba sin decir nada,
+  mientras la conversión escribía en su destino por defecto. Si allí ya había un
+  archivo con ese nombre, se sobrescribía sin aviso. Ahora se rechaza como
+  opción desconocida. Para elegir la salida siguen estando
+  `execonvert <entrada> <salida>` y `--out-dir`.
+- Los archivos de entrada que se descartan por no admitir la conversión pedida
+  se anuncian por la salida de errores en lugar de desaparecer en silencio.
+
 ## [0.5.3] - 2026-09-05
 
 ### Corregido

@@ -91,6 +91,7 @@ const cliMessages: Record<Locale, Record<string, string>> = {
     'help.output.docx': 'desde .docx: .elpx',
     'help.output.markdown': 'desde .md/.txt: .elpx',
     'help.option.to': 'Formato de salida para conversión múltiple (elpx, docx, md, pdf). Los archivos no compatibles se ignoran.',
+    'warn.skippedInput': 'Aviso: se ignora {file}: no se puede convertir a {format}.',
     'help.option.outDir': 'Directorio de salida (por defecto: mismo directorio que cada entrada)',
     'help.option.json': 'Imprime JSON legible por máquina',
     'help.option.pages': 'Exporta solo las referencias de página seleccionadas de un .elpx',
@@ -139,6 +140,7 @@ const cliMessages: Record<Locale, Record<string, string>> = {
     'help.output.docx': 'des de .docx: .elpx',
     'help.output.markdown': 'des de .md/.txt: .elpx',
     'help.option.to': 'Format de sortida per a conversió múltiple (elpx, docx, md, pdf). Els fitxers no compatibles s’ignoren.',
+    'warn.skippedInput': 'Avís: s’ignora {file}: no es pot convertir a {format}.',
     'help.option.outDir': 'Directori de sortida (per defecte: mateix directori que cada entrada)',
     'help.option.json': 'Imprimeix JSON llegible per màquines',
     'help.option.pages': 'Exporta només les referències de pàgina seleccionades d’un .elpx',
@@ -187,6 +189,7 @@ const cliMessages: Record<Locale, Record<string, string>> = {
     'help.output.docx': 'from .docx: .elpx',
     'help.output.markdown': 'from .md/.txt: .elpx',
     'help.option.to': 'Output format for batch conversion (elpx, docx, md, pdf). Incompatible files are skipped.',
+    'warn.skippedInput': 'Warning: skipping {file}: it cannot be converted to {format}.',
     'help.option.outDir': 'Output directory (default: same directory as each input)',
     'help.option.json': 'Print machine-readable JSON',
     'help.option.pages': 'Export only selected page refs from an .elpx input',
@@ -421,6 +424,12 @@ function parseOptionFlags(args: string[], defaults: ParsedArgs, t: CliTranslator
   for (let index = 0; index < args.length; index += 1) {
     const value = args[index];
     if (!value.startsWith('--')) {
+      // A single dash is a mistyped option, not a file: taking it as one made
+      // "-o out.elpx" silently convert to the default destination instead,
+      // which can overwrite an existing file next to the input.
+      if (value.length > 1 && value.startsWith('-')) {
+        throw new Error(t('error.unknownOption', { value }));
+      }
       positionals.push(value);
       continue;
     }
@@ -934,6 +943,17 @@ async function runBatch(args: ParsedArgs): Promise<void> {
       return false;
     }
   });
+
+  // Skipping is deliberate for globs like "*.docx --to pdf", but doing it in
+  // silence hides typos: an unknown option taken as a filename disappeared
+  // without a word while the conversion wrote to its default destination.
+  if (!args.json) {
+    for (const inputPath of inputPaths) {
+      if (!eligible.includes(inputPath)) {
+        stderr.write(i18n.t('warn.skippedInput', { file: basename(inputPath), format: toRaw }) + '\n');
+      }
+    }
+  }
 
   let count = 0;
   for (const inputPath of eligible) {

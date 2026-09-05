@@ -30,6 +30,7 @@ jobs:
       - run: npm run build:cli
       - run: npm run test:cli
       - run: npm run test:docx
+      - run: npm run test:args
   conversions:
     runs-on: ubuntu-latest
     timeout-minutes: 20
