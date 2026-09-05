@@ -3,11 +3,14 @@ import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 const run = promisify(execFile);
 const root = resolve(import.meta.dirname, '..');
 const call = args => run(process.execPath, [
-  '--import', resolve(root, 'tests/fixtures/update-fetch.mjs'),
+  // --import takes a module specifier: on Windows a bare absolute path is read
+  // as the URL scheme "d:", so it has to be a file:// URL.
+  '--import', pathToFileURL(resolve(root, 'tests/fixtures/update-fetch.mjs')).href,
   resolve(root, 'dist/cli/cli/execonvert.js'), ...args,
 ], { cwd: root, timeout: 20000 });
 
