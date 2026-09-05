@@ -69,7 +69,12 @@ try {
   });
   await new Promise(done => server.listen(0, '127.0.0.1', done));
   const origin = `http://127.0.0.1:${server.address().port}`;
-  browser = await puppeteer.launch({ headless: true });
+  // Same flags the converter uses on Linux: CI runners have no unprivileged
+  // user namespaces, and the Chrome zygote aborts without them.
+  browser = await puppeteer.launch({
+    headless: true,
+    args: process.platform === 'linux' ? ['--no-sandbox', '--disable-setuid-sandbox'] : [],
+  });
   const page = await browser.newPage();
   // The application may have external fonts/analytics; this test is local only.
   await page.setRequestInterception(true);

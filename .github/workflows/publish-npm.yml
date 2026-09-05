@@ -1,0 +1,61 @@
+name: Publish npm Package
+
+# Publishing a release publishes that version to npm. Nothing else publishes:
+# an npm version can never be replaced, so it has to be a deliberate act.
+on:
+  release:
+    types:
+      - published
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  # npm authenticates this workflow as a trusted publisher over OIDC, so there
+  # is no token to store, rotate or leak. It also gets the release a
+  # provenance attestation, which npm shows on the package page.
+  id-token: write
+
+concurrency:
+  group: publish-npm
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    # Must match the environment configured in npm's trusted publisher settings.
+    environment: npm
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+          cache: npm
+
+      # Trusted publishing needs npm 11.5.1 or newer; pin it rather than depend
+      # on whatever the runner image happens to ship.
+      - name: Use an npm that can publish over OIDC
+        run: npm install -g npm@latest
+
+      # A tarball whose version does not match the tag it was announced under is
+      # the kind of mistake you only notice once it is public and immutable.
+      - name: Check the version matches the tag
+        if: github.event_name == 'release'
+        run: test "v$(node -p "require('./package.json').version")" = "${{ github.event.release.tag_name }}"
+
+      - name: Install dependencies
+        run: npm ci
+
+      # `prepack` builds the CLI, so the tarball carries dist/cli.
+      - name: Pack the package
+        run: npm pack --pack-destination .
+
+      - name: Check the tarball
+        run: |
+          tar -tzf execonvert-*.tgz
+          tar -tzf execonvert-*.tgz | grep -q "^package/bin/execonvert.js$"
+          tar -tzf execonvert-*.tgz | grep -q "^package/dist/cli/"
+
+      - name: Publish
+        run: npm publish ./execonvert-*.tgz
