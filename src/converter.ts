@@ -77,6 +77,7 @@ interface ParsedProject {
   title: string;
   subtitle: string;
   language: string;
+  exeVersion: string | null;
   pages: ParsedPage[];
 }
 
@@ -2333,15 +2334,27 @@ function ensurePdfMakeFonts(): void {
 }
 
 export async function inspectElpxPages(file: File): Promise<ElpxPageInfo[]> {
+  return (await inspectElpx(file)).pages;
+}
+
+/**
+ * Reads the pages and the eXeLearning release the project declares. The version
+ * is what tells a caller whether the project comes from a release newer than the
+ * vendored runtime, in which case the conversion may not know every element.
+ */
+export async function inspectElpx(file: File): Promise<{ exeVersion: string | null; pages: ElpxPageInfo[] }> {
   const input = new Uint8Array(await file.arrayBuffer());
   const entries = unzipSync(input);
   const project = parseProject(entries);
-  return project.pages.map(page => ({
-    id: page.id,
-    parentId: page.parentId,
-    title: page.title,
-    depth: page.depth,
-  }));
+  return {
+    exeVersion: project.exeVersion,
+    pages: project.pages.map(page => ({
+      id: page.id,
+      parentId: page.parentId,
+      title: page.title,
+      depth: page.depth,
+    })),
+  };
 }
 
 async function buildCompatibleDocx(htmlDocument: string): Promise<Blob> {
@@ -2473,6 +2486,7 @@ function parseProject(entries: Record<string, Uint8Array>): ParsedProject {
     throw new Error('El content.xml no se ha podido interpretar correctamente.');
   }
 
+  const exeVersion = findResourceValue(xmlDoc, 'exe_version');
   const title = findPropertyValue(xmlDoc, 'pp_title') || 'eXeLearning';
   const subtitle = findPropertyValue(xmlDoc, 'pp_subtitle') || '';
   const language = findPropertyValue(xmlDoc, 'pp_lang') || 'es';
@@ -2486,6 +2500,7 @@ function parseProject(entries: Record<string, Uint8Array>): ParsedProject {
     title,
     subtitle,
     language,
+    exeVersion,
     pages: sortPagesHierarchically(pages),
   };
 }
@@ -6179,6 +6194,20 @@ function toDocxHeadingLevel(level: number) {
     default:
       return HeadingLevel.HEADING_6;
   }
+}
+
+// eXeLearning records the release that wrote the project as an odeResource.
+// It is descriptive only -- nothing in the runtime reads it to decide anything.
+function findResourceValue(xmlDoc: globalThis.Document, key: string): string | null {
+  const nodes = Array.from(xmlDoc.getElementsByTagName('odeResource'));
+
+  for (const node of nodes) {
+    if (getDirectText(node, 'key') === key) {
+      return getDirectText(node, 'value');
+    }
+  }
+
+  return null;
 }
 
 function findPropertyValue(xmlDoc: globalThis.Document, key: string): string | null {

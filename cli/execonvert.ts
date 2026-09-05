@@ -10,6 +10,7 @@ import {
   convertElpxToDocx,
   convertElpxToHtml,
   convertHtmlToDocxResult,
+  inspectElpx,
   inspectElpxPages,
 } from '../src/converter.js';
 import { convertDocxToElpx } from '../src/docx-import.js';
@@ -17,6 +18,7 @@ import { convertElpxToMarkdown } from '../src/elpx-markdown.js';
 import { convertElpToElpx } from '../src/legacy-elp.js';
 import { convertMarkdownToElpx } from '../src/markdown-import.js';
 import { installCliRuntime } from './runtime.js';
+import { EXE_RUNTIME_VERSION, isNewerThanRuntime } from '../src/exe-runtime.js';
 import { automaticCheck, autoCheckAllowed, runUpdate, updateText } from './updates.js';
 
 type InspectPage = {
@@ -92,6 +94,7 @@ const cliMessages: Record<Locale, Record<string, string>> = {
     'help.output.markdown': 'desde .md/.txt: .elpx',
     'help.option.to': 'Formato de salida para conversión múltiple (elpx, docx, md, pdf). Los archivos no compatibles se ignoran.',
     'warn.skippedInput': 'Aviso: se ignora {file}: no se puede convertir a {format}.',
+    'warn.newerProject': 'Aviso: el proyecto se creó con eXeLearning {version} y esta versión incorpora la {runtime}. La conversión puede no reconocer los elementos nuevos.',
     'help.option.outDir': 'Directorio de salida (por defecto: mismo directorio que cada entrada)',
     'help.option.json': 'Imprime JSON legible por máquina',
     'help.option.pages': 'Exporta solo las referencias de página seleccionadas de un .elpx',
@@ -141,6 +144,7 @@ const cliMessages: Record<Locale, Record<string, string>> = {
     'help.output.markdown': 'des de .md/.txt: .elpx',
     'help.option.to': 'Format de sortida per a conversió múltiple (elpx, docx, md, pdf). Els fitxers no compatibles s’ignoren.',
     'warn.skippedInput': 'Avís: s’ignora {file}: no es pot convertir a {format}.',
+    'warn.newerProject': 'Avís: el projecte s’ha creat amb eXeLearning {version} i aquesta versió incorpora la {runtime}. La conversió pot no reconèixer els elements nous.',
     'help.option.outDir': 'Directori de sortida (per defecte: mateix directori que cada entrada)',
     'help.option.json': 'Imprimeix JSON llegible per màquines',
     'help.option.pages': 'Exporta només les referències de pàgina seleccionades d’un .elpx',
@@ -190,6 +194,7 @@ const cliMessages: Record<Locale, Record<string, string>> = {
     'help.output.markdown': 'from .md/.txt: .elpx',
     'help.option.to': 'Output format for batch conversion (elpx, docx, md, pdf). Incompatible files are skipped.',
     'warn.skippedInput': 'Warning: skipping {file}: it cannot be converted to {format}.',
+    'warn.newerProject': 'Warning: this project was created with eXeLearning {version} and this build carries {runtime}. The conversion may not recognise its newer elements.',
     'help.option.outDir': 'Output directory (default: same directory as each input)',
     'help.option.json': 'Print machine-readable JSON',
     'help.option.pages': 'Export only selected page refs from an .elpx input',
@@ -641,13 +646,21 @@ function printInspectText(pages: InspectPage[]): void {
 async function runInspect(inputPath: string, json: boolean): Promise<void> {
   installCliRuntime();
   const inputFile = await readInputFile(inputPath, buildMime('elpx'));
-  const pages = buildPageRefs(await inspectElpxPages(inputFile));
+  const inspection = await inspectElpx(inputFile);
+  const pages = buildPageRefs(inspection.pages);
 
   if (json) {
-    stdout.write(`${JSON.stringify({ input: resolve(inputPath), pages }, null, 2)}\n`);
+    stdout.write(`${JSON.stringify(
+      { input: resolve(inputPath), exeVersion: inspection.exeVersion, pages },
+      null,
+      2,
+    )}\n`);
     return;
   }
 
+  if (inspection.exeVersion) {
+    stdout.write(`eXeLearning: ${inspection.exeVersion}\n`);
+  }
   printInspectText(pages);
 }
 
@@ -659,6 +672,10 @@ async function runConvert(args: ParsedArgs): Promise<void> {
   const inputFormat = detectFormat(inputPath, i18n.t);
   const outputFormat = detectFormat(outputPath, i18n.t);
   const inputFile = await readInputFile(inputPath, buildMime(inputFormat));
+  if (inputFormat === 'elpx' && !args.json) {
+    await warnIfNewerThanRuntime(inputFile, i18n.t);
+  }
+
   const selectedPageIds = inputFormat === 'elpx'
     ? await loadSelectedPageIds(inputFile, args.pages, args.pageIds)
     : [];
@@ -872,6 +889,21 @@ async function runConvert(args: ParsedArgs): Promise<void> {
   }
 
   throw new Error(i18n.t('error.unsupportedConversion', { input: inputFormat, output: outputFormat }));
+}
+
+// Only newer projects are worth a warning: older ones convert fine, as every
+// release from 4.0.0 on has shown. A project from a release this build does not
+// know may carry elements the conversion drops without saying anything.
+async function warnIfNewerThanRuntime(inputFile: File, t: CliTranslator['t']): Promise<void> {
+  try {
+    const { exeVersion } = await inspectElpx(inputFile);
+    if (isNewerThanRuntime(exeVersion)) {
+      stderr.write(`${t('warn.newerProject', { version: exeVersion!, runtime: EXE_RUNTIME_VERSION })}\n`);
+    }
+  } catch {
+    // Inspecting is only for the warning: a project that cannot be read here
+    // will fail with its own message further down.
+  }
 }
 
 async function loadSelectedPageIds(inputFile: File, pageRefs: string[], pageIds: string[]): Promise<string[]> {

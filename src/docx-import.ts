@@ -2,6 +2,7 @@ import { unzipSync, zipSync } from 'fflate';
 import mammoth from 'mammoth';
 import { MathMLToLaTeX } from 'mathml-to-latex';
 import { DOMParser as XmldomParser, XMLSerializer as XmldomSerializer } from '@xmldom/xmldom';
+import { EXE_RUNTIME_VERSION } from './exe-runtime.js';
 // @ts-expect-error the vendored omml2mathml ships no TypeScript declarations.
 import omml2mathml from './vendor/omml2mathml/index.js';
 import temml from 'temml';
@@ -817,7 +818,7 @@ function generateContentXml(project: ImportedProject): string {
 <odeResources>
   <odeResource><key>odeId</key><value>${escapeXml(odeId)}</value></odeResource>
   <odeResource><key>odeVersionId</key><value>${escapeXml(odeVersionId)}</value></odeResource>
-  <odeResource><key>exe_version</key><value>3.0</value></odeResource>
+  <odeResource><key>exe_version</key><value>${EXE_RUNTIME_VERSION}</value></odeResource>
 </odeResources>
 <odeProperties>
   <odeProperty><key>pp_title</key><value>${escapeXml(project.title || 'Documento importado')}</value></odeProperty>

@@ -1,6 +1,6 @@
 {
   "name": "execonvert",
-  "version": "0.5.4",
+  "version": "0.5.5",
   "private": false,
   "repository": {
     "type": "git",
@@ -40,7 +40,8 @@
     "test:runtime": "node scripts/test-runtime.mjs",
     "test:cli": "node --test tests/cli-update.test.mjs",
     "test:docx": "node --test tests/docx-omml.test.mjs",
-    "test:args": "node --test tests/cli-args.test.mjs"
+    "test:args": "node --test tests/cli-args.test.mjs",
+    "test:version": "node --import tsx --test tests/runtime-version.test.mjs"
   },
   "dependencies": {
     "@resvg/resvg-js": "^2.6.2",

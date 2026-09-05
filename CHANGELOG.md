@@ -9,6 +9,22 @@ Categorías usadas: **Añadido**, **Cambiado**, **Corregido**, **Eliminado**.
 
 ## [Unreleased]
 
+## [0.5.5] - 2026-09-05
+
+### Añadido
+- `execonvert inspect` muestra la versión de eXeLearning con la que se creó el
+  proyecto, y la incluye en su salida `--json` como `exeVersion`.
+- Aviso al convertir un `.elpx` creado con una versión de eXeLearning más
+  reciente que la que incorpora eXeConvert: la conversión sigue adelante, pero
+  puede no reconocer los elementos nuevos. Los proyectos de versiones iguales o
+  anteriores no muestran nada, porque funcionan.
+
+### Corregido
+- Los `.elpx` generados declaraban `exe_version` 3.0, un valor heredado de la
+  plantilla, cuando el runtime incorporado es el 4.0.3. Ahora declaran la
+  versión real, que es la que escribe eXeLearning en sus propios archivos. El
+  campo es informativo: nada en el runtime lo usa para tomar decisiones.
+
 ## [0.5.4] - 2026-09-05
 
 ### Corregido
