@@ -9,6 +9,19 @@ Categorías usadas: **Añadido**, **Cambiado**, **Corregido**, **Eliminado**.
 
 ## [Unreleased]
 
+## [0.5.2] - 2026-09-05
+
+### Corregido
+- Las fórmulas de los `.docx` se perdían al convertir desde la línea de órdenes:
+  el documento se recorría buscando los nodos `m:oMath` por espacio de nombres,
+  algo que el navegador resuelve pero linkedom —el DOM que usa la CLI— no, de
+  modo que no encontraba ninguna y las fórmulas desaparecían sin aviso. Ahora la
+  búsqueda funciona en ambos entornos y el fragmento OMML se reinterpreta con
+  `@xmldom/xmldom` antes de convertirlo, que es lo que el conversor entiende.
+  La versión web no estaba afectada. Se añade una prueba de regresión
+  (`npm run test:docx`) que comprueba que una fórmula llega a `content.xml`
+  convertida en LaTeX.
+
 ## [0.5.1] - 2026-09-05
 
 ### Cambiado

@@ -1,7 +1,7 @@
 import { unzipSync, zipSync } from 'fflate';
 import mammoth from 'mammoth';
 import { MathMLToLaTeX } from 'mathml-to-latex';
-import { XMLSerializer as XmldomSerializer } from '@xmldom/xmldom';
+import { DOMParser as XmldomParser, XMLSerializer as XmldomSerializer } from '@xmldom/xmldom';
 // @ts-expect-error the vendored omml2mathml ships no TypeScript declarations.
 import omml2mathml from './vendor/omml2mathml/index.js';
 import temml from 'temml';
@@ -320,7 +320,7 @@ async function preprocessDocxMath(inputBuffer: ArrayBuffer): Promise<{ arrayBuff
   const formulas = new Map<string, string>();
   let formulaIndex = 1;
 
-  const blockMathNodes = Array.from(document.getElementsByTagNameNS(M_NS, 'oMathPara'));
+  const blockMathNodes = findOmmlNodes(document, 'oMathPara');
   for (const mathNode of blockMathNodes) {
     const placeholder = createMathPlaceholder(formulaIndex++);
     const latex = await convertOmmlElementToLatex(mathNode);
@@ -328,9 +328,9 @@ async function preprocessDocxMath(inputBuffer: ArrayBuffer): Promise<{ arrayBuff
     replaceMathNodeWithPlaceholder(document, mathNode, placeholder);
   }
 
-  const inlineMathNodes = Array.from(document.getElementsByTagNameNS(M_NS, 'oMath'));
+  const inlineMathNodes = findOmmlNodes(document, 'oMath');
   for (const mathNode of inlineMathNodes) {
-    if (mathNode.parentElement?.namespaceURI === M_NS && mathNode.parentElement.localName === 'oMathPara') {
+    if (isOmmlElement(mathNode.parentElement, 'oMathPara')) {
       continue;
     }
 
@@ -352,9 +352,60 @@ async function preprocessDocxMath(inputBuffer: ArrayBuffer): Promise<{ arrayBuff
   return { arrayBuffer: patchedBuffer, formulas };
 }
 
+// Word writes formulas as <m:oMath>. Looking them up by namespace is the correct
+// way and works in the browser, but linkedom -- the DOM the CLI runs on -- does
+// not resolve namespaces in XML documents and finds nothing, which silently
+// dropped every formula from .docx files converted from the command line.
+// So: namespace first, qualified name as a fallback.
+function findOmmlNodes(document: XMLDocument, localName: string): Element[] {
+  const byNamespace = Array.from(document.getElementsByTagNameNS(M_NS, localName));
+  if (byNamespace.length > 0) {
+    return byNamespace;
+  }
+
+  // Not even getElementsByTagName('*') is usable there: on an XML document it
+  // returns nothing. Walking the tree by hand is what survives both DOMs.
+  const found: Element[] = [];
+  const visit = (node: Node): void => {
+    for (const child of Array.from(node.childNodes)) {
+      if (child.nodeType !== 1) {
+        continue;
+      }
+      const element = child as Element;
+      if (isOmmlElement(element, localName)) {
+        found.push(element);
+      }
+      visit(element);
+    }
+  };
+  visit(document);
+  return found;
+}
+
+function isOmmlElement(element: Element | null, localName: string): boolean {
+  if (!element) {
+    return false;
+  }
+  // linkedom keeps the prefix inside localName and reports the wrong namespace,
+  // so compare the name with any prefix stripped, in both DOMs.
+  const name = (element.localName ?? element.tagName ?? '').replace(/^[^:]*:/, '');
+  if (name !== localName) {
+    return false;
+  }
+  return element.namespaceURI === M_NS || (element.tagName ?? '').startsWith('m:');
+}
+
 async function convertOmmlElementToLatex(element: Element): Promise<string> {
   try {
-    const mathElement = omml2mathml(element) as unknown as Node;
+    // omml2mathml returns null when fed linkedom nodes, so the fragment is
+    // reparsed with the same DOM it builds its output on. Serializing it detaches
+    // it from the namespace declarations on <w:document>, so they are restated on
+    // a wrapper; without them the fragment is not well-formed XML.
+    const ommlSource = new XMLSerializer().serializeToString(element);
+    const wrapped = `<w:wrapper xmlns:w="${W_NS}" xmlns:m="${M_NS}">${ommlSource}</w:wrapper>`;
+    const ommlDocument = new XmldomParser().parseFromString(wrapped, 'text/xml');
+    const ommlRoot = ommlDocument.documentElement?.firstChild as unknown as Node;
+    const mathElement = omml2mathml(ommlRoot) as unknown as Node;
     // El árbol MathML lo construye @xmldom/xmldom, así que lo serializa el suyo:
     // el XMLSerializer global es el del entorno (linkedom en la CLI) y no
     // entiende esos nodos.
