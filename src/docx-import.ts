@@ -607,7 +607,10 @@ function buildElpxFromTemplate(template: TemplateParts, project: ImportedProject
   const { entries } = template;
   entries['content.xml'] = new TextEncoder().encode(generateContentXml(project));
   addPreviewHtmlEntries(entries, project);
-  return zipSync(entries, { level: 0 });
+  // Stored entries made a .elpx four times bigger than the one eXeLearning
+  // writes for the same project. Level 6 is what the format is usually packed
+  // with, and the bundled runtime compresses well.
+  return zipSync(entries, { level: 6 });
 }
 
 function buildStandalonePreviewPages(

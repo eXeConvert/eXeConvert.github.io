@@ -9,6 +9,15 @@ Categorías usadas: **Añadido**, **Cambiado**, **Corregido**, **Eliminado**.
 
 ## [Unreleased]
 
+## [0.5.3] - 2026-09-05
+
+### Corregido
+- Los `.elpx` generados desde `.docx` y `.md` se escribían sin comprimir, de
+  modo que ocupaban unas cuatro veces más de lo debido: un proyecto que
+  eXeLearning guarda en 2,4 MB salía de 10,3 MB. El empaquetado usa ahora el
+  mismo nivel de compresión habitual del formato, sin coste apreciable de
+  tiempo. Los archivos anteriores siguen abriéndose con normalidad.
+
 ## [0.5.2] - 2026-09-05
 
 ### Corregido
