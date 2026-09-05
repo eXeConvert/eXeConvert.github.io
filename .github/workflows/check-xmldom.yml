@@ -1,0 +1,75 @@
+name: Check xmldom advisory
+
+# Installing eXeConvert prints one deprecation warning that does not come from
+# this project: mathjax-full pulls speech-rule-engine, which pins an
+# @xmldom/xmldom from the 0.9.0-0.9.11 range. Every one of those is deprecated
+# and carries security advisories; 0.9.12 is the first clean one.
+#
+# Nothing here can fix that — the pin is exact and lives two levels down — so
+# this job just watches for the day it becomes fixable and opens an issue.
+on:
+  schedule:
+    - cron: '40 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: check-xmldom
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: Resolve what a fresh install would get
+        id: check
+        run: |
+          set -euo pipefail
+          # The version npm would actually install, not the one in any lockfile.
+          SRE=$(npm view "speech-rule-engine@^4.0.6" version | tail -n 1 | awk '{print $NF}' | tr -d "'")
+          XMLDOM=$(npm view "speech-rule-engine@${SRE}" dependencies.@xmldom/xmldom | tr -d "'" | tr -d ' ')
+          echo "speech-rule-engine ${SRE} depends on @xmldom/xmldom ${XMLDOM}"
+          echo "sre=${SRE}" >> "$GITHUB_OUTPUT"
+          echo "xmldom=${XMLDOM}" >> "$GITHUB_OUTPUT"
+          # npm marks a version deprecated by returning a message; clean ones return nothing.
+          RESOLVED=$(npm view "@xmldom/xmldom@${XMLDOM}" version | tail -n 1 | awk '{print $NF}' | tr -d "'")
+          DEPRECATED=$(npm view "@xmldom/xmldom@${RESOLVED}" deprecated || true)
+          if [ -z "${DEPRECATED}" ]; then echo "clean=true" >> "$GITHUB_OUTPUT";
+          else echo "clean=false" >> "$GITHUB_OUTPUT"; fi
+          echo "resolved=${RESOLVED}" >> "$GITHUB_OUTPUT"
+
+      - name: Open an issue when it can be fixed
+        if: steps.check.outputs.clean == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SRE: ${{ steps.check.outputs.sre }}
+          XMLDOM: ${{ steps.check.outputs.xmldom }}
+          RESOLVED: ${{ steps.check.outputs.resolved }}
+        run: |
+          set -euo pipefail
+          TITLE="speech-rule-engine ya usa un @xmldom/xmldom sin avisos"
+          # No acumular una incidencia cada lunes.
+          if gh issue list --state open --search "$TITLE in:title" --json number -q '.[0].number' | grep -q .; then
+            echo "La incidencia ya está abierta."
+            exit 0
+          fi
+          {
+            printf '`speech-rule-engine@%s` (a través de `mathjax-full`) ya depende de\n' "$SRE"
+            printf '`@xmldom/xmldom@%s`, que resuelve a la `%s` y no está marcada como obsoleta.\n\n' "$XMLDOM" "$RESOLVED"
+            printf 'Con esto, instalar eXeConvert deja de mostrar el aviso de dependencia obsoleta\n'
+            printf 'que quedaba, y desaparecen las alertas de seguridad de la rama 0.9.\n\n'
+            printf 'Para aplicarlo: `npm update speech-rule-engine`, comprobar que las pruebas\n'
+            printf 'siguen pasando y publicar una versión nueva.\n\n'
+            printf 'Abierto automáticamente por `.github/workflows/check-xmldom.yml`.\n'
+          } > issue-body.md
+          gh issue create --title "$TITLE" --body-file issue-body.md
