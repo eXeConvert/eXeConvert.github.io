@@ -2,6 +2,10 @@
   "name": "execonvert",
   "version": "0.5.0",
   "private": false,
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/eXeConvert/eXeConvert.github.io.git"
+  },
   "type": "module",
   "bin": {
     "execonvert": "./bin/execonvert.js"
