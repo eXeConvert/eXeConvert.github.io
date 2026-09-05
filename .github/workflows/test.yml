@@ -32,6 +32,7 @@ jobs:
       - run: npm run test:docx
       - run: npm run test:args
       - run: npm run test:version
+      - run: npm run test:primes
   conversions:
     runs-on: ubuntu-latest
     timeout-minutes: 20

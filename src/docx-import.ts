@@ -1256,6 +1256,11 @@ function stripHtmlFromMath(value: string): string {
   return document.body.textContent || '';
 }
 
+/** Exposed for tests: the LaTeX normalisation applied to every converted formula. */
+export function normalizeLatexForTests(value: string): string {
+  return normalizeLatexValue(value);
+}
+
 function normalizeLatexValue(value: string): string {
   let output = value.normalize('NFC').replace(/\u00a0/g, ' ').replace(/\r/g, '');
   output = output.replace(/[\uFFFD\uFEFF\u00AD\u2066-\u2069\u200B-\u200F\u202A-\u202E\uFFF9-\uFFFB]/g, '');
@@ -1268,6 +1273,12 @@ function normalizeLatexValue(value: string): string {
   output = output.replace(/(^|[^\\])\.{2}\s+\\\\/g, '$1\\ldots ');
   output = output.replace(/\\\\backslash\b/g, '\\\\');
   output = output.replace(/\\backslash\b/g, '\\\\');
+  // temml writes a prime as a superscript with an empty base, so a round trip
+  // through MathML turns f^{'} into f^{^{'}} and nests one level deeper every
+  // time. Only the empty-base form is collapsed: a real double superscript
+  // carries a base and is left alone.
+  output = output.replace(/\^\{\s*\^\{\s*([\u2032\u2033\u2034'`]+)\s*\}\s*\}/g, "^{$1}");
+
   output = output.replace(/[ \t]+/g, ' ');
   output = output.replace(/ ?\n ?/g, '\n');
   output = output.trim();

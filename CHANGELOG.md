@@ -9,6 +9,21 @@ Categorías usadas: **Añadido**, **Cambiado**, **Corregido**, **Eliminado**.
 
 ## [Unreleased]
 
+## [0.5.6] - 2026-09-05
+
+### Corregido
+- La prima de las derivadas se anidaba un nivel en cada conversión de ida y
+  vuelta: `f^{'}` se convertía en `f^{^{'}}`, y repitiendo el ciclo seguía
+  acumulando capas. La causa es que temml escribe la prima como un superíndice
+  sobre una base vacía, que al volver de MathML se traducía literalmente. Solo
+  se colapsa esa forma: un superíndice doble real, que sí tiene base, no se
+  toca.
+- Las dependencias del repositorio estaban ancladas a versiones anteriores a
+  las que instalaba cualquier usuario del paquete (`mathml-to-latex` 1.5.0
+  frente a 1.8.0), de modo que las pruebas no ejercitaban el mismo código que
+  se ejecuta al usarlo. Con ambas al día, un proyecto con 22 fórmulas
+  sobrevive tres ciclos `.elpx → .docx → .elpx` sin una sola diferencia.
+
 ## [0.5.5] - 2026-09-05
 
 ### Añadido
