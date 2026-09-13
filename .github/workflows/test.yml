@@ -33,6 +33,7 @@ jobs:
       - run: npm run test:args
       - run: npm run test:version
       - run: npm run test:primes
+      - run: npm run test:markdown
   conversions:
     runs-on: ubuntu-latest
     timeout-minutes: 20

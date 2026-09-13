@@ -9,6 +9,17 @@ Categorías usadas: **Añadido**, **Cambiado**, **Corregido**, **Eliminado**.
 
 ## [Unreleased]
 
+## [0.5.7] - 2026-09-13
+
+### Corregido
+- Al importar un `.md`, las fórmulas escritas con `\(...\)` y `\[...\]` se
+  perdían: Markdown lee `\(`, `\)`, `\[` y `\]` como signos escapados y quita
+  la barra, así que llegaban al `.elpx` como texto entre paréntesis o
+  corchetes. Ahora se reconocen igual que `$...$` y `$$...$$`, tanto en su
+  propia línea como en mitad de un párrafo.
+- Una fórmula en bloque escrita en mitad de un párrafo (`$$...$$` o
+  `\[...\]`) hacía desaparecer el texto que la seguía en ese párrafo.
+
 ## [0.5.6] - 2026-09-05
 
 ### Corregido
