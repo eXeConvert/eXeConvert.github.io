@@ -37,7 +37,10 @@
           linear-gradient(180deg, #f8fbf6 0%, var(--bg) 100%);
       }
 
+      /* The layout follows the width of this container, not of the window, so the
+         PNG capture, rendered at a fixed width, never gets the phone layout. */
       .wrap {
+        container: infographic / inline-size;
         width: min(1240px, calc(100% - 52px));
         margin: 0 auto;
         padding: 26px 0 34px;
@@ -106,20 +109,41 @@
       }
 
       .layout {
+        position: relative;
         display: grid;
-        grid-template-columns: 1fr 360px 1fr;
-        gap: 52px;
-        align-items: stretch;
+        grid-template-columns: minmax(0, 1fr) 340px minmax(0, 1fr);
+        grid-template-rows: auto 1fr;
+        column-gap: 92px;
+        row-gap: 12px;
       }
 
+      .lane-title.left-title { grid-column: 1; grid-row: 1; }
+      .lane-title.right-title { grid-column: 3; grid-row: 1; }
+      .lane.left { grid-column: 1; grid-row: 2; }
+      .center { grid-column: 2; grid-row: 2; }
+      .lane.right { grid-column: 3; grid-row: 2; }
+
+      /* Both lanes are centred on the hub, whatever the number of formats on each side. */
       .lane {
+        position: relative;
+        z-index: 1;
         display: grid;
-        gap: 14px;
-        align-content: start;
+        gap: 12px;
+        align-content: center;
+      }
+
+      .connectors {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        overflow: visible;
+        pointer-events: none;
+        z-index: 0;
       }
 
       .lane-title {
-        margin: 0 0 4px;
+        margin: 0;
         font-size: 1rem;
         font-weight: 800;
         letter-spacing: 0.16em;
@@ -129,8 +153,8 @@
 
       .card {
         position: relative;
-        min-height: 154px;
-        padding: 24px 22px 24px 104px;
+        min-height: 108px;
+        padding: 16px 20px 16px 92px;
         border: 2px solid var(--line);
         border-radius: 26px;
         background: var(--panel);
@@ -141,25 +165,26 @@
       }
 
       .card h2 {
-        margin: 0 0 10px;
-        font-size: 1.46rem;
+        margin: 0 0 6px;
+        font-size: 1.36rem;
         line-height: 1.05;
         color: var(--brand-dark);
       }
 
       .card p {
         margin: 0;
-        font-size: 0.98rem;
-        line-height: 1.32;
+        font-size: 0.94rem;
+        line-height: 1.3;
         color: var(--muted);
       }
 
       .format-icon {
         position: absolute;
-        left: 20px;
-        top: 20px;
-        width: 62px;
-        height: 62px;
+        left: 18px;
+        top: 50%;
+        transform: translateY(-50%);
+        width: 56px;
+        height: 56px;
         display: grid;
         place-items: center;
         border-radius: 16px;
@@ -179,6 +204,11 @@
         max-height: 84%;
       }
 
+      .format-icon.elpx img {
+        max-width: 74%;
+        max-height: 74%;
+      }
+
       .format-icon.pdf {
         background: rgba(217, 48, 37, 0.08);
         box-shadow: inset 0 0 0 1px rgba(217, 48, 37, 0.14);
@@ -189,25 +219,9 @@
         max-height: 82%;
       }
 
-      .arrow-in,
-      .arrow-out {
-        position: absolute;
-        top: 50%;
-        width: 48px;
-        height: 20px;
-        transform: translateY(-50%);
-        overflow: visible;
-      }
-
-      .left .card .arrow-in {
-        right: -50px;
-      }
-
-      .right .card .arrow-out {
-        left: -50px;
-      }
-
       .center {
+        position: relative;
+        z-index: 1;
         align-self: center;
         display: grid;
         gap: 24px;
@@ -335,23 +349,22 @@
         display: block;
       }
 
-      @media (max-width: 1120px) {
+      @container infographic (max-width: 1060px) {
         .layout {
           grid-template-columns: 1fr;
-          gap: 36px;
+          grid-template-rows: none;
+          row-gap: 14px;
         }
 
-        .arrow-in,
-        .arrow-out {
+        .connectors {
           display: none;
         }
 
-        .center {
-          order: -1;
-          width: 100%;
-          max-width: 440px;
-          margin: 0 auto;
-        }
+        .center { grid-row: 1; grid-column: 1; width: 100%; max-width: 440px; margin: 0 auto 22px; }
+        .lane-title.left-title { grid-row: 2; grid-column: 1; }
+        .lane.left { grid-row: 3; grid-column: 1; margin-bottom: 22px; }
+        .lane-title.right-title { grid-row: 4; grid-column: 1; }
+        .lane.right { grid-row: 5; grid-column: 1; }
       }
 
       @media (max-width: 640px) {
@@ -359,18 +372,19 @@
           width: min(100% - 22px, 1320px);
           padding-top: 22px;
         }
+      }
 
+      @container infographic (max-width: 600px) {
         .card {
-          min-height: 146px;
-          padding: 18px 18px 18px 96px;
-          border-radius: 24px;
+          min-height: 104px;
+          padding: 16px 16px 16px 86px;
+          border-radius: 22px;
         }
 
         .format-icon {
-          left: 18px;
-          top: 18px;
-          width: 56px;
-          height: 56px;
+          left: 16px;
+          width: 52px;
+          height: 52px;
         }
 
         .brand-row {
@@ -404,8 +418,11 @@
       </header>
 
       <section class="layout" id="info-layout" aria-label="Qué hace eXeConvert">
+        <h2 class="lane-title left-title" id="info-input-title">Entrada</h2>
+        <h2 class="lane-title right-title" id="info-output-title">Salida</h2>
+        <svg class="connectors" aria-hidden="true"></svg>
+
         <section class="lane left">
-          <h2 class="lane-title" id="info-input-title">Entrada</h2>
 
           <article class="card">
             <div class="format-icon" aria-hidden="true">
@@ -413,10 +430,6 @@
             </div>
             <h2><code>.elp</code></h2>
             <p id="info-elp-input">Proyectos de la versión 2 que se migran al formato actual.</p>
-            <svg class="arrow-in" viewBox="0 0 50 20" aria-hidden="true">
-              <path d="M2 10H32" stroke="#78b757" stroke-width="3.5" stroke-linecap="round"/>
-              <path d="M30 2l16 8-16 8V2z" fill="#78b757"/>
-            </svg>
           </article>
 
           <article class="card">
@@ -425,10 +438,6 @@
             </div>
             <h2><code>.docx</code></h2>
             <p id="info-docx-input">Documento Word que se importa como proyecto editable.</p>
-            <svg class="arrow-in" viewBox="0 0 50 20" aria-hidden="true">
-              <path d="M2 10H32" stroke="#78b757" stroke-width="3.5" stroke-linecap="round"/>
-              <path d="M30 2l16 8-16 8V2z" fill="#78b757"/>
-            </svg>
           </article>
 
           <article class="card">
@@ -437,10 +446,6 @@
             </div>
             <h2><code>.md</code></h2>
             <p id="info-md-input">Markdown que se importa como proyecto <code>.elpx</code>.</p>
-            <svg class="arrow-in" viewBox="0 0 50 20" aria-hidden="true">
-              <path d="M2 10H32" stroke="#78b757" stroke-width="3.5" stroke-linecap="round"/>
-              <path d="M30 2l16 8-16 8V2z" fill="#78b757"/>
-            </svg>
           </article>
 
           <article class="card">
@@ -449,10 +454,6 @@
             </div>
             <h2><code>.html</code></h2>
             <p id="info-html-input">Página web, o <code>.zip</code> con sus imágenes, que se importa como proyecto <code>.elpx</code>.</p>
-            <svg class="arrow-in" viewBox="0 0 50 20" aria-hidden="true">
-              <path d="M2 10H32" stroke="#78b757" stroke-width="3.5" stroke-linecap="round"/>
-              <path d="M30 2l16 8-16 8V2z" fill="#78b757"/>
-            </svg>
           </article>
 
           <article class="card">
@@ -461,10 +462,6 @@
             </div>
             <h2><code>.tex</code></h2>
             <p id="info-tex-input">Documento LaTeX, o <code>.zip</code> del proyecto, con las fórmulas intactas.</p>
-            <svg class="arrow-in" viewBox="0 0 50 20" aria-hidden="true">
-              <path d="M2 10H32" stroke="#78b757" stroke-width="3.5" stroke-linecap="round"/>
-              <path d="M30 2l16 8-16 8V2z" fill="#78b757"/>
-            </svg>
           </article>
         </section>
 
@@ -484,7 +481,14 @@
         </section>
 
         <section class="lane right">
-          <h2 class="lane-title" id="info-output-title">Salida</h2>
+          <article class="card">
+            <div class="format-icon elpx" aria-hidden="true">
+              <img src="./elpx-icon.png" alt="" />
+            </div>
+            <h2><code>.elpx</code></h2>
+            <p id="info-elpx-output">Proyecto de eXeLearning listo para abrir y seguir editando.</p>
+          </article>
+
 
           <article class="card">
             <div class="format-icon" aria-hidden="true">
@@ -492,10 +496,6 @@
             </div>
             <h2><code>.docx</code></h2>
             <p id="info-docx-output">Exportación desde <code>.elpx</code> a Word.</p>
-            <svg class="arrow-out" viewBox="0 0 50 20" aria-hidden="true">
-              <path d="M2 10H32" stroke="#2d6c4d" stroke-width="3.5" stroke-linecap="round"/>
-              <path d="M30 2l16 8-16 8V2z" fill="#2d6c4d"/>
-            </svg>
           </article>
 
           <article class="card">
@@ -504,10 +504,6 @@
             </div>
             <h2><code>.md</code></h2>
             <p id="info-md-output">Exportación desde <code>.elpx</code> a Markdown.</p>
-            <svg class="arrow-out" viewBox="0 0 50 20" aria-hidden="true">
-              <path d="M2 10H32" stroke="#2d6c4d" stroke-width="3.5" stroke-linecap="round"/>
-              <path d="M30 2l16 8-16 8V2z" fill="#2d6c4d"/>
-            </svg>
           </article>
 
           <article class="card">
@@ -516,10 +512,6 @@
             </div>
             <h2><code>.pdf</code></h2>
             <p id="info-pdf-output">Exportación desde <code>.elpx</code> a PDF.</p>
-            <svg class="arrow-out" viewBox="0 0 50 20" aria-hidden="true">
-              <path d="M2 10H32" stroke="#2d6c4d" stroke-width="3.5" stroke-linecap="round"/>
-              <path d="M30 2l16 8-16 8V2z" fill="#2d6c4d"/>
-            </svg>
           </article>
         </section>
       </section>
@@ -555,6 +547,7 @@
           centerLine2: "Convierte, guarda y sigue trabajando desde un unico formato central.",
           docxOutput: "Exportacion desde <code>.elpx</code> a Word.",
           mdOutput: "Exportacion desde <code>.elpx</code> a Markdown.",
+          elpxOutput: "Proyecto de eXeLearning listo para abrir y seguir editando.",
           pdfOutput: "Exportacion desde <code>.elpx</code> a PDF.",
           disclaimer:
             "La interactividad de iDevices no se puede exportar debido a las limitaciones tecnicas de los formatos de destino (Word, PDF y Markdown).",
@@ -581,6 +574,7 @@
           centerLine2: "Converteix, desa i continua treballant des d'un unic format central.",
           docxOutput: "Exportacio des de <code>.elpx</code> a Word.",
           mdOutput: "Exportacio des de <code>.elpx</code> a Markdown.",
+          elpxOutput: "Projecte d'eXeLearning a punt per obrir i continuar editant.",
           pdfOutput: "Exportacio des de <code>.elpx</code> a PDF.",
           disclaimer:
             "La interactivitat dels iDevices no es pot exportar a causa de les limitacions tecniques dels formats de destinacio (Word, PDF i Markdown).",
@@ -607,6 +601,7 @@
           centerLine2: "Convert, save, and keep working from a single central format.",
           docxOutput: "Export from <code>.elpx</code> to Word.",
           mdOutput: "Export from <code>.elpx</code> to Markdown.",
+          elpxOutput: "eXeLearning project ready to open and keep editing.",
           pdfOutput: "Export from <code>.elpx</code> to PDF.",
           disclaimer:
             "iDevice interactivity cannot be exported because of the technical limitations of the target formats (Word, PDF, and Markdown).",
@@ -660,6 +655,7 @@
         document.getElementById("info-center-line-2").textContent = copy.centerLine2;
         document.getElementById("info-docx-output").innerHTML = copy.docxOutput;
         document.getElementById("info-md-output").innerHTML = copy.mdOutput;
+        document.getElementById("info-elpx-output").innerHTML = copy.elpxOutput;
         document.getElementById("info-pdf-output").innerHTML = copy.pdfOutput;
         document.getElementById("info-disclaimer").textContent = copy.disclaimer;
         document.getElementById("info-attribution").textContent = copy.attribution;
@@ -672,6 +668,54 @@
 
       const activeLocale = resolveLocale();
       const activeCopy = applyTranslations(activeLocale);
+
+      // Each format is joined to the hub by a curve. They are drawn from the real
+      // position of the cards, so the picture holds together whatever the number
+      // of formats on each side.
+      function drawConnectors(layout) {
+        const svg = layout?.querySelector(".connectors");
+        const hub = layout?.querySelector(".center");
+        if (!svg || !hub || getComputedStyle(svg).display === "none") {
+          return;
+        }
+
+        const origin = layout.getBoundingClientRect();
+        const hubBox = hub.getBoundingClientRect();
+        const hubTop = hubBox.top - origin.top;
+        const shapes = [];
+
+        const connect = (cards, direction) => {
+          const color = direction === "in" ? "#78b757" : "#2d6c4d";
+          const spread = Math.min(hubBox.height * 0.56, cards.length * 44);
+          cards.forEach((card, index) => {
+            const box = card.getBoundingClientRect();
+            const cardY = box.top - origin.top + box.height / 2;
+            const offset = cards.length > 1 ? (index / (cards.length - 1) - 0.5) * spread : 0;
+            const hubY = hubTop + hubBox.height / 2 + offset;
+            const [x1, y1, x2, y2] = direction === "in"
+              ? [box.right - origin.left + 4, cardY, hubBox.left - origin.left - 4, hubY]
+              : [hubBox.right - origin.left + 4, hubY, box.left - origin.left - 4, cardY];
+            const tip = x2 - 13;
+            const middle = (x1 + tip) / 2;
+            shapes.push(
+              `<path d="M${x1} ${y1} C${middle} ${y1} ${middle} ${y2} ${tip} ${y2}" fill="none" stroke="${color}" stroke-width="3.5" stroke-linecap="round"/>`,
+              `<path d="M${x2} ${y2} L${tip - 2} ${y2 - 8} L${tip - 2} ${y2 + 8} Z" fill="${color}"/>`
+            );
+          });
+        };
+
+        connect(Array.from(layout.querySelectorAll(".lane.left .card")), "in");
+        connect(Array.from(layout.querySelectorAll(".lane.right .card")), "out");
+        svg.setAttribute("viewBox", `0 0 ${origin.width} ${origin.height}`);
+        svg.innerHTML = shapes.join("");
+      }
+
+      const infoLayout = document.getElementById("info-layout");
+      const redrawConnectors = () => drawConnectors(infoLayout);
+      redrawConnectors();
+      window.addEventListener("resize", redrawConnectors);
+      window.addEventListener("load", redrawConnectors);
+      document.fonts?.ready.then(redrawConnectors);
 
       async function downloadCapture() {
         if (!captureRoot) {
@@ -713,6 +757,8 @@
           staging.style.background = "#f3f7ef";
           staging.appendChild(exportNode);
           document.body.appendChild(staging);
+
+          drawConnectors(exportNode.querySelector(".layout"));
 
           const width = Math.ceil(exportNode.scrollWidth);
           const height = Math.ceil(exportNode.scrollHeight);

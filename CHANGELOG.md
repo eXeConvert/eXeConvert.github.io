@@ -9,6 +9,13 @@ Categorías usadas: **Añadido**, **Cambiado**, **Corregido**, **Eliminado**.
 
 ## [Unreleased]
 
+### Cambiado
+- La infografía de la web une cada formato con el bloque central mediante
+  conectores dibujados según la posición real de las tarjetas, en lugar de
+  flechas sueltas que, con cinco entradas y tres salidas, apuntaban al vacío.
+  Incluye `.elpx` entre las salidas, y la captura PNG sale siempre con la
+  maqueta completa aunque se descargue desde un móvil.
+
 ## [0.6.0] - 2026-09-13
 
 ### Añadido
