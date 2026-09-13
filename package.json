@@ -1,6 +1,6 @@
 {
   "name": "execonvert",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "private": false,
   "repository": {
     "type": "git",
@@ -66,7 +66,7 @@
     "marcheur": "^0.9.0",
     "markdown-it": "^14.1.1",
     "markdown-it-texmath": "^1.0.0",
-    "mathjax-full": "^3.2.1",
+    "mathjax": "^3.2.2",
     "mathml-to-latex": "^1.5.0",
     "mathml2omml": "^0.5.0",
     "pdfmake": "^0.3.6",

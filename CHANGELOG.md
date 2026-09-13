@@ -9,12 +9,24 @@ Categorías usadas: **Añadido**, **Cambiado**, **Corregido**, **Eliminado**.
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-09-13
+
+### Corregido
+- Instalar o actualizar eXeConvert con npm mostraba
+  `npm warn deprecated @xmldom/xmldom@0.9.10`. Venía de `mathjax-full`, que
+  arrastra `speech-rule-engine` con una versión fija y obsoleta de xmldom, para
+  una función de accesibilidad que eXeConvert no usa. Las fórmulas de los PDF
+  se generan ahora con el paquete `mathjax`, la misma versión 3.2 ya compilada y
+  sin dependencias: el aviso desaparece y los PDF salen idénticos, píxel a
+  píxel.
+
 ### Cambiado
 - La infografía de la web une cada formato con el bloque central mediante
   conectores dibujados según la posición real de las tarjetas, en lugar de
   flechas sueltas que, con cinco entradas y tres salidas, apuntaban al vacío.
-  Incluye `.elpx` entre las salidas, y la captura PNG sale siempre con la
-  maqueta completa aunque se descargue desde un móvil.
+  Incluye `.elpx` entre las salidas (y deja de repetirlo en el bloque central),
+  y la captura PNG sale siempre con la maqueta completa aunque se descargue
+  desde un móvil.
 
 ## [0.6.0] - 2026-09-13
 

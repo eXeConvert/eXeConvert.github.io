@@ -115,6 +115,13 @@ interface MathJaxSvgEngine {
   convert(expression: string, options: { display: boolean }): string;
 }
 
+interface MathJaxNodeLoader {
+  init(config: Record<string, unknown>): Promise<{
+    tex2svg(expression: string, options: { display: boolean }): unknown;
+    startup: { adaptor: { outerHTML(node: unknown): string } };
+  }>;
+}
+
 interface RenderedLatexImage {
   dataUrl: string;
   width: number;
@@ -3264,34 +3271,26 @@ async function renderLatexToSvgMarkup(expression: string, display: boolean): Pro
   return svgMarkup;
 }
 
+// The prebuilt mathjax package renders exactly what mathjax-full does -- the same
+// 3.2 release -- but has no dependencies. mathjax-full pulled in
+// speech-rule-engine, which pins a deprecated @xmldom/xmldom, and every install
+// of eXeConvert printed that deprecation warning for code it never runs.
 async function createMathJaxSvgEngine(): Promise<MathJaxSvgEngine> {
   const dynamicImport = new Function('specifier', 'return import(specifier)') as <T>(specifier: string) => Promise<T>;
-  const [{ mathjax }, { TeX }, { SVG }, { liteAdaptor }, { RegisterHTMLHandler }, { AllPackages }] = await Promise.all([
-    dynamicImport<typeof import('mathjax-full/js/mathjax.js')>('mathjax-full/js/mathjax.js'),
-    dynamicImport<typeof import('mathjax-full/js/input/tex.js')>('mathjax-full/js/input/tex.js'),
-    dynamicImport<typeof import('mathjax-full/js/output/svg.js')>('mathjax-full/js/output/svg.js'),
-    dynamicImport<typeof import('mathjax-full/js/adaptors/liteAdaptor.js')>('mathjax-full/js/adaptors/liteAdaptor.js'),
-    dynamicImport<typeof import('mathjax-full/js/handlers/html.js')>('mathjax-full/js/handlers/html.js'),
-    dynamicImport<typeof import('mathjax-full/js/input/tex/AllPackages.js')>('mathjax-full/js/input/tex/AllPackages.js'),
-  ]);
-
-  const adaptor = liteAdaptor();
-  RegisterHTMLHandler(adaptor);
-  const tex = new TeX({
-    packages: AllPackages,
-    inlineMath: [['\\(', '\\)'], ['$', '$']],
-    displayMath: [['\\[', '\\]'], ['$$', '$$']],
-  });
-  const svg = new SVG({ fontCache: 'none' });
-  const document = mathjax.document('', {
-    InputJax: tex,
-    OutputJax: svg,
+  const mathjaxModule = await dynamicImport<{ default?: MathJaxNodeLoader } & MathJaxNodeLoader>('mathjax');
+  const MathJax = await (mathjaxModule.default ?? mathjaxModule).init({
+    loader: { load: ['input/tex-full', 'output/svg', 'adaptors/liteDOM'], versionWarnings: false },
+    tex: {
+      inlineMath: [['\\(', '\\)'], ['$', '$']],
+      displayMath: [['\\[', '\\]'], ['$$', '$$']],
+    },
+    svg: { fontCache: 'none' },
+    startup: { typeset: false },
   });
 
   return {
     convert(expression: string, options: { display: boolean }) {
-      const renderedNode = document.convert(expression, options);
-      const renderedHtml = adaptor.outerHTML(renderedNode);
+      const renderedHtml = MathJax.startup.adaptor.outerHTML(MathJax.tex2svg(expression, options));
       const renderedDoc = new DOMParser().parseFromString(renderedHtml, 'text/html');
       const svgNode = renderedDoc.querySelector('svg');
       if (!svgNode) {
