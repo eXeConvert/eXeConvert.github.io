@@ -383,6 +383,14 @@
         <svg class="connectors" aria-hidden="true"></svg>
 
         <section class="lane left">
+          <article class="card">
+            <div class="format-icon elpx" aria-hidden="true">
+              <img src="./elpx-icon.png" alt="" />
+            </div>
+            <h2><code>.elpx</code></h2>
+            <p id="info-elpx-input">Proyecto de eXeLearning que se exporta a Word, Markdown o PDF.</p>
+          </article>
+
 
           <article class="card">
             <div class="format-icon" aria-hidden="true">
@@ -492,6 +500,7 @@
           layoutAria: "Que hace eXeConvert",
           inputTitle: "Entrada",
           outputTitle: "Salida",
+          elpxInput: "Proyecto de eXeLearning que se exporta a Word, Markdown o PDF.",
           elpInput: "Proyectos de la version 2 que se migran al formato actual.",
           docxInput: "Documento Word que se importa como proyecto editable.",
           mdInput: "Markdown que se importa como proyecto <code>.elpx</code>.",
@@ -519,6 +528,7 @@
           layoutAria: "Que fa eXeConvert",
           inputTitle: "Entrada",
           outputTitle: "Sortida",
+          elpxInput: "Projecte d'eXeLearning que s'exporta a Word, Markdown o PDF.",
           elpInput: "Projectes de la versio 2 que es migren al format actual.",
           docxInput: "Document Word que s'importa com a projecte editable.",
           mdInput: "Markdown que s'importa com a projecte <code>.elpx</code>.",
@@ -546,6 +556,7 @@
           layoutAria: "What eXeConvert does",
           inputTitle: "Input",
           outputTitle: "Output",
+          elpxInput: "eXeLearning project exported to Word, Markdown, or PDF.",
           elpInput: "Version 2 projects migrated to the current format.",
           docxInput: "Word document imported as an editable project.",
           mdInput: "Markdown imported as an <code>.elpx</code> project.",
@@ -600,6 +611,7 @@
         document.getElementById("info-layout").setAttribute("aria-label", copy.layoutAria);
         document.getElementById("info-input-title").textContent = copy.inputTitle;
         document.getElementById("info-output-title").textContent = copy.outputTitle;
+        document.getElementById("info-elpx-input").textContent = copy.elpxInput;
         document.getElementById("info-elp-input").textContent = copy.elpInput;
         document.getElementById("info-docx-input").textContent = copy.docxInput;
         document.getElementById("info-md-input").innerHTML = copy.mdInput;

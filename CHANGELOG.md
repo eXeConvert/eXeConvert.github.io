@@ -9,6 +9,10 @@ Categorías usadas: **Añadido**, **Cambiado**, **Corregido**, **Eliminado**.
 
 ## [Unreleased]
 
+### Cambiado
+- La infografía incluye `.elpx` también entre las entradas, como origen de las
+  exportaciones a Word, Markdown y PDF.
+
 ## [0.6.1] - 2026-09-13
 
 ### Corregido
