@@ -9,6 +9,50 @@ Categorías usadas: **Añadido**, **Cambiado**, **Corregido**, **Eliminado**.
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-09-13
+
+### Añadido
+- Importación de `.html` y `.htm` a `.elpx`, en la web y en la CLI, con las
+  mismas opciones de estructura que `.docx` y `.md`:
+  - Desenvuelve los contenedores de la página (`div`, `section`, `main`…) para
+    que sus encabezados se conviertan en páginas e iDevices, y descarta menús,
+    scripts y formularios.
+  - Recupera en LaTeX las fórmulas que la página ya mostraba con MathJax 2 o 3,
+    KaTeX o MathML, en lugar de quedarse con los glifos dibujados.
+  - Incrusta las imágenes locales: las que están junto al `.html` en la CLI, o
+    las que van dentro de un `.zip`. Solo se leen imágenes; una página no puede
+    meter en el proyecto otro archivo del disco nombrándolo en un `<img>`.
+  - Respeta la codificación declarada en `<meta charset>` y toma el título del
+    recurso de `<title>` cuando no hay otro.
+- Importación de documentos LaTeX (`.tex`) a `.elpx`, en la web y en la CLI,
+  con las mismas opciones de estructura:
+  - Las fórmulas pasan tal cual, sin traducir, porque eXeLearning las muestra
+    con MathJax: `$...$`, `\(...\)`, `\[...\]`, `$$...$$` y los entornos
+    `equation`, `align`, `gather`, `multline`, `eqnarray`… siguen siendo
+    editables. Las ecuaciones numeradas conservan su número.
+  - `\part`, `\chapter`, `\section` y siguientes se convierten en páginas e
+    iDevices según su nivel real en el documento; `\title` da nombre al
+    recurso.
+  - Listas, tablas, figuras y tablas con pie numerado, teoremas declarados con
+    `\newtheorem` (con su numeración y título), demostraciones, notas al pie,
+    referencias cruzadas (`\ref`, `\eqref`) resueltas con su número, enlaces,
+    código literal, citas, acentos al estilo `\'a` y ligaduras tipográficas
+    como `---` (raya) o las comillas de LaTeX. Los rótulos «Figura», «Tabla»
+    o «Demostración» siguen el idioma de babel.
+  - Se expanden las macros propias (`\newcommand`, `\def`,
+    `\DeclareMathOperator`), también dentro de las fórmulas.
+  - Se leen los archivos de `\input`, `\include` y `\subfile` y las imágenes
+    de `\includegraphics` (con `\graphicspath`): desde la carpeta del `.tex`
+    en la CLI, o desde un `.zip` con el proyecto completo, como el que descarga
+    Overleaf. Solo se leen archivos `.tex` e imágenes.
+  - Las presentaciones Beamer se importan con cada diapositiva como iDevice,
+    bajo la página de su sección.
+  - Lo que no tiene conversión conserva su texto, y se avisa de qué comandos y
+    entornos eran (en la CLI, también en la salida `--json`).
+  - En la web, el intérprete de LaTeX solo se descarga al importar un `.tex`.
+- Un `.zip` se identifica por su contenido: proyecto `.elpx`, proyecto `.elp`,
+  proyecto LaTeX o página web con sus imágenes.
+
 ## [0.5.7] - 2026-09-13
 
 ### Corregido

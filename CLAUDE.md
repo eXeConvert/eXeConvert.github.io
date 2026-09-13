@@ -42,6 +42,9 @@ The project exposes a **shared conversion core** (`src/`) through two separate f
 | `docx-import.ts` | Import `.docx` → `.elpx`. |
 | `elpx-markdown.ts` | Export `.elpx` → `.md`. |
 | `markdown-import.ts` | Import `.md`/`.txt` → `.elpx`. |
+| `html-import.ts` | Import `.html`/`.htm`/`.zip` (web page + images) → `.elpx`. |
+| `latex-import.ts` | Import `.tex`/`.zip` (LaTeX project) → `.elpx` via the unified-latex AST; formulas are copied verbatim from the source. Lazy-loaded in the web app. |
+| `import-files.ts` | Shared by importers: `.zip` detection by contents, relative paths, image embedding. |
 | `i18n.ts` | Shared i18n (es/ca/en). CLI adds its own message layer on top in `execonvert.ts`. |
 
 ### Conversion matrix
@@ -51,6 +54,9 @@ The project exposes a **shared conversion core** (`src/`) through two separate f
 .elpx → .md, .docx, .pdf
 .docx → .elpx
 .md   → .elpx
+.html → .elpx
+.tex  → .elpx
+.zip  → by contents: content.xml = .elpx, contentv3.xml = .elp, any .tex = LaTeX project, else .html page
 ```
 
 ### Static web pages

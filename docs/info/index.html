@@ -442,6 +442,30 @@
               <path d="M30 2l16 8-16 8V2z" fill="#78b757"/>
             </svg>
           </article>
+
+          <article class="card">
+            <div class="format-icon md" aria-hidden="true">
+              <img src="./html.svg" alt="" />
+            </div>
+            <h2><code>.html</code></h2>
+            <p id="info-html-input">Página web, o <code>.zip</code> con sus imágenes, que se importa como proyecto <code>.elpx</code>.</p>
+            <svg class="arrow-in" viewBox="0 0 50 20" aria-hidden="true">
+              <path d="M2 10H32" stroke="#78b757" stroke-width="3.5" stroke-linecap="round"/>
+              <path d="M30 2l16 8-16 8V2z" fill="#78b757"/>
+            </svg>
+          </article>
+
+          <article class="card">
+            <div class="format-icon md" aria-hidden="true">
+              <img src="./tex.svg" alt="" />
+            </div>
+            <h2><code>.tex</code></h2>
+            <p id="info-tex-input">Documento LaTeX, o <code>.zip</code> del proyecto, con las fórmulas intactas.</p>
+            <svg class="arrow-in" viewBox="0 0 50 20" aria-hidden="true">
+              <path d="M2 10H32" stroke="#78b757" stroke-width="3.5" stroke-linecap="round"/>
+              <path d="M30 2l16 8-16 8V2z" fill="#78b757"/>
+            </svg>
+          </article>
         </section>
 
         <section class="center">
@@ -525,6 +549,8 @@
           elpInput: "Proyectos de la version 2 que se migran al formato actual.",
           docxInput: "Documento Word que se importa como proyecto editable.",
           mdInput: "Markdown que se importa como proyecto <code>.elpx</code>.",
+          htmlInput: "Página web, o <code>.zip</code> con sus imágenes, que se importa como proyecto <code>.elpx</code>.",
+          texInput: "Documento LaTeX, o <code>.zip</code> del proyecto, con las fórmulas intactas.",
           centerLine1: "Todo en local, sin subir archivos.",
           centerLine2: "Convierte, guarda y sigue trabajando desde un unico formato central.",
           docxOutput: "Exportacion desde <code>.elpx</code> a Word.",
@@ -549,6 +575,8 @@
           elpInput: "Projectes de la versio 2 que es migren al format actual.",
           docxInput: "Document Word que s'importa com a projecte editable.",
           mdInput: "Markdown que s'importa com a projecte <code>.elpx</code>.",
+          htmlInput: "Pàgina web, o <code>.zip</code> amb les seves imatges, que s'importa com a projecte <code>.elpx</code>.",
+          texInput: "Document LaTeX, o <code>.zip</code> del projecte, amb les fórmules intactes.",
           centerLine1: "Tot en local, sense pujar fitxers.",
           centerLine2: "Converteix, desa i continua treballant des d'un unic format central.",
           docxOutput: "Exportacio des de <code>.elpx</code> a Word.",
@@ -573,6 +601,8 @@
           elpInput: "Version 2 projects migrated to the current format.",
           docxInput: "Word document imported as an editable project.",
           mdInput: "Markdown imported as an <code>.elpx</code> project.",
+          htmlInput: "Web page, or a <code>.zip</code> with its images, imported as an <code>.elpx</code> project.",
+          texInput: "LaTeX document, or the project <code>.zip</code>, with formulas intact.",
           centerLine1: "Everything stays local, with no uploads.",
           centerLine2: "Convert, save, and keep working from a single central format.",
           docxOutput: "Export from <code>.elpx</code> to Word.",
@@ -624,6 +654,8 @@
         document.getElementById("info-elp-input").textContent = copy.elpInput;
         document.getElementById("info-docx-input").textContent = copy.docxInput;
         document.getElementById("info-md-input").innerHTML = copy.mdInput;
+        document.getElementById("info-html-input").innerHTML = copy.htmlInput;
+        document.getElementById("info-tex-input").innerHTML = copy.texInput;
         document.getElementById("info-center-line-1").textContent = copy.centerLine1;
         document.getElementById("info-center-line-2").textContent = copy.centerLine2;
         document.getElementById("info-docx-output").innerHTML = copy.docxOutput;

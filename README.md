@@ -1,16 +1,19 @@
 # eXeConvert
 
-Conversor estático en navegador para transformar proyectos de eXeLearning y convertir entre `.elp`, `.elpx`, `.docx`, `.md` y `.pdf` sin salir del navegador.
+Conversor estático en navegador para transformar proyectos de eXeLearning y convertir entre `.elp`, `.elpx`, `.docx`, `.md` y `.pdf`, e importar `.html` y `.tex`, sin salir del navegador.
 
 ## Qué hace ahora
 
-- Lee directamente en el navegador archivos `.elp`, `.elpx`, `.docx` y `.md`.
+- Lee directamente en el navegador archivos `.elp`, `.elpx`, `.docx`, `.md`, `.html`, `.tex` y `.zip` (página web o proyecto LaTeX con sus imágenes).
 - Convierte proyectos legacy `.elp` a `.elpx` usando el pipeline de importación/exportación de eXeLearning.
 - Analiza `content.xml` de proyectos `.elpx` modernos y permite seleccionar páginas antes de exportar.
 - Reconstruye una versión HTML estable del contenido para previsualización y exportación.
 - Exporta `.elpx` a `.docx`, `.md` o `.pdf`.
 - En CLI y paquetes nativos, la exportación `.pdf` usa Puppeteer con navegador embebido y MathJax en SVG para mantener fórmulas vectoriales.
-- Importa `.docx` y `.md` a `.elpx`.
+- Importa `.docx`, `.md`, `.html` y `.tex` a `.elpx`.
+- Al importar HTML, desenvuelve los contenedores de la página (`div`, `section`, `main`…), descarta menús y scripts, e incrusta las imágenes locales: las que están junto al `.html` en la CLI, o las que van dentro del `.zip`. Recupera en LaTeX las fórmulas ya mostradas con MathJax 2 o 3, KaTeX o MathML.
+- Al importar LaTeX, las fórmulas pasan tal cual, porque eXeLearning las muestra con MathJax: `$...$`, `\[...\]` y los entornos `equation`, `align`, `gather`… se conservan editables. Se convierten secciones y capítulos en páginas e iDevices, listas, tablas, figuras con pie, teoremas declarados con `\newtheorem`, notas al pie, referencias cruzadas con su numeración, enlaces, código literal, acentos al estilo `\'a` y diapositivas de Beamer. Las macros propias (`\newcommand`, `\def`, `\DeclareMathOperator`) se expanden, y se leen los archivos de `\input`/`\include` y las imágenes de `\includegraphics`: desde la carpeta del `.tex` en la CLI, o desde un `.zip` con el proyecto completo (como el que descarga Overleaf). Lo que no tiene conversión conserva su texto y se avisa.
+- Un `.zip` se identifica por su contenido: proyecto `.elpx`, proyecto `.elp`, proyecto LaTeX o página web.
 
 ## Qué no hace todavía
 
@@ -75,6 +78,9 @@ npm run cli -- proyecto.elpx proyecto.docx
 npm run cli -- legacy.elp legacy.elpx
 npm run cli -- legacy.elp legacy.pdf
 npm run cli -- proyecto.elpx resumen.md --pages 1,2.1
+npm run cli -- pagina.html pagina.elpx --h1 resource-title --h2 subpage
+npm run cli -- apuntes.tex apuntes.elpx
+npm run cli -- proyecto-overleaf.zip apuntes.elpx
 npm run cli -- inspect proyecto.elpx --json
 ```
 
@@ -84,7 +90,7 @@ Opciones principales:
 - `--json`: salida pensada para scripts.
 - `--pages 1,2.1`: exporta solo esas páginas de un `.elpx`.
 - `--page-id <id>` / `--page-ids a,b,c`: selección por IDs internos.
-- `--h1`, `--h2`, `--h3`, `--h4`: controlan cómo se interpreta la estructura al importar `.docx` o `.md` a `.elpx`.
+- `--h1`, `--h2`, `--h3`, `--h4`: controlan cómo se interpreta la estructura al importar `.docx`, `.md`, `.html` o `.tex` a `.elpx`.
 
 Valores admitidos para la estructura de importación:
 
@@ -95,6 +101,9 @@ Estado actual de la CLI:
 
 - soportado: `.md/.txt -> .elpx`
 - soportado: `.docx -> .elpx`
+- soportado: `.html/.htm -> .elpx`
+- soportado: `.tex -> .elpx`
+- soportado: `.zip -> .elpx` (página web o proyecto LaTeX) y `.zip` de eXeLearning como `.elpx`
 - soportado: `.elpx -> .md`
 - soportado: `.elpx -> .docx`
 - soportado: `.elpx -> .pdf`
@@ -169,7 +178,9 @@ No hace push, no crea releases y no publica cambios automáticamente.
 
 Las pruebas usan un `.elp` sintético con dos páginas, una imagen, fórmulas LaTeX
 y contenido en español. Comprueban `.elp → .elpx`, las exportaciones a Markdown,
-DOCX y PDF, la reimportación de Markdown/DOCX y la vista previa web en Chromium.
+DOCX y PDF, la reimportación de Markdown/DOCX, la importación de HTML y LaTeX y la
+vista previa web en Chromium, incluida la importación de `.zip` con una página web
+o un proyecto LaTeX.
 Para ejecutarlas localmente:
 
 ```bash
@@ -268,6 +279,9 @@ Backend base de esta app:
 - `src/legacy-elp.ts`: conversión de `.elp` legacy a `.elpx` mediante bundles de eXeLearning.
 - `src/docx-import.ts`: importación de `.docx` a `.elpx`.
 - `src/markdown-import.ts` y `src/elpx-markdown.ts`: conversiones entre `.md` y `.elpx`.
+- `src/html-import.ts`: importación de `.html` (o `.zip` con una página web) a `.elpx`.
+- `src/latex-import.ts`: importación de `.tex` (o `.zip` con un proyecto LaTeX) a `.elpx`, sobre el parser de unified-latex.
+- `src/import-files.ts`: lectura de `.zip`, rutas relativas e imágenes, común a los importadores.
 - `src/main.ts`: interfaz web estática.
 
 La siguiente iteración razonable es sustituir el parser simplificado por una integración más directa con la lógica de exportación de eXeLearning.

@@ -164,7 +164,7 @@ async function extractDocxHtml(inputBuffer: ArrayBuffer): Promise<string> {
   return htmlValue;
 }
 
-function buildProjectFromHtml(htmlValue: string, filename: string, options: DocxImportOptions): ImportedProject {
+export function buildProjectFromHtml(htmlValue: string, filename: string, options: DocxImportOptions): ImportedProject {
   const document = new DOMParser().parseFromString(`<!doctype html><html><body>${htmlValue}</body></html>`, 'text/html');
   const body = document.body;
 

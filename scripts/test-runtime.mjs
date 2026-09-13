@@ -48,13 +48,25 @@ try {
   const docx = unzipSync(new Uint8Array(await readFile(join(work, 'result.docx'))));
   assert.match(strFromU8(docx['word/document.xml']), /Marcador de compatibilidad/);
   assert.equal((await readFile(join(work, 'result.pdf'))).subarray(0, 5).toString(), '%PDF-');
+  const webPage = join(work, 'pagina.html');
+  await writeFile(webPage, '<!doctype html><html><head><title>Página</title></head><body><main><h1>Inicio</h1><p>Marcador de compatibilidad \\(\\frac{1}{2}\\)</p></main></body></html>');
   for (const format of ['md', 'docx']) {
     const output = join(work, `roundtrip-${format}.elpx`);
     await call(join(work, `result.${format}`), output);
     const zip = unzipSync(new Uint8Array(await readFile(output)));
     assert.match(strFromU8(zip['content.xml']), /Marcador de compatibilidad/);
   }
-  console.log('CLI: ELP → ELPX → Markdown/DOCX/PDF; Markdown/DOCX → ELPX; páginas, imagen, LaTeX e i18n correctos.');
+  await call(webPage, join(work, 'pagina.elpx'));
+  const fromHtml = strFromU8(unzipSync(new Uint8Array(await readFile(join(work, 'pagina.elpx'))))['content.xml']);
+  assert.match(fromHtml, /Marcador de compatibilidad/);
+  assert.match(fromHtml, /\\frac\{1\}\{2\}/);
+  const texDocument = join(work, 'apuntes.tex');
+  await writeFile(texDocument, '\\documentclass{article}\n\\newcommand{\\R}{\\mathbb{R}}\n\\begin{document}\n\\section{Inicio}\nMarcador de compatibilidad $x \\in \\R$.\n\\end{document}\n');
+  await call(texDocument, join(work, 'apuntes.elpx'));
+  const fromTex = strFromU8(unzipSync(new Uint8Array(await readFile(join(work, 'apuntes.elpx'))))['content.xml']);
+  assert.match(fromTex, /Marcador de compatibilidad/);
+  assert.match(fromTex, /\\\(x \\in \\mathbb\{R\}\\\)/);
+  console.log('CLI: ELP → ELPX → Markdown/DOCX/PDF; Markdown/DOCX/HTML/LaTeX → ELPX; páginas, imagen, LaTeX e i18n correctos.');
 
   const docs = join(root, 'docs');
   server = createServer(async (request, response) => {
@@ -96,6 +108,56 @@ try {
   assert.match(state.preview, /Marcador de compatibilidad/);
   assert.equal(state.pages, 2);
   console.log('Web compilada: conversión ELP y vista previa de las dos páginas correctas.');
+
+  const statusSettled = () => page.waitForFunction(
+    () => /Preview generated|Vista previa generada|Previsualització generada|Error:/.test(document.querySelector('#status').textContent),
+    { timeout: 60000 },
+  );
+  const previewState = () => page.evaluate(() => ({
+    status: document.querySelector('#status').textContent,
+    preview: document.querySelector('#preview-frame').srcdoc,
+    save: document.querySelector('#submit-button .btn-label').textContent,
+  }));
+
+  await page.evaluate(() => { document.querySelector('#status').textContent = ''; });
+  await (await page.$('#file-input')).uploadFile(webPage);
+  await page.click('#preview-button');
+  await statusSettled();
+  const imported = await previewState();
+  assert.doesNotMatch(imported.status, /Error:/);
+  assert.match(imported.preview, /Marcador de compatibilidad/);
+  assert.match(imported.save, /\.elpx/);
+  const site = join(work, 'sitio.zip');
+  await writeFile(site, zipSync({
+    'sitio/index.html': strToU8('<html><body><main><h1>Portada web</h1><p><img src="img/circulo.svg" alt="Círculo"></p></main></body></html>'),
+    'sitio/img/circulo.svg': strToU8('<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8"><circle cx="4" cy="4" r="3"/></svg>'),
+  }));
+  await page.evaluate(() => { document.querySelector('#status').textContent = ''; });
+  await (await page.$('#file-input')).uploadFile(site);
+  await page.waitForFunction(() => !document.querySelector('#structure-field').hidden, { timeout: 60000 });
+  await page.click('#preview-button');
+  await statusSettled();
+  const zipped = await previewState();
+  assert.doesNotMatch(zipped.status, /Error:/);
+  assert.match(zipped.preview, /Portada web/);
+  assert.match(zipped.preview, /data:image\/svg\+xml;base64,/);
+  const overleaf = join(work, 'overleaf.zip');
+  await writeFile(overleaf, zipSync({
+    'main.tex': strToU8('\\documentclass{article}\n\\begin{document}\n\\section{Tema LaTeX}\n\\input{parte}\n\\includegraphics{circulo}\n\\end{document}\n'),
+    'parte.tex': strToU8('Texto incluido con $\\frac{a}{b}$.\n'),
+    'circulo.svg': strToU8('<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8"><circle cx="4" cy="4" r="3"/></svg>'),
+  }));
+  await page.evaluate(() => { document.querySelector('#status').textContent = ''; });
+  await (await page.$('#file-input')).uploadFile(overleaf);
+  await page.waitForFunction(() => !document.querySelector('#structure-field').hidden, { timeout: 60000 });
+  await page.click('#preview-button');
+  await statusSettled();
+  const latex = await previewState();
+  assert.doesNotMatch(latex.status, /Error:/);
+  assert.match(latex.preview, /Tema LaTeX/);
+  assert.match(latex.preview, /Texto incluido/);
+  assert.match(latex.preview, /data:image\/svg\+xml;base64,/);
+  console.log('Web compilada: importación de HTML, LaTeX y .zip correctas.');
 } finally {
   if (browser) await browser.close();
   if (server) await new Promise(done => server.close(done));

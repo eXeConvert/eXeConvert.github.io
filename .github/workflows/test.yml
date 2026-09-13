@@ -34,6 +34,8 @@ jobs:
       - run: npm run test:version
       - run: npm run test:primes
       - run: npm run test:markdown
+      - run: npm run test:html
+      - run: npm run test:latex
   conversions:
     runs-on: ubuntu-latest
     timeout-minutes: 20

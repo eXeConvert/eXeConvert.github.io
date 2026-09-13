@@ -404,7 +404,7 @@
         </div>
 
         <p id="cli-intro" class="intro">
-          eXeConvert convierte archivos entre los formatos de eXeLearning (<code>.elpx</code>, <code>.elp</code>), Word (<code>.docx</code>), PDF y Markdown (<code>.md</code>).
+          eXeConvert convierte archivos entre los formatos de eXeLearning (<code>.elpx</code>, <code>.elp</code>), Word (<code>.docx</code>), PDF y Markdown (<code>.md</code>), e importa páginas web (<code>.html</code>) y documentos LaTeX (<code>.tex</code>).
           Esta es la versión de terminal o consola. Se usa desde una ventana de Terminal, PowerShell o cmd y
           es útil para convertir muchos archivos o automatizar tareas.
         </p>
@@ -479,6 +479,8 @@
 execonvert proyecto.elpx proyecto.docx
 execonvert proyecto.elpx resumen.md
 execonvert apuntes.md apuntes.elpx
+execonvert pagina.html pagina.elpx
+execonvert apuntes.tex apuntes.elpx
 execonvert legacy.elp actualizado.elpx
 execonvert inspect proyecto.elpx</pre>
 
@@ -516,6 +518,12 @@ execonvert inspect proyecto.elpx</pre>
 
         <p id="example-6-label">Convertir todos los archivos compatibles a <code>.docx</code> y guardarlos en otra carpeta:</p>
         <pre>execonvert * --to docx --out-dir ./salida</pre>
+
+        <p id="example-8-label">Importar una página web guardada (o un <code>.zip</code> con la página y sus imágenes):</p>
+        <pre>execonvert pagina.zip pagina.elpx --h1 resource-title --h2 subpage</pre>
+
+        <p id="example-9-label">Importar un documento LaTeX, o el <code>.zip</code> de un proyecto de Overleaf con sus imágenes y archivos <code>\input</code>:</p>
+        <pre>execonvert proyecto-overleaf.zip apuntes.elpx</pre>
       </section>
 
       <section class="panel" style="margin-top: 20px;">
@@ -577,7 +585,7 @@ execonvert inspect proyecto.elpx</pre>
           releaseLabel: "Última versión publicada:",
           subtitle: "La versión para usar desde un terminal o para automatizar conversiones",
           intro:
-            "eXeConvert convierte archivos entre los formatos de eXeLearning (<code>.elpx</code>, <code>.elp</code>), Word (<code>.docx</code>), PDF y Markdown (<code>.md</code>). Esta es la versión de terminal o consola. Se usa desde una ventana de Terminal, PowerShell o cmd y es útil para convertir muchos archivos o automatizar tareas (si prefieres una interfaz gráfica, puedes usar <a href=\"../index.html\">la versión web de eXeConvert</a>).",
+            "eXeConvert convierte archivos entre los formatos de eXeLearning (<code>.elpx</code>, <code>.elp</code>), Word (<code>.docx</code>), PDF y Markdown (<code>.md</code>), e importa páginas web (<code>.html</code>) y documentos LaTeX (<code>.tex</code>). Esta es la versión de terminal o consola. Se usa desde una ventana de Terminal, PowerShell o cmd y es útil para convertir muchos archivos o automatizar tareas (si prefieres una interfaz gráfica, puedes usar <a href=\"../index.html\">la versión web de eXeConvert</a>).",
           downloadButton: "Descargar la última versión",
           npmOrLabel: "o con Node.js:",
           npmCopyBtn: "Copiar",
@@ -620,6 +628,8 @@ execonvert inspect proyecto.elpx</pre>
           example4: "Convertir un proyecto antiguo <code>.elp</code> directamente a PDF:",
           example5: "Convertir todos los <code>.elpx</code> de una carpeta a PDF:",
           example6: "Convertir todos los archivos compatibles a <code>.docx</code> y guardarlos en otra carpeta:",
+          example8: "Importar una página web guardada (o un <code>.zip</code> con la página y sus imágenes):",
+          example9: "Importar un documento LaTeX, o el <code>.zip</code> de un proyecto de Overleaf con sus imágenes y archivos <code>\\input</code>:",
           faqTitle: "Preguntas frecuentes",
           faq1Title: "No sé cuál descargar",
           faq1Text:
@@ -648,7 +658,7 @@ execonvert inspect proyecto.elpx</pre>
           releaseLabel: "Última versió publicada:",
           subtitle: "La versió per fer servir des d'un terminal o per automatitzar conversions",
           intro:
-            "eXeConvert converteix fitxers entre els formats d'eXeLearning (<code>.elpx</code>, <code>.elp</code>), Word (<code>.docx</code>), PDF i Markdown (<code>.md</code>). Aquesta és la versió de terminal o consola. Es fa servir des d'una finestra de Terminal, PowerShell o cmd i és útil per convertir molts fitxers o automatitzar tasques (si prefereixes una interfície gràfica, pots fer servir <a href=\"../index.html\">la versió web d'eXeConvert</a>).",
+            "eXeConvert converteix fitxers entre els formats d'eXeLearning (<code>.elpx</code>, <code>.elp</code>), Word (<code>.docx</code>), PDF i Markdown (<code>.md</code>), i importa pàgines web (<code>.html</code>) i documents LaTeX (<code>.tex</code>). Aquesta és la versió de terminal o consola. Es fa servir des d'una finestra de Terminal, PowerShell o cmd i és útil per convertir molts fitxers o automatitzar tasques (si prefereixes una interfície gràfica, pots fer servir <a href=\"../index.html\">la versió web d'eXeConvert</a>).",
           downloadButton: "Descarregar l'última versió",
           npmOrLabel: "o amb Node.js:",
           npmCopyBtn: "Copiar",
@@ -691,6 +701,8 @@ execonvert inspect proyecto.elpx</pre>
           example4: "Convertir un projecte antic <code>.elp</code> directament a PDF:",
           example5: "Convertir tots els <code>.elpx</code> d'una carpeta a PDF:",
           example6: "Convertir tots els fitxers compatibles a <code>.docx</code> i desar-los en una altra carpeta:",
+          example8: "Importar una pàgina web desada (o un <code>.zip</code> amb la pàgina i les seves imatges):",
+          example9: "Importar un document LaTeX, o el <code>.zip</code> d'un projecte d'Overleaf amb les seves imatges i fitxers <code>\\input</code>:",
           faqTitle: "Preguntes freqüents",
           faq1Title: "No sé quin descarregar",
           faq1Text:
@@ -719,7 +731,7 @@ execonvert inspect proyecto.elpx</pre>
           releaseLabel: "Latest published version:",
           subtitle: "The version to use from a terminal or for automating conversions",
           intro:
-            "eXeConvert converts files between eXeLearning formats (<code>.elpx</code>, <code>.elp</code>), Word (<code>.docx</code>), PDF, and Markdown (<code>.md</code>). This is the terminal or console version. It is used from a Terminal, PowerShell, or cmd window and is useful for converting many files or automating tasks (if you prefer a graphical interface, you can use <a href=\"../index.html\">the web version of eXeConvert</a>).",
+            "eXeConvert converts files between eXeLearning formats (<code>.elpx</code>, <code>.elp</code>), Word (<code>.docx</code>), PDF, and Markdown (<code>.md</code>), and imports web pages (<code>.html</code>) and LaTeX documents (<code>.tex</code>). This is the terminal or console version. It is used from a Terminal, PowerShell, or cmd window and is useful for converting many files or automating tasks (if you prefer a graphical interface, you can use <a href=\"../index.html\">the web version of eXeConvert</a>).",
           downloadButton: "Download the latest version",
           npmOrLabel: "or with Node.js:",
           npmCopyBtn: "Copy",
@@ -762,6 +774,8 @@ execonvert inspect proyecto.elpx</pre>
           example4: "Convert an old <code>.elp</code> project directly to PDF:",
           example5: "Convert all <code>.elpx</code> files in a folder to PDF:",
           example6: "Convert all compatible files to <code>.docx</code> and save them in another folder:",
+          example8: "Import a saved web page (or a <code>.zip</code> with the page and its images):",
+          example9: "Import a LaTeX document, or the <code>.zip</code> of an Overleaf project with its images and <code>\\input</code> files:",
           faqTitle: "Frequently asked questions",
           faq1Title: "I do not know which file to download",
           faq1Text:
@@ -869,6 +883,8 @@ execonvert inspect proyecto.elpx</pre>
         setHtml("example-4-label", copy.example4);
         setHtml("example-5-label", copy.example5);
         setHtml("example-6-label", copy.example6);
+        setHtml("example-8-label", copy.example8);
+        setHtml("example-9-label", copy.example9);
         setText("faq-title", copy.faqTitle);
         setText("faq-1-title", copy.faq1Title);
         setHtml("faq-1-text", copy.faq1Text);

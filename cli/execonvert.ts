@@ -15,6 +15,9 @@ import {
 } from '../src/converter.js';
 import { convertDocxToElpx } from '../src/docx-import.js';
 import { convertElpxToMarkdown } from '../src/elpx-markdown.js';
+import { convertHtmlToElpxProject } from '../src/html-import.js';
+import { convertLatexToElpx } from '../src/latex-import.js';
+import { detectZipContentKind, type AssetResolver } from '../src/import-files.js';
 import { convertElpToElpx } from '../src/legacy-elp.js';
 import { convertMarkdownToElpx } from '../src/markdown-import.js';
 import { installCliRuntime } from './runtime.js';
@@ -30,6 +33,8 @@ type InspectPage = {
 };
 
 type StructureValue = 'page' | 'subpage' | 'idevice' | 'resource-title';
+
+type FileFormat = 'elp' | 'elpx' | 'docx' | 'markdown' | 'pdf' | 'html' | 'latex';
 
 type StructureOptions = {
   h1: StructureValue;
@@ -88,10 +93,16 @@ const cliMessages: Record<Locale, Record<string, string>> = {
     'help.input.elpx': '.elpx',
     'help.input.docx': '.docx',
     'help.input.markdown': '.md, .txt',
+    'help.input.html': '.html, .htm',
+    'help.input.latex': '.tex',
+    'help.input.zip': '.zip (proyecto de eXeLearning, o página web o documento LaTeX con sus imágenes)',
     'help.output.elp': 'desde .elp: .elpx, .md, .docx, .pdf',
     'help.output.elpx': 'desde .elpx: .md, .docx, .pdf',
     'help.output.docx': 'desde .docx: .elpx',
     'help.output.markdown': 'desde .md/.txt: .elpx',
+    'help.output.html': 'desde .html/.htm: .elpx',
+    'help.output.latex': 'desde .tex: .elpx',
+    'help.output.zip': 'desde .zip: lo que admita su contenido',
     'help.option.to': 'Formato de salida para conversión múltiple (elpx, docx, md, pdf). Los archivos no compatibles se ignoran.',
     'warn.skippedInput': 'Aviso: se ignora {file}: no se puede convertir a {format}.',
     'warn.newerProject': 'Aviso: el proyecto se creó con eXeLearning {version} y esta versión incorpora la {runtime}. La conversión puede no reconocer los elementos nuevos.',
@@ -116,6 +127,8 @@ const cliMessages: Record<Locale, Record<string, string>> = {
     'error.h3RequiresH2': '--h3 subpage requiere --h2 subpage.',
     'error.h4RequiresH3': '--h4 subpage requiere --h3 subpage.',
     'error.unsupportedExtension': 'Extensión de archivo no compatible: {extension}.',
+    'error.unrecognizedZip': 'El .zip no contiene un proyecto de eXeLearning, una página .html ni un documento .tex: {file}',
+    'warn.latexUnrecognized': 'Aviso: comandos de LaTeX sin conversión en {file} (se ha conservado su texto): {list}',
     'error.unknownPageRef': 'Referencia de página desconocida: {ref}',
     'error.unsupportedConversion': 'Conversión no compatible: {input} -> {output}',
     'error.prefix': 'Error: {message}',
@@ -138,10 +151,16 @@ const cliMessages: Record<Locale, Record<string, string>> = {
     'help.input.elpx': '.elpx',
     'help.input.docx': '.docx',
     'help.input.markdown': '.md, .txt',
+    'help.input.html': '.html, .htm',
+    'help.input.latex': '.tex',
+    'help.input.zip': '.zip (projecte d’eXeLearning, o pàgina web o document LaTeX amb les seves imatges)',
     'help.output.elp': 'des de .elp: .elpx, .md, .docx, .pdf',
     'help.output.elpx': 'des de .elpx: .md, .docx, .pdf',
     'help.output.docx': 'des de .docx: .elpx',
     'help.output.markdown': 'des de .md/.txt: .elpx',
+    'help.output.html': 'des de .html/.htm: .elpx',
+    'help.output.latex': 'des de .tex: .elpx',
+    'help.output.zip': 'des de .zip: el que admeti el seu contingut',
     'help.option.to': 'Format de sortida per a conversió múltiple (elpx, docx, md, pdf). Els fitxers no compatibles s’ignoren.',
     'warn.skippedInput': 'Avís: s’ignora {file}: no es pot convertir a {format}.',
     'warn.newerProject': 'Avís: el projecte s’ha creat amb eXeLearning {version} i aquesta versió incorpora la {runtime}. La conversió pot no reconèixer els elements nous.',
@@ -166,6 +185,8 @@ const cliMessages: Record<Locale, Record<string, string>> = {
     'error.h3RequiresH2': '--h3 subpage requereix --h2 subpage.',
     'error.h4RequiresH3': '--h4 subpage requereix --h3 subpage.',
     'error.unsupportedExtension': 'Extensió de fitxer no compatible: {extension}.',
+    'error.unrecognizedZip': 'El .zip no conté cap projecte d’eXeLearning, cap pàgina .html ni cap document .tex: {file}',
+    'warn.latexUnrecognized': 'Avís: ordres de LaTeX sense conversió a {file} (se n’ha conservat el text): {list}',
     'error.unknownPageRef': 'Referència de pàgina desconeguda: {ref}',
     'error.unsupportedConversion': 'Conversió no compatible: {input} -> {output}',
     'error.prefix': 'Error: {message}',
@@ -188,10 +209,16 @@ const cliMessages: Record<Locale, Record<string, string>> = {
     'help.input.elpx': '.elpx',
     'help.input.docx': '.docx',
     'help.input.markdown': '.md, .txt',
+    'help.input.html': '.html, .htm',
+    'help.input.latex': '.tex',
+    'help.input.zip': '.zip (eXeLearning project, or web page or LaTeX document with its images)',
     'help.output.elp': 'from .elp: .elpx, .md, .docx, .pdf',
     'help.output.elpx': 'from .elpx: .md, .docx, .pdf',
     'help.output.docx': 'from .docx: .elpx',
     'help.output.markdown': 'from .md/.txt: .elpx',
+    'help.output.html': 'from .html/.htm: .elpx',
+    'help.output.latex': 'from .tex: .elpx',
+    'help.output.zip': 'from .zip: whatever its contents allow',
     'help.option.to': 'Output format for batch conversion (elpx, docx, md, pdf). Incompatible files are skipped.',
     'warn.skippedInput': 'Warning: skipping {file}: it cannot be converted to {format}.',
     'warn.newerProject': 'Warning: this project was created with eXeLearning {version} and this build carries {runtime}. The conversion may not recognise its newer elements.',
@@ -216,6 +243,8 @@ const cliMessages: Record<Locale, Record<string, string>> = {
     'error.h3RequiresH2': '--h3 subpage requires --h2 subpage.',
     'error.h4RequiresH3': '--h4 subpage requires --h3 subpage.',
     'error.unsupportedExtension': 'Unsupported file extension: {extension}.',
+    'error.unrecognizedZip': 'The .zip holds no eXeLearning project, .html page or .tex document: {file}',
+    'warn.latexUnrecognized': 'Warning: LaTeX commands with no conversion in {file} (their text was kept): {list}',
     'error.unknownPageRef': 'Unknown page ref: {ref}',
     'error.unsupportedConversion': 'Unsupported conversion: {input} -> {output}',
     'error.prefix': 'Error: {message}',
@@ -299,12 +328,18 @@ ${t('help.inputs')}:
   ${t('help.input.elpx')}
   ${t('help.input.docx')}
   ${t('help.input.markdown')}
+  ${t('help.input.html')}
+  ${t('help.input.latex')}
+  ${t('help.input.zip')}
 
 ${t('help.outputs')}:
   ${t('help.output.elp')}
   ${t('help.output.elpx')}
   ${t('help.output.docx')}
   ${t('help.output.markdown')}
+  ${t('help.output.html')}
+  ${t('help.output.latex')}
+  ${t('help.output.zip')}
 
 ${t('help.options')}:
   --to <format>           ${t('help.option.to')}
@@ -328,6 +363,9 @@ ${t('help.examples')}:
   execonvert notes.md notes.elpx --h1 resource-title --h2 subpage --h3 idevice
   execonvert project.elpx project.docx --pages 1,2.1
   execonvert project.elpx project.pdf --pages 1,2.1
+  execonvert page.html page.elpx --h1 resource-title --h2 subpage
+  execonvert notes.tex notes.elpx
+  execonvert overleaf-project.zip notes.elpx
   execonvert *.elpx --to docx
   execonvert *.elpx --to pdf --out-dir ./output
   execonvert inspect project.elpx --json
@@ -543,9 +581,16 @@ function validateStructure(structure: StructureOptions, t: CliTranslator['t']): 
   }
 }
 
-function detectFormat(filePath: string, t: CliTranslator['t']): 'elp' | 'elpx' | 'docx' | 'markdown' | 'pdf' {
+function detectFormat(filePath: string, t: CliTranslator['t']): FileFormat | 'zip' {
   const extension = extname(filePath).toLowerCase();
   switch (extension) {
+    case '.zip':
+      return 'zip';
+    case '.html':
+    case '.htm':
+      return 'html';
+    case '.tex':
+      return 'latex';
     case '.elp':
       return 'elp';
     case '.elpx':
@@ -564,6 +609,40 @@ function detectFormat(filePath: string, t: CliTranslator['t']): 'elp' | 'elpx' |
   }
 }
 
+// A .zip can be an eXeLearning project or a web page with its images, and only
+// its contents tell which.
+async function detectInputFormat(filePath: string, t: CliTranslator['t']): Promise<FileFormat> {
+  const format = detectFormat(filePath, t);
+  if (format !== 'zip') {
+    return format;
+  }
+  const kind = detectZipContentKind(new Uint8Array(await readFile(resolve(filePath))));
+  if (!kind) {
+    throw new Error(t('error.unrecognizedZip', { file: basename(filePath) }));
+  }
+  return kind;
+}
+
+function detectOutputFormat(filePath: string, t: CliTranslator['t']): FileFormat {
+  const format = detectFormat(filePath, t);
+  if (format === 'zip') {
+    throw new Error(t('error.unsupportedExtension', { extension: '.zip' }));
+  }
+  return format;
+}
+
+// Images next to an .html file are read from disk; the importer asks only for images.
+function diskAssetResolver(inputPath: string): AssetResolver {
+  const baseDir = dirname(resolve(inputPath));
+  return async path => {
+    try {
+      return new Uint8Array(await readFile(resolve(baseDir, path)));
+    } catch {
+      return null;
+    }
+  };
+}
+
 async function readInputFile(path: string, mime: string): Promise<File> {
   const resolved = resolve(path);
   const data = await readFile(resolved);
@@ -576,7 +655,7 @@ async function writeBlob(path: string, blob: Blob): Promise<void> {
   await writeFile(resolved, Buffer.from(await blob.arrayBuffer()));
 }
 
-function buildMime(format: 'elp' | 'elpx' | 'docx' | 'markdown' | 'pdf'): string {
+function buildMime(format: FileFormat): string {
   switch (format) {
     case 'elp':
     case 'elpx':
@@ -585,6 +664,10 @@ function buildMime(format: 'elp' | 'elpx' | 'docx' | 'markdown' | 'pdf'): string
       return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
     case 'markdown':
       return 'text/markdown;charset=utf-8';
+    case 'html':
+      return 'text/html;charset=utf-8';
+    case 'latex':
+      return 'text/x-tex;charset=utf-8';
     case 'pdf':
       return 'application/pdf';
   }
@@ -669,8 +752,8 @@ async function runConvert(args: ParsedArgs): Promise<void> {
   const i18n = createCliTranslator(args.locale);
   const inputPath = args.inputPath!;
   const outputPath = args.outputPath!;
-  const inputFormat = detectFormat(inputPath, i18n.t);
-  const outputFormat = detectFormat(outputPath, i18n.t);
+  const inputFormat = await detectInputFormat(inputPath, i18n.t);
+  const outputFormat = detectOutputFormat(outputPath, i18n.t);
   const inputFile = await readInputFile(inputPath, buildMime(inputFormat));
   if (inputFormat === 'elpx' && !args.json) {
     await warnIfNewerThanRuntime(inputFile, i18n.t);
@@ -788,6 +871,58 @@ async function runConvert(args: ParsedArgs): Promise<void> {
       outputFormat,
       pageCount: result.pageCount,
       blockCount: result.blockCount,
+    }, i18n.t);
+    return;
+  }
+
+  if (inputFormat === 'html' && outputFormat === 'elpx') {
+    const result = await convertHtmlToElpxProject(
+      inputFile,
+      {
+        heading1Mode: args.h1 === 'resource-title' ? 'resource' : 'page',
+        heading2Mode: args.h2 === 'subpage' ? 'page' : 'block',
+        heading3Mode: args.h3 === 'subpage' ? 'page' : 'block',
+        heading4Mode: args.h4 === 'subpage' ? 'page' : 'block',
+      },
+      progress => progressLogger(progress, i18n),
+      diskAssetResolver(inputPath),
+    );
+    await writeBlob(outputPath, result.blob);
+    printConvertResult(args.json, {
+      input: resolve(inputPath),
+      output: resolve(outputPath),
+      inputFormat,
+      outputFormat,
+      pageCount: result.pageCount,
+      blockCount: result.blockCount,
+    }, i18n.t);
+    return;
+  }
+
+  if (inputFormat === 'latex' && outputFormat === 'elpx') {
+    const result = await convertLatexToElpx(
+      inputFile,
+      {
+        heading1Mode: args.h1 === 'resource-title' ? 'resource' : 'page',
+        heading2Mode: args.h2 === 'subpage' ? 'page' : 'block',
+        heading3Mode: args.h3 === 'subpage' ? 'page' : 'block',
+        heading4Mode: args.h4 === 'subpage' ? 'page' : 'block',
+      },
+      progress => progressLogger(progress, i18n),
+      diskAssetResolver(inputPath),
+    );
+    await writeBlob(outputPath, result.blob);
+    if (result.unrecognized.length > 0 && !args.json) {
+      stderr.write(`${i18n.t('warn.latexUnrecognized', { file: basename(inputPath), list: result.unrecognized.join(', ') })}\n`);
+    }
+    printConvertResult(args.json, {
+      input: resolve(inputPath),
+      output: resolve(outputPath),
+      inputFormat,
+      outputFormat,
+      pageCount: result.pageCount,
+      blockCount: result.blockCount,
+      unrecognized: result.unrecognized,
     }, i18n.t);
     return;
   }
@@ -937,14 +1072,11 @@ function expandGlobs(paths: string[]): string[] {
   return result;
 }
 
-function isSupportedConversion(
-  inputFormat: 'elp' | 'elpx' | 'docx' | 'markdown' | 'pdf',
-  outputFormat: 'elp' | 'elpx' | 'docx' | 'markdown' | 'pdf',
-): boolean {
-  if (inputFormat === 'elpx') return outputFormat === 'docx' || outputFormat === 'markdown' || outputFormat === 'pdf';
-  if (inputFormat === 'elp') return outputFormat === 'elpx' || outputFormat === 'docx' || outputFormat === 'markdown' || outputFormat === 'pdf';
-  if (inputFormat === 'docx') return outputFormat === 'elpx';
-  if (inputFormat === 'markdown') return outputFormat === 'elpx';
+function isSupportedConversion(inputFormat: FileFormat, outputFormat: FileFormat): boolean {
+  const exports: FileFormat[] = ['docx', 'markdown', 'pdf'];
+  if (inputFormat === 'elpx') return exports.includes(outputFormat);
+  if (inputFormat === 'elp') return outputFormat === 'elpx' || exports.includes(outputFormat);
+  if (inputFormat === 'docx' || inputFormat === 'markdown' || inputFormat === 'html' || inputFormat === 'latex') return outputFormat === 'elpx';
   return false;
 }
 
@@ -963,18 +1095,18 @@ async function runBatch(args: ParsedArgs): Promise<void> {
   const inputPaths = expandGlobs(args.inputPaths!);
   const toRaw = args.to!;
 
-  const toFormat = toRaw === 'md' || toRaw === 'markdown' || toRaw === 'txt' ? 'markdown' : toRaw;
-  const fakeOutputPath = `output.${toRaw}`;
-  detectFormat(fakeOutputPath, i18n.t);
+  const toFormat = detectOutputFormat(`output.${toRaw}`, i18n.t);
 
-  const eligible = inputPaths.filter(inputPath => {
+  const eligible: string[] = [];
+  for (const inputPath of inputPaths) {
     try {
-      const fmt = detectFormat(inputPath, i18n.t);
-      return isSupportedConversion(fmt, toFormat as 'elp' | 'elpx' | 'docx' | 'markdown' | 'pdf');
+      if (isSupportedConversion(await detectInputFormat(inputPath, i18n.t), toFormat)) {
+        eligible.push(inputPath);
+      }
     } catch {
-      return false;
+      // Not convertible: reported as skipped below.
     }
-  });
+  }
 
   // Skipping is deliberate for globs like "*.docx --to pdf", but doing it in
   // silence hides typos: an unknown option taken as a filename disappeared

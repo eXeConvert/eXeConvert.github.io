@@ -12,6 +12,8 @@ import {
 } from './converter';
 import { convertDocxToElpx, type DocxImportProgress, type Heading1Mode, type HeadingMode } from './docx-import';
 import { convertElpxToMarkdown } from './elpx-markdown';
+import { convertHtmlToElpxProject } from './html-import';
+import { detectZipContentKind } from './import-files';
 import { convertElpToElpx } from './legacy-elp';
 import { convertMarkdownToElpx } from './markdown-import';
 import { createI18n, persistLocale, resolveInitialLocale, type Locale } from './i18n';
@@ -50,7 +52,7 @@ interface PendingSaveTarget {
   filename: string;
 }
 
-type InputKind = 'docx' | 'markdown' | 'elpx' | 'elp';
+type InputKind = 'docx' | 'markdown' | 'html' | 'latex' | 'elpx' | 'elp';
 type ConversionKind = 'docx' | 'markdown' | 'elpx' | 'pdf';
 type OutputKind = ConversionKind;
 type MarkdownPreviewMode = 'formatted' | 'source';
@@ -77,6 +79,7 @@ interface PreparedConversion {
   previewPages?: Record<string, string>;
   previewStartPath?: string;
   intermediateElpx?: IntermediateElpxSave;
+  notice?: string;
 }
 
 interface CachedElpxHtml {
@@ -150,7 +153,7 @@ app.innerHTML = `
       <h2>${t('panel.conversion')}</h2>
       <form id="conversion-form" class="form">
         <div id="drop-field" class="dropzone" tabindex="0" role="button" aria-describedby="drop-help">
-          <input id="file-input" type="file" accept=".elp,.elpx,.zip,.docx,.md,.markdown,.mdown,.txt" hidden />
+          <input id="file-input" type="file" accept=".elp,.elpx,.zip,.docx,.md,.markdown,.mdown,.txt,.html,.htm,.tex" hidden />
           <p class="dropzone-title">${t('drop.title')}</p>
           <p id="drop-help" class="drop-help">
             ${t('drop.help')}
@@ -771,7 +774,7 @@ previewButton.addEventListener('click', async () => {
     }
     renderPreview(preparedConversion);
     syncDetectedMessage();
-    setStatus(t('status.previewReady'));
+    setStatus(preparedConversion.notice ? `${t('status.previewReady')} ${preparedConversion.notice}` : t('status.previewReady'));
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     setStatus(t('status.errorPrefix', { message }), true);
@@ -834,7 +837,11 @@ form.addEventListener('submit', async event => {
           ? t('source.docxImport')
           : selectedKind === 'markdown'
             ? t('source.mdImport')
-            : t('source.elpImport');
+            : selectedKind === 'html'
+              ? t('source.htmlImport')
+              : selectedKind === 'latex'
+                ? t('source.latexImport')
+                : t('source.elpImport');
       setStatus(
         savedWithDialog
           ? t('done.import.withDialog', {
@@ -894,14 +901,52 @@ function handleSelectedFile(file: File | null): void {
   fileNameElement.textContent = file.name;
 
   if (!kind) {
+    rejectSelectedFile(t('status.unsupported'));
+    return;
+  }
+
+  // A .zip is either an eXeLearning project or a web page with its images, and
+  // only its contents tell which.
+  if (file.name.toLowerCase().endsWith('.zip')) {
+    const sequence = autoPreviewSequence;
     selectedKind = null;
     resetDetectedOptions();
     clearPageSelectionState();
     clearPreview();
-    setStatus(t('status.unsupported'), true);
+    void file.arrayBuffer().then(
+      buffer => {
+        if (sequence !== autoPreviewSequence || selectedFile !== file) {
+          return;
+        }
+        const zipKind = detectZipContentKind(new Uint8Array(buffer));
+        if (zipKind) {
+          applySelectedKind(file, zipKind);
+        } else {
+          rejectSelectedFile(t('status.unrecognizedZip'));
+        }
+      },
+      error => {
+        if (sequence === autoPreviewSequence && selectedFile === file) {
+          const message = error instanceof Error ? error.message : String(error);
+          rejectSelectedFile(t('status.errorPrefix', { message }));
+        }
+      },
+    );
     return;
   }
 
+  applySelectedKind(file, kind);
+}
+
+function rejectSelectedFile(message: string): void {
+  selectedKind = null;
+  resetDetectedOptions();
+  clearPageSelectionState();
+  clearPreview();
+  setStatus(message, true);
+}
+
+function applySelectedKind(file: File, kind: InputKind): void {
   selectedKind = kind;
   applyDetectedOptions(kind);
   syncActionButtons();
@@ -925,6 +970,14 @@ function detectInputKind(filename: string): InputKind | null {
 
   if (lowerName.endsWith('.md') || lowerName.endsWith('.markdown') || lowerName.endsWith('.mdown') || lowerName.endsWith('.txt')) {
     return 'markdown';
+  }
+
+  if (lowerName.endsWith('.html') || lowerName.endsWith('.htm')) {
+    return 'html';
+  }
+
+  if (lowerName.endsWith('.tex')) {
+    return 'latex';
   }
 
   if (lowerName.endsWith('.elpx') || lowerName.endsWith('.zip')) {
@@ -994,6 +1047,18 @@ function syncDetectedMessage(): void {
     return;
   }
 
+  if (selectedKind === 'html') {
+    detectedHelp.innerHTML = t(hasPreparedCurrentConversion ? 'detected.htmlToElpxDone' : 'detected.htmlToElpx');
+    setStatus(t('status.htmlDetected'));
+    return;
+  }
+
+  if (selectedKind === 'latex') {
+    detectedHelp.innerHTML = t(hasPreparedCurrentConversion ? 'detected.latexToElpxDone' : 'detected.latexToElpx');
+    setStatus(t('status.latexDetected'));
+    return;
+  }
+
   if (selectedKind === 'elp') {
     const outputKind = getSelectedOutputKind();
     detectedHelp.innerHTML =
@@ -1028,7 +1093,7 @@ function hasCurrentPreparedConversion(): boolean {
 }
 
 function syncStructureControls(): void {
-  if (selectedKind !== 'docx' && selectedKind !== 'markdown') {
+  if (selectedKind !== 'docx' && selectedKind !== 'markdown' && selectedKind !== 'html' && selectedKind !== 'latex') {
     structureField.hidden = true;
     return;
   }
@@ -1272,7 +1337,9 @@ function syncActionButtons(): void {
       ((selectedKind === 'elpx' && outputKind !== 'elpx') ||
         (selectedKind === 'elp' && outputKind !== 'elpx') ||
         selectedKind === 'docx' ||
-        selectedKind === 'markdown'),
+        selectedKind === 'markdown' ||
+        selectedKind === 'html' ||
+        selectedKind === 'latex'),
   );
   const shouldShowFinalSaveButton = Boolean(hasFile && (hasCurrentPreparedConversion || requiresPreviewBeforeSave));
 
@@ -1553,17 +1620,27 @@ async function prepareCurrentConversion(file: File, kind: InputKind): Promise<Pr
     throw new Error(t('error.selectAtLeastOnePage'));
   }
 
-  if (kind === 'docx' || kind === 'markdown') {
-    const importResult =
-      kind === 'docx'
-        ? await convertDocxToElpx(file, getHeadingOptions(), progress => {
-            updateProgress(progress);
-            setStatus(toLocalizedProgressMessage(progress));
-          })
-        : await convertMarkdownToElpx(file, getHeadingOptions(), progress => {
-            updateProgress(progress);
-            setStatus(toLocalizedProgressMessage(progress));
-          });
+  if (kind === 'docx' || kind === 'markdown' || kind === 'html' || kind === 'latex') {
+    const onImportProgress = (progress: DocxImportProgress) => {
+      updateProgress(progress);
+      setStatus(toLocalizedProgressMessage(progress));
+    };
+    let notice: string | undefined;
+    let importResult;
+    if (kind === 'docx') {
+      importResult = await convertDocxToElpx(file, getHeadingOptions(), onImportProgress);
+    } else if (kind === 'html') {
+      importResult = await convertHtmlToElpxProject(file, getHeadingOptions(), onImportProgress);
+    } else if (kind === 'latex') {
+      // The LaTeX parser is only downloaded when a .tex document is imported.
+      const { convertLatexToElpx } = await import('./latex-import');
+      importResult = await convertLatexToElpx(file, getHeadingOptions(), onImportProgress);
+      if (importResult.unrecognized.length > 0) {
+        notice = t('status.latexUnrecognized', { list: importResult.unrecognized.join(', ') });
+      }
+    } else {
+      importResult = await convertMarkdownToElpx(file, getHeadingOptions(), onImportProgress);
+    }
 
     setStatus(t('status.generatingElpxPreview'));
     const previewHtml = importResult.previewHtml;
@@ -1579,6 +1656,7 @@ async function prepareCurrentConversion(file: File, kind: InputKind): Promise<Pr
       previewContent: previewHtml,
       previewPages: importResult.previewPages,
       previewStartPath: 'index.html',
+      notice,
     };
   }
 
