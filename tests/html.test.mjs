@@ -106,3 +106,19 @@ test('a .zip is told apart by what it holds', async () => {
     );
   });
 });
+
+test('$ and $$ formulas become \\( \\) and \\[ \\], prices do not', async () => {
+  await withDir(async dir => {
+    await writeFile(join(dir, 'dolares.html'), String.raw`<html><body><h1>Fórmulas</h1>
+<p>En línea $x^2$ y $\text{\$5}$.</p><p>$$\int_0^1 f$$</p><p>Texto $$a+b$$ en medio.</p>
+<p>Precio 5$ y 10$, cuesta $5 y $10. Escapado \$x\$.</p><pre>code $a$</pre></body></html>`);
+    await call(['dolares.html', 'dolares.elpx'], dir);
+    const html = (await readProject(join(dir, 'dolares.elpx'))).pages[0].blocks[0].html;
+    for (const expected of [
+      '\\(x^2\\)', '\\(\\text{\\$5}\\)', '\\[\\int_0^1 f\\]', 'Texto \\[a+b\\] en medio',
+      'Precio 5$ y 10$, cuesta $5 y $10. Escapado $x$.', 'code $a$',
+    ]) {
+      assert.ok(html.includes(expected), `missing ${expected} in ${html}`);
+    }
+  });
+});

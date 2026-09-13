@@ -188,3 +188,17 @@ test('a latin1 document is read with its accents', async () => {
     assert.match(project.html, /Añadir ñandú/);
   });
 });
+
+test('$ and $$ formulas become \\( \\) and \\[ \\]', async () => {
+  await withDir(async dir => {
+    await writeFile(join(dir, 'dolares.tex'), String.raw`\documentclass{article}
+\begin{document}
+\section{Fórmulas}
+En línea $x^2$ y en bloque $$\int_0^1 f$$ y precio 5\$.
+\end{document}
+`);
+    await call(['dolares.tex', 'dolares.elpx'], dir);
+    const { html } = await readProject(join(dir, 'dolares.elpx'));
+    assert.ok(html.includes('En línea \\(x^2\\) y en bloque \\[\\int_0^1 f\\] y precio 5$.'), html);
+  });
+});

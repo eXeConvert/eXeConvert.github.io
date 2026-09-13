@@ -73,6 +73,7 @@ export async function convertHtmlToElpxProject(
   for (const element of Array.from(body.querySelectorAll(NON_CONTENT_SELECTOR))) {
     element.remove();
   }
+  convertDollarDelimiters(body);
   await embedImages(body, resolver);
 
   const project = buildProjectFromHtml(flattenContent(body), file.name, options);
@@ -202,6 +203,40 @@ function recoverFormulas(document: Document): void {
       replaceWithFormula(math, latex, math.getAttribute('display') === 'block');
     }
   }
+}
+
+// Pages written for MathJax often keep $...$ and $$...$$ in their text.
+// eXeLearning only looks for \(...\) and \[...\], so they are rewritten with the
+// same rules Markdown uses to tell a formula from a price: the opening $ is not
+// followed by a space, the closing one is not preceded by a space or followed by
+// a digit, and \$ is a literal dollar sign.
+const DISPLAY_DOLLARS = /(^|[^\\])\$\$([\s\S]+?)\$\$/g;
+const INLINE_DOLLARS = /(^|[^\\$])\$(?![\s$])((?:[^$\\]|\\[\s\S])*?[^\s\\])\$(?![$\d])/g;
+const LITERAL_TAGS = new Set(['pre', 'code', 'kbd', 'samp', 'var', 'tt']);
+
+function convertDollarDelimiters(root: Element): void {
+  const visit = (node: Node): void => {
+    for (const child of Array.from(node.childNodes)) {
+      if (child.nodeType === 1) {
+        if (!LITERAL_TAGS.has((child as Element).tagName.toLowerCase())) {
+          visit(child);
+        }
+        continue;
+      }
+      if (child.nodeType !== 3 || !child.textContent?.includes('$')) {
+        continue;
+      }
+      const converted = child.textContent
+        .replace(DISPLAY_DOLLARS, (_all, before: string, latex: string) => `${before}\\[${latex.trim()}\\]`)
+        .replace(INLINE_DOLLARS, (_all, before: string, latex: string) => `${before}\\(${latex}\\)`);
+      // Inside a formula \$ is LaTeX and stays; only the text around it is unescaped.
+      child.textContent = converted
+        .split(/(\\\([\s\S]*?\\\)|\\\[[\s\S]*?\\\])/)
+        .map((part, index) => (index % 2 === 1 ? part : part.replace(/\\\$/g, '$')))
+        .join('');
+    }
+  };
+  visit(root);
 }
 
 function mathElementToLatex(math: Element): string {

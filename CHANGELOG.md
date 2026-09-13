@@ -9,6 +9,17 @@ Categorías usadas: **Añadido**, **Cambiado**, **Corregido**, **Eliminado**.
 
 ## [Unreleased]
 
+## [0.6.2] - 2026-09-13
+
+### Corregido
+- Al importar un `.html`, las fórmulas escritas con `$...$` y `$$...$$` (como
+  en las páginas preparadas para MathJax) llegaban al `.elpx` con los dólares,
+  que eXeLearning no reconoce como fórmulas. Ahora se convierten en `\(...\)` y
+  `\[...\]`, igual que ya ocurría al importar `.md` y `.tex`. Se aplican las
+  mismas reglas que en Markdown para no confundir una fórmula con un precio
+  («5$ y 10$», «$5 y $10»), `\$` se lee como un dólar literal y no se toca el
+  contenido de `<pre>` ni `<code>`.
+
 ### Cambiado
 - La infografía incluye `.elpx` también entre las entradas, como origen de las
   exportaciones a Word, Markdown y PDF.
