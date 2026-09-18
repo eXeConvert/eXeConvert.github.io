@@ -167,6 +167,20 @@ El comando `update` conserva la combinación de eXeConvert y eXeLearning probada
 en cada publicación. Los componentes de eXeLearning se actualizan en el
 repositorio mediante `npm run sync:exe`.
 
+Los proyectos hechos con versiones anteriores se siguen convirtiendo: eXeConvert
+usa el motor oficial de eXeLearning, que mantiene la compatibilidad hacia atrás,
+tanto con los `.elp` de la rama 2.x como con los `.elpx` de cualquier 4.0.x. El
+aviso sobre versiones aparece en el caso contrario, cuando un proyecto procede de
+una versión más reciente que el motor incorporado y puede traer elementos que
+este código todavía no conoce.
+
+Desde la 4.0.5, el paquete estático oficial ya no publica los bundles como
+archivos `.zip`, solo su `bundles/manifest.json`. `npm run sync:exe` admite los
+dos formatos: cuando faltan los `.zip`, los reconstruye desde ese manifest con
+`scripts/build-bundles-from-manifest.mjs`, con la misma estructura interna que
+antes, de modo que también puede sincronizarse una versión anterior. La
+reconstrucción necesita el comando `zip`.
+
 El workflow **Check eXeLearning compatibility** comprueba cada lunes a las
 06:25 UTC si hay una versión estable nueva; también se puede lanzar manualmente.
 Cuando la encuentra, sincroniza los componentes, comprueba los tipos, ejecuta

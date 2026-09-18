@@ -59,6 +59,7 @@ need_cmd() {
 need_cmd gh
 need_cmd unzip
 need_cmd node
+need_cmd zip
 
 json_value() {
   # json_value <file> <key>
@@ -156,6 +157,17 @@ if [[ ! -d "$BUNDLES_SRC" ]]; then
   echo "Missing expected directory in release: bundles/" >&2
   exit 1
 fi
+# Releases up to v4.0.3 ship bundles/*.zip ready to copy. From v4.0.5 on only
+# bundles/manifest.json travels in the release, and the zips are rebuilt from
+# it. Both layouts stay supported so older releases can still be synced.
+if compgen -G "$BUNDLES_SRC/*.zip" > /dev/null; then
+  BUNDLES_MODE="copy"
+elif [[ -f "$BUNDLES_SRC/manifest.json" ]]; then
+  BUNDLES_MODE="rebuild"
+else
+  echo "Release ships neither bundle zips nor bundles/manifest.json" >&2
+  exit 1
+fi
 if [[ ! -f "$LOGO_SRC" ]]; then
   echo "Warning: exe_powered_logo.png not found in release; keeping existing copy." >&2
 fi
@@ -168,7 +180,12 @@ mkdir -p "$BUNDLES_DIR" "$LOGO_DIR" "$I18N_DIR" "$EXE_DIR"
 
 cp "$IMPORTERS_SRC" "$EXE_DIR/importers.bundle.js"
 cp "$EXPORTERS_SRC" "$EXE_DIR/exporters.bundle.js"
-cp -R "$BUNDLES_SRC/." "$BUNDLES_DIR/"
+if [[ "$BUNDLES_MODE" == "copy" ]]; then
+  cp -R "$BUNDLES_SRC/." "$BUNDLES_DIR/"
+else
+  echo "Release ships no bundle zips; rebuilding them from bundles/manifest.json..."
+  node "$SCRIPT_DIR/build-bundles-from-manifest.mjs" "$SRC" "$BUNDLES_DIR"
+fi
 if [[ -f "$LOGO_SRC" ]]; then
   cp "$LOGO_SRC" "$LOGO_DIR/exe_powered_logo.png"
 fi

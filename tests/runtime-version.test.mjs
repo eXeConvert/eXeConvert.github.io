@@ -19,11 +19,11 @@ test('exe_version matches the vendored eXeLearning runtime', async () => {
 
 test('only projects newer than the runtime are flagged', async () => {
   const { isNewerThanRuntime, EXE_RUNTIME_VERSION } = await import('../src/exe-runtime.ts');
-  assert.equal(EXE_RUNTIME_VERSION, '4.0.3');
-  for (const older of ['3.0', '4.0.0', '4.0.1', '4.0.3', 'v4.0.3', null, '', 'sin-sentido']) {
+  assert.equal(EXE_RUNTIME_VERSION, '4.0.5');
+  for (const older of ['3.0', '4.0.0', '4.0.1', '4.0.3', 'v4.0.3', '4.0.5', 'v4.0.5', null, '', 'sin-sentido']) {
     assert.equal(isNewerThanRuntime(older), false, `${older} should not warn`);
   }
-  for (const newer of ['4.0.4', '4.1.0', 'v4.1', '5.0.0']) {
+  for (const newer of ['4.0.6', '4.1.0', 'v4.1', '5.0.0']) {
     assert.equal(isNewerThanRuntime(newer), true, `${newer} should warn`);
   }
 });

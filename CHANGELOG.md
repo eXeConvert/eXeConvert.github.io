@@ -9,6 +9,21 @@ Categorías usadas: **Añadido**, **Cambiado**, **Corregido**, **Eliminado**.
 
 ## [Unreleased]
 
+### Cambiado
+- Runtime embebido de eXeLearning actualizado de **v4.0.3** a **v4.0.5**;
+  comprobadas las conversiones de la CLI y la vista previa web. Incluye la
+  nueva plantilla oficial `educablue` y las fuentes de las plantillas en
+  `.woff2`. La compatibilidad con proyectos anteriores no cambia: los `.elp`
+  de la rama 2.x y los `.elpx` de cualquier 4.0.x se siguen convirtiendo con
+  el motor oficial.
+- `npm run sync:exe` admite los dos formatos de paquete estático. Hasta la
+  4.0.3 la release traía los bundles en `.zip`; desde la 4.0.5 solo viaja
+  `bundles/manifest.json` y los `.zip` se reconstruyen a partir de él con
+  `scripts/build-bundles-from-manifest.mjs`, con idéntica estructura interna.
+  Así se puede seguir sincronizando una versión anterior sin cambiar nada del
+  código de conversión. La reconstrucción necesita el comando `zip`.
+
+
 ## [0.6.2] - 2026-09-13
 
 ### Corregido

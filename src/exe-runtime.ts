@@ -1,7 +1,7 @@
 // The eXeLearning release whose runtime is vendored in this repository, kept in
 // step with app/public/exelearning/runtime-source.json by
 // tests/runtime-version.test.mjs, which npm run sync:exe updates.
-export const EXE_RUNTIME_VERSION = '4.0.3';
+export const EXE_RUNTIME_VERSION = '4.0.5';
 
 /**
  * Compares two eXeLearning versions. Returns true when `version` is newer than
