@@ -175,7 +175,9 @@ una versión más reciente que el motor incorporado y puede traer elementos que
 este código todavía no conoce.
 
 Desde la 4.0.5, el paquete estático oficial ya no publica los bundles como
-archivos `.zip`, solo su `bundles/manifest.json`. `npm run sync:exe` admite los
+archivos `.zip`, solo su `bundles/manifest.json`. El porqué de esta decisión,
+con las alternativas que se descartaron, está en
+[`adr/0001-bundles-desde-el-manifest.md`](./adr/0001-bundles-desde-el-manifest.md). `npm run sync:exe` admite los
 dos formatos: cuando faltan los `.zip`, los reconstruye desde ese manifest con
 `scripts/build-bundles-from-manifest.mjs`, con la misma estructura interna que
 antes, de modo que también puede sincronizarse una versión anterior. La

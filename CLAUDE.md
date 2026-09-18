@@ -23,6 +23,14 @@ npm run build:all    # Both
 npm run preview
 ```
 
+## Architecture decisions (ADR)
+
+Technical decisions that constrain future work are recorded in `adr/`: one numbered file per decision, with context, decision, discarded alternatives and consequences. They are written in Spanish, like the README and the CHANGELOG.
+
+Write one when the decision constrains what comes next, when a reasonable alternative was discarded for a reason the code does not show, or when someone could undo it in good faith believing it an improvement. An ordinary change does not need one.
+
+Read the relevant ADR before changing anything it explains. If the change is still worth making, add a new ADR and mark the previous one as superseded — ADRs are not rewritten.
+
 ## Architecture
 
 The project exposes a **shared conversion core** (`src/`) through two separate frontends:
