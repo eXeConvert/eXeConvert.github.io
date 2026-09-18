@@ -9,6 +9,8 @@ Categorías usadas: **Añadido**, **Cambiado**, **Corregido**, **Eliminado**.
 
 ## [Unreleased]
 
+## [0.6.3] - 2026-09-18
+
 ### Cambiado
 - Runtime embebido de eXeLearning actualizado de **v4.0.3** a **v4.0.5**;
   comprobadas las conversiones de la CLI y la vista previa web. Incluye la
@@ -22,6 +24,10 @@ Categorías usadas: **Añadido**, **Cambiado**, **Corregido**, **Eliminado**.
   `scripts/build-bundles-from-manifest.mjs`, con idéntica estructura interna.
   Así se puede seguir sincronizando una versión anterior sin cambiar nada del
   código de conversión. La reconstrucción necesita el comando `zip`.
+
+### Añadido
+- Las decisiones técnicas que condicionan el trabajo futuro se registran en
+  `adr/`, con su contexto, las alternativas descartadas y las consecuencias.
 
 
 ## [0.6.2] - 2026-09-13
