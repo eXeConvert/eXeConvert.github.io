@@ -124,6 +124,26 @@ function installReplaceWithPolyfill(window: Window & typeof globalThis): void {
   installOn((window as unknown as { DocumentType?: unknown }).DocumentType);
 }
 
+// The WebAssembly image codecs hand pixels around as ImageData, which Node lacks.
+class CliImageData {
+  readonly colorSpace = 'srgb';
+  readonly data: Uint8ClampedArray;
+  readonly width: number;
+  readonly height: number;
+
+  constructor(dataOrWidth: Uint8ClampedArray | number, widthOrHeight: number, height?: number) {
+    if (typeof dataOrWidth === 'number') {
+      this.width = dataOrWidth;
+      this.height = widthOrHeight;
+      this.data = new Uint8ClampedArray(dataOrWidth * widthOrHeight * 4);
+      return;
+    }
+    this.data = dataOrWidth;
+    this.width = widthOrHeight;
+    this.height = height ?? dataOrWidth.length / 4 / widthOrHeight;
+  }
+}
+
 function setupCliDom(): void {
   if (configured) {
     return;
@@ -147,6 +167,7 @@ function setupCliDom(): void {
     HTMLScriptElement: window.HTMLScriptElement,
     Document: window.Document,
     DocumentFragment: window.DocumentFragment,
+    ImageData: CliImageData,
     NodeFilter: window.NodeFilter ?? {
       SHOW_ALL: -1,
       SHOW_ELEMENT: 1,
@@ -213,9 +234,12 @@ function installCliFetch(): void {
       const data = await readFile(fileUrl);
       return new Response(data, { status: 200 });
     }
-    if (input instanceof URL && input.protocol === 'file:') {
-      const data = await readFile(input);
-      return new Response(data, { status: 200 });
+    // The WebAssembly image codecs ask for their .wasm next to their own module.
+    const fileUrl = input instanceof URL ? input : typeof input === 'string' && input.startsWith('file:') ? new URL(input) : null;
+    if (fileUrl?.protocol === 'file:') {
+      const data = await readFile(fileUrl);
+      const headers = /\.wasm$/i.test(fileUrl.pathname) ? { 'Content-Type': 'application/wasm' } : undefined;
+      return new Response(data, { status: 200, headers });
     }
     return nativeFetch(input as RequestInfo | URL, init);
   }) as typeof fetch;

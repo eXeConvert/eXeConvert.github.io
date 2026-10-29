@@ -29,14 +29,22 @@ async function withDir(body) {
 }
 
 async function readProject(path) {
-  const content = new TextDecoder().decode(unzipSync(new Uint8Array(await readFile(path)))['content.xml']);
+  const entries = unzipSync(new Uint8Array(await readFile(path)));
+  const content = new TextDecoder().decode(entries['content.xml']);
   const pages = [...content.matchAll(/<odeNavStructure>([\s\S]*?)<\/odeNavStructure>/g)].map(([, page]) => ({
     title: /<pageName>([^<]*)/.exec(page)[1],
     blocks: [...page.matchAll(/<blockName>([^<]*)[\s\S]*?<htmlView><!\[CDATA\[([\s\S]*?)\]\]><\/htmlView>/g)]
       .map(([, name, html]) => ({ name, html: html.replace(/\s+/g, ' ').trim() })),
   }));
   const html = pages.flatMap(page => page.blocks.map(block => block.html)).join('\n');
-  return { title: /pp_title<\/key><value>([^<]*)/.exec(content)[1], pages, html };
+  return { title: /pp_title<\/key><value>([^<]*)/.exec(content)[1], pages, html, entries };
+}
+
+// Images are kept as eXeLearning keeps them: a file in content/resources and a
+// {{context_path}} reference to it.
+function imageFiles(project) {
+  return [...project.html.matchAll(/src="\{\{context_path\}\}\/([^"]+)"/g)]
+    .map(([, path]) => project.entries[`content/resources/${path}`]);
 }
 
 const DOCUMENT = String.raw`\documentclass{article}
@@ -116,13 +124,13 @@ test('a LaTeX document keeps its structure and its formulas as written', async (
       '<li>Uno con \\(x^2\\)</li>',
       '<td>1</td><td>\\(\\alpha\\)</td>',
       '<strong>Teorema 1 (Continuidad).</strong> Si \\(f\\) es derivable',
-      `data:image/png;base64,${Buffer.from(PNG).toString('base64')}`,
       '<em>Figura 1. Una gráfica</em>',
       '<pre><code>codigo % literal',
       'texto propio',
     ]) {
       assert.ok(html.includes(expected), `missing ${expected}`);
     }
+    assert.deepEqual(imageFiles(project), [PNG], 'the figure is a file of the project');
     assert.doesNotMatch(html, /un comentario/);
     assert.doesNotMatch(html, /no debe entrar|bm8gZGViZSBlbnRyYXI/, 'only images are embedded');
   });
@@ -139,7 +147,7 @@ test('a LaTeX project in a .zip is found and read with its pieces', async () => 
     assert.equal(JSON.parse(stdout).inputFormat, 'latex');
     const project = await readProject(join(dir, 'overleaf.elpx'));
     assert.deepEqual(project.pages.map(page => page.title), ['Funciones', 'Derivadas']);
-    assert.match(project.html, /data:image\/png;base64,/);
+    assert.deepEqual(imageFiles(project), [PNG]);
   });
 });
 

@@ -76,10 +76,11 @@ export async function convertHtmlToElpxProject(
   convertDollarDelimiters(body);
   await embedImages(body, resolver);
 
-  const project = buildProjectFromHtml(flattenContent(body), file.name, options);
-  // With no heading taken as the resource title, the project is named after the
-  // file; the page's own <title> says more.
+  // The page's own <title> says more than the file name or «Página 1»: it names
+  // the content before the first heading and, with no heading taken as the
+  // resource title, the project.
   const pageTitle = normalizeText(document.querySelector('title')?.textContent);
+  const project = buildProjectFromHtml(flattenContent(body), file.name, options, pageTitle);
   if (pageTitle && project.title === stemOf(file.name)) {
     project.title = pageTitle;
   }

@@ -46,6 +46,29 @@ Included in this repository:
 The library has been unmaintained since 2017, so there is no upstream release
 to update to; the copy is kept here to convert OMML formulas from `.docx`.
 
+## jSquash image codecs
+
+- Source project: https://github.com/jamsinclair/jSquash
+- Packages: `@jsquash/jpeg` 1.6.0, `@jsquash/png` 3.1.1, `@jsquash/webp` 1.5.0,
+  `@jsquash/oxipng` 2.3.0 and `@jsquash/resize` 2.1.1, Apache-2.0.
+
+They are installed as dependencies, and the web build in `docs/assets/`
+redistributes their WebAssembly codecs. Each codec keeps the license of its
+upstream project, shipped next to it as `LICENSE.codec.md` in the package:
+
+- MozJPEG / libjpeg-turbo (JPEG): BSD-style licenses (IJG, Modified BSD, zlib).
+- libwebp (WebP): BSD-3-Clause, Copyright (c) 2010, Google Inc.
+- PNG decoder: BSD-3-Clause as stated in `@jsquash/png/codec/LICENSE.codec.md`.
+- OxiPNG (PNG encoding): MIT, Copyright (c) 2016 Joshua Holmer.
+- resize (Lanczos resampling): MIT, Copyright (c) 2015 PistonDevelopers; the
+  package also bundles hqx (Apache-2.0) and magic-kernel (MIT, Copyright (c)
+  2024 Serhii Tatarintsev), which eXeConvert does not call.
+
+They reduce the images of imported documents that are larger than
+eXeLearning shows them, with the limit and quality of the default preset of
+[elpx-optimizer](https://github.com/ateeducacion/elpx-optimizer), which uses
+the same codecs.
+
 ## Additional license notes
 
 - `app/public/idevices/text/text.js` contains a header pointing to:

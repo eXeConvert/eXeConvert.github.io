@@ -7,7 +7,7 @@ import { promisify } from 'node:util';
 import { mkdtemp, mkdir, readFile, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { zipSync, unzipSync } from 'fflate';
+import { zipSync, unzipSync, zlibSync } from 'fflate';
 
 const run = promisify(execFile);
 const root = resolve(import.meta.dirname, '..');
@@ -17,6 +17,49 @@ const call = (args, cwd) => run(process.execPath, [cli, ...args], {
 });
 const enc = value => new TextEncoder().encode(value);
 const PNG = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4]);
+
+// A real grey PNG of the given size. Its pixels are noise, which does not
+// compress, as in a photo: a reduced copy is lighter only if it has fewer pixels.
+function makePng(width, height) {
+  const crcTable = Array.from({ length: 256 }, (_, n) => {
+    let c = n;
+    for (let k = 0; k < 8; k += 1) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    return c >>> 0;
+  });
+  const crc = bytes => {
+    let c = 0xffffffff;
+    for (const byte of bytes) c = crcTable[(c ^ byte) & 0xff] ^ (c >>> 8);
+    return (c ^ 0xffffffff) >>> 0;
+  };
+  const u32 = value => [(value >>> 24) & 0xff, (value >>> 16) & 0xff, (value >>> 8) & 0xff, value & 0xff];
+  const chunk = (type, data) => {
+    const body = [...enc(type), ...data];
+    return [...u32(data.length), ...body, ...u32(crc(body))];
+  };
+  const rows = new Uint8Array((width + 1) * height);
+  let seed = 1;
+  const random = () => {
+    // mulberry32: a plain linear generator repeats and would compress.
+    seed = (seed + 0x6d2b79f5) >>> 0;
+    let t = Math.imul(seed ^ (seed >>> 15), seed | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) & 0xff;
+  };
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) rows[y * (width + 1) + 1 + x] = random();
+  }
+  return Uint8Array.from([
+    0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+    ...chunk('IHDR', [...u32(width), ...u32(height), 8, 0, 0, 0, 0]),
+    ...chunk('IDAT', [...zlibSync(rows)]),
+    ...chunk('IEND', []),
+  ]);
+}
+
+function pngSize(data) {
+  const view = new DataView(data.buffer, data.byteOffset);
+  return [view.getUint32(16), view.getUint32(20)];
+}
 
 async function withDir(body) {
   const dir = await mkdtemp(join(tmpdir(), 'execonvert-html-'));
@@ -28,7 +71,8 @@ async function withDir(body) {
 }
 
 async function readProject(path) {
-  const content = new TextDecoder().decode(unzipSync(new Uint8Array(await readFile(path)))['content.xml']);
+  const entries = unzipSync(new Uint8Array(await readFile(path)));
+  const content = new TextDecoder().decode(entries['content.xml']);
   const pageIds = [...content.matchAll(/<odePageId>([^<]*)<\/odePageId>\s*<odeParentPageId>/g)].map(match => match[1]);
   const pages = [...content.matchAll(/<odeNavStructure>([\s\S]*?)<\/odeNavStructure>/g)].map(([, page]) => ({
     title: /<pageName>([^<]*)/.exec(page)[1],
@@ -36,7 +80,14 @@ async function readProject(path) {
     blocks: [...page.matchAll(/<blockName>([^<]*)[\s\S]*?<htmlView><!\[CDATA\[([\s\S]*?)\]\]><\/htmlView>/g)]
       .map(([, name, html]) => ({ name, html: html.replace(/\s+/g, ' ').trim() })),
   }));
-  return { title: /pp_title<\/key><value>([^<]*)/.exec(content)[1], pages, content };
+  return { title: /pp_title<\/key><value>([^<]*)/.exec(content)[1], pages, content, entries };
+}
+
+// Images are kept as eXeLearning keeps them: a file in content/resources and a
+// {{context_path}} reference to it.
+function imageFiles(project, html = project.content) {
+  return [...html.matchAll(/src="\{\{context_path\}\}\/([^"]+)"/g)]
+    .map(([, path]) => project.entries[`content/resources/${path}`]);
 }
 
 test('a web page keeps its structure, formulas and images', async () => {
@@ -74,7 +125,8 @@ test('a web page keeps its structure, formulas and images', async () => {
     }
     assert.doesNotMatch(formulas, /basura/, 'rendered MathJax output is dropped');
     assert.doesNotMatch(project.content, /Menú|tracking/);
-    assert.ok(images.includes(`data:image/png;base64,${Buffer.from(PNG).toString('base64')}`), 'the local image is embedded');
+    assert.deepEqual(imageFiles(project, images), [PNG], 'the local image is a file of the project');
+    assert.doesNotMatch(project.content, /data:image/);
     assert.match(images, /<p>Pie de foto<\/p>/);
     assert.doesNotMatch(project.content, /no debe entrar|bm8gZGViZSBlbnRyYXI/, 'only images are read from disk');
   });
@@ -89,7 +141,7 @@ test('a .zip is told apart by what it holds', async () => {
     await call(['web.zip', 'web.elpx'], dir);
     const web = await readProject(join(dir, 'web.elpx'));
     assert.deepEqual(web.pages.map(page => page.title), ['Portada']);
-    assert.match(web.content, /data:image\/png;base64,/);
+    assert.deepEqual(imageFiles(web), [PNG]);
 
     await call(['web.elpx', 'proyecto.zip'], dir).then(
       () => assert.fail('a .zip is not an output format'),
@@ -120,5 +172,42 @@ test('$ and $$ formulas become \\( \\) and \\[ \\], prices do not', async () => 
     ]) {
       assert.ok(html.includes(expected), `missing ${expected} in ${html}`);
     }
+  });
+});
+
+test('a page from a site: its title, light images and only links that lead somewhere', async () => {
+  await withDir(async dir => {
+    const large = makePng(3000, 40);
+    const embedded = `data:image/png;base64,${Buffer.from(PNG).toString('base64')}`;
+    await writeFile(join(dir, 'Inicio.zip'), zipSync({
+      'Inicio.html': enc(`<html><head><title>Centro de ayuda</title></head><body>
+<p>Bienvenida. Ver <a href="Documentacion.html">la documentación</a>, <a href="#h.seccion">una sección</a>,
+<a href="#">nada</a> o <a href="https://exelearning.net/">eXeLearning</a>.</p>
+<p><img src="Inicio/grande.png" alt="Grande"><img src="${embedded}" alt="Una"><img src="${embedded}" alt="Otra"></p>
+<h2 id="h.seccion">Sección</h2><p>Texto.</p></body></html>`),
+      'Inicio/grande.png': large,
+    }));
+    await call(['Inicio.zip', 'Inicio.elpx'], dir);
+    const project = await readProject(join(dir, 'Inicio.elpx'));
+    assert.equal(project.title, 'Centro de ayuda');
+    assert.deepEqual(project.pages.map(page => page.title), ['Centro de ayuda'], 'no «Página 1»');
+
+    const html = project.pages[0].blocks[0].html;
+    for (const kept of ['la documentación', 'una sección', 'nada', '<a href="https://exelearning.net/">eXeLearning</a>']) {
+      assert.ok(html.includes(kept), `missing ${kept} in ${html}`);
+    }
+    assert.doesNotMatch(html, /href="(?!https:)/, 'links to pages and anchors outside the project are gone');
+
+    const references = [...html.matchAll(/src="([^"]+)"/g)].map(match => match[1]);
+    assert.equal(references[1], references[2], 'the same image twice is one file');
+    const [reduced, small] = imageFiles(project, html);
+    assert.deepEqual(pngSize(reduced), [1920, 26], 'the large image is cut to 1920 px on its long side');
+    assert.ok(reduced.length < large.length);
+    assert.deepEqual(small, PNG, 'small images stay as they are');
+    assert.equal(Object.keys(project.entries).filter(path => path.startsWith('content/resources/')).length, 2);
+    assert.doesNotMatch(project.content, /data:image/);
+
+    const preview = new TextDecoder().decode(project.entries['index.html']);
+    assert.match(preview, /src="content\/resources\/[^"]+\/imagen-1\.png"/, 'the package pages find the files');
   });
 });

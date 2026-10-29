@@ -9,6 +9,20 @@ Categorías usadas: **Añadido**, **Cambiado**, **Corregido**, **Eliminado**.
 
 ## [Unreleased]
 
+### Corregido
+- Las imágenes de un documento importado (`.docx`, `.md`, `.html` o `.tex`)
+  llegaban al `.elpx` incrustadas en el texto, repetidas en la vista previa y a
+  tamaño original: una página de Google Sites con dos fotos daba un proyecto de
+  16,5 MB. Ahora son archivos de `content/resources`, como los guarda
+  eXeLearning, y las JPEG, PNG y WebP de más de 1920 px de lado se reducen a
+  esa medida; la misma página queda en 2,4 MB. Las animadas, las SVG y las
+  JPEG en CMYK no se tocan. Detalle en `adr/0002`.
+- La página que recoge el contenido anterior al primer encabezado de un
+  `.html` se llamaba «Página 1»; ahora toma el título de la página web.
+- Los enlaces a otras páginas del sitio, a anclas de la misma página o al
+  índice de un `.docx` llevaban a ninguna parte dentro del proyecto. Ahora se
+  quitan y queda su texto; los enlaces a direcciones completas se mantienen.
+
 ## [0.6.3] - 2026-09-18
 
 ### Cambiado

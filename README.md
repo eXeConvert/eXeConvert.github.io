@@ -11,9 +11,10 @@ Conversor estático en navegador para transformar proyectos de eXeLearning y con
 - Exporta `.elpx` a `.docx`, `.md` o `.pdf`.
 - En CLI y paquetes nativos, la exportación `.pdf` usa Puppeteer con navegador embebido y MathJax en SVG para mantener fórmulas vectoriales.
 - Importa `.docx`, `.md`, `.html` y `.tex` a `.elpx`.
-- Al importar HTML, desenvuelve los contenedores de la página (`div`, `section`, `main`…), descarta menús y scripts, e incrusta las imágenes locales: las que están junto al `.html` en la CLI, o las que van dentro del `.zip`. Recupera en LaTeX las fórmulas ya mostradas con MathJax 2 o 3, KaTeX o MathML.
+- Al importar HTML, desenvuelve los contenedores de la página (`div`, `section`, `main`…), descarta menús y scripts, y recoge las imágenes locales: las que están junto al `.html` en la CLI, o las que van dentro del `.zip`. La página que reúne el contenido anterior al primer encabezado toma el título de la página web. Los enlaces que no llevan a una dirección completa (otras páginas del sitio, anclas) se quitan y queda su texto. Recupera en LaTeX las fórmulas ya mostradas con MathJax 2 o 3, KaTeX o MathML.
 - Al importar LaTeX, las fórmulas pasan tal cual, porque eXeLearning las muestra con MathJax: `$...$`, `\[...\]` y los entornos `equation`, `align`, `gather`… se conservan editables. Se convierten secciones y capítulos en páginas e iDevices, listas, tablas, figuras con pie, teoremas declarados con `\newtheorem`, notas al pie, referencias cruzadas con su numeración, enlaces, código literal, acentos al estilo `\'a` y diapositivas de Beamer. Las macros propias (`\newcommand`, `\def`, `\DeclareMathOperator`) se expanden, y se leen los archivos de `\input`/`\include` y las imágenes de `\includegraphics`: desde la carpeta del `.tex` en la CLI, o desde un `.zip` con el proyecto completo (como el que descarga Overleaf). Lo que no tiene conversión conserva su texto y se avisa.
 - Un `.zip` se identifica por su contenido: proyecto `.elpx`, proyecto `.elp`, proyecto LaTeX o página web.
+- En todas las importaciones, las imágenes pasan a ser archivos de `content/resources`, como los guarda eXeLearning, y las JPEG, PNG y WebP de más de 1920 px de lado se reducen a esa medida ([ADR 0002](adr/0002-imagenes-importadas-como-recursos.md)).
 
 ## Qué no hace todavía
 
@@ -298,6 +299,7 @@ Backend base de esta app:
 - `src/html-import.ts`: importación de `.html` (o `.zip` con una página web) a `.elpx`.
 - `src/latex-import.ts`: importación de `.tex` (o `.zip` con un proyecto LaTeX) a `.elpx`, sobre el parser de unified-latex.
 - `src/import-files.ts`: lectura de `.zip`, rutas relativas e imágenes, común a los importadores.
+- `src/import-images.ts`: paso común que lleva las imágenes importadas a `content/resources` y reduce las grandes, con los códecs de jSquash.
 - `src/main.ts`: interfaz web estática.
 
 La siguiente iteración razonable es sustituir el parser simplificado por una integración más directa con la lógica de exportación de eXeLearning.

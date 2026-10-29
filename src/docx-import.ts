@@ -3,6 +3,7 @@ import mammoth from 'mammoth';
 import { MathMLToLaTeX } from 'mathml-to-latex';
 import { DOMParser as XmldomParser, XMLSerializer as XmldomSerializer } from '@xmldom/xmldom';
 import { EXE_RUNTIME_VERSION } from './exe-runtime.js';
+import { moveImagesToResources, resolveContextPath } from './import-images.js';
 // @ts-expect-error the vendored omml2mathml ships no TypeScript declarations.
 import omml2mathml from './vendor/omml2mathml/index.js';
 import temml from 'temml';
@@ -110,8 +111,12 @@ export async function convertProjectToElpx(
   previewOptions: PreviewOptions = {},
 ): Promise<ImportToElpxResult> {
 
+  onProgress?.({ phase: 'template', message: 'Preparando las imágenes...', messageKey: 'progress.prepareImages' });
+  const imageEntries = await moveImagesToResources(project, createResourceId());
+
   onProgress?.({ phase: 'template', message: 'Aplicando la plantilla base de eXeLearning...', messageKey: 'progress.applyTemplate' });
   const template = await loadBaseTemplate();
+  Object.assign(template.entries, imageEntries);
   if (extraEntries) {
     for (const [entryPath, entryData] of Object.entries(extraEntries)) {
       template.entries[entryPath] = entryData;
@@ -164,7 +169,13 @@ async function extractDocxHtml(inputBuffer: ArrayBuffer): Promise<string> {
   return htmlValue;
 }
 
-export function buildProjectFromHtml(htmlValue: string, filename: string, options: DocxImportOptions): ImportedProject {
+/** `untitledPageTitle` names the page that holds the content found before the first heading. */
+export function buildProjectFromHtml(
+  htmlValue: string,
+  filename: string,
+  options: DocxImportOptions,
+  untitledPageTitle = '',
+): ImportedProject {
   const document = new DOMParser().parseFromString(`<!doctype html><html><body>${htmlValue}</body></html>`, 'text/html');
   const body = document.body;
 
@@ -203,7 +214,7 @@ export function buildProjectFromHtml(htmlValue: string, filename: string, option
 
       const effectiveLevel = useResourceTitle && rawLevel > 1 ? rawLevel - 1 : rawLevel;
       if (effectiveLevel < 1 || effectiveLevel > 4) {
-        currentPage = ensurePage(pages, currentPage);
+        currentPage = ensurePage(pages, currentPage, untitledPageTitle);
         currentBlock = ensureBlock(currentPage, currentBlock);
         currentBlock.html = appendParagraphHtml(currentBlock.html, cleanedHtml);
         continue;
@@ -220,7 +231,7 @@ export function buildProjectFromHtml(htmlValue: string, filename: string, option
 
       if (effectiveLevel === 2) {
         if (options.heading2Mode === 'page') {
-          const parentPage = currentTopLevelPage ?? ensurePage(pages, currentPage);
+          const parentPage = currentTopLevelPage ?? ensurePage(pages, currentPage, untitledPageTitle);
           currentPage = createPage(pages, trimmed, 2, pages.indexOf(parentPage));
           currentSecondLevelPage = currentPage;
           currentThirdLevelPage = null;
@@ -228,7 +239,7 @@ export function buildProjectFromHtml(htmlValue: string, filename: string, option
           continue;
         }
 
-        currentPage = ensurePage(pages, currentPage);
+        currentPage = ensurePage(pages, currentPage, untitledPageTitle);
         currentBlock = { title: trimmed, html: '' };
         currentPage.blocks.push(currentBlock);
         continue;
@@ -236,47 +247,47 @@ export function buildProjectFromHtml(htmlValue: string, filename: string, option
 
       if (effectiveLevel === 3) {
         if (options.heading2Mode !== 'page') {
-          currentPage = ensurePage(pages, currentPage);
+          currentPage = ensurePage(pages, currentPage, untitledPageTitle);
           currentBlock = ensureBlock(currentPage, currentBlock);
           currentBlock.html = appendParagraphHtml(currentBlock.html, cleanedHtml);
           continue;
         }
 
         if (options.heading3Mode === 'page') {
-          const parentPage = currentSecondLevelPage ?? currentTopLevelPage ?? ensurePage(pages, currentPage);
+          const parentPage = currentSecondLevelPage ?? currentTopLevelPage ?? ensurePage(pages, currentPage, untitledPageTitle);
           currentPage = createPage(pages, trimmed, 3, pages.indexOf(parentPage));
           currentThirdLevelPage = currentPage;
           currentBlock = null;
           continue;
         }
 
-        currentPage = ensurePage(pages, currentPage);
+        currentPage = ensurePage(pages, currentPage, untitledPageTitle);
         currentBlock = { title: trimmed, html: '' };
         currentPage.blocks.push(currentBlock);
         continue;
       }
 
       if (options.heading2Mode !== 'page' || options.heading3Mode !== 'page') {
-        currentPage = ensurePage(pages, currentPage);
+        currentPage = ensurePage(pages, currentPage, untitledPageTitle);
         currentBlock = ensureBlock(currentPage, currentBlock);
         currentBlock.html = appendParagraphHtml(currentBlock.html, cleanedHtml);
         continue;
       }
 
       if (options.heading4Mode === 'page') {
-        const parentPage = currentThirdLevelPage ?? currentSecondLevelPage ?? currentTopLevelPage ?? ensurePage(pages, currentPage);
+        const parentPage = currentThirdLevelPage ?? currentSecondLevelPage ?? currentTopLevelPage ?? ensurePage(pages, currentPage, untitledPageTitle);
         currentPage = createPage(pages, trimmed, 4, pages.indexOf(parentPage));
         currentBlock = null;
         continue;
       }
 
-      currentPage = ensurePage(pages, currentPage);
+      currentPage = ensurePage(pages, currentPage, untitledPageTitle);
       currentBlock = { title: trimmed, html: '' };
       currentPage.blocks.push(currentBlock);
       continue;
     }
 
-    currentPage = ensurePage(pages, currentPage);
+    currentPage = ensurePage(pages, currentPage, untitledPageTitle);
     currentBlock = ensureBlock(currentPage, currentBlock);
     currentBlock.html = appendParagraphHtml(currentBlock.html, cleanedHtml);
   }
@@ -430,12 +441,12 @@ function createMathPlaceholder(index: number): string {
   return `__EXE_MATH_PLACEHOLDER_${index}__`;
 }
 
-function ensurePage(pages: ImportedPage[], currentPage: ImportedPage | null): ImportedPage {
+function ensurePage(pages: ImportedPage[], currentPage: ImportedPage | null, untitledPageTitle: string): ImportedPage {
   if (currentPage) {
     return currentPage;
   }
 
-  return createPage(pages, `Página ${pages.length + 1}`, 1, null);
+  return createPage(pages, (pages.length === 0 && untitledPageTitle) || `Página ${pages.length + 1}`, 1, null);
 }
 
 function createPage(
@@ -522,7 +533,10 @@ function normalizeImportedNode(node: Node): string {
       return '<br />';
     case 'a': {
       const href = (node.getAttribute('href') || '').trim();
-      if (!href) {
+      // Only a full address still leads somewhere: the other pages of a site or
+      // of a document set are not in the project, and the ids that anchors and
+      // tables of contents point to are not kept. Such a link keeps its text.
+      if (!/^(?:[a-z][a-z0-9+.-]*:|\/\/)/i.test(href)) {
         return normalizedChildren;
       }
       return `<a href="${escapeHtml(href)}">${normalizedChildren}</a>`;
@@ -986,7 +1000,7 @@ function generatePreviewPageHtml(
   const nextPage = activeIndex < pages.length - 1 ? pages[activeIndex + 1] : null;
   const navItems = generatePreviewNavHtml(pages, activePageInfo.pageNumber, activeIndex);
   const blocks = activePage.blocks
-    .map((block, blockIndex) => generatePreviewBlockHtml(block, activePageInfo.pageNumber, blockIndex, previewOptions))
+    .map((block, blockIndex) => generatePreviewBlockHtml(block, activePageInfo.pageNumber, blockIndex, assetPrefix, previewOptions))
     .join('\n');
   const prevHref = prevPage
     ? activeIndex === 1
@@ -1099,11 +1113,12 @@ function generatePreviewBlockHtml(
   block: ImportedBlock,
   pageNumber: number,
   blockIndex: number,
+  assetPrefix: string,
   previewOptions: PreviewOptions = {},
 ): string {
   const blockId = `block-preview-${pageNumber}-${blockIndex + 1}`;
   const ideviceId = `idevice-preview-${pageNumber}-${blockIndex + 1}`;
-  const sanitizedHtml = sanitizePreviewBlockHtml(block.html || '<p></p>');
+  const sanitizedHtml = sanitizePreviewBlockHtml(resolveContextPath(block.html || '<p></p>', assetPrefix));
   const safeHtml = previewOptions.renderLatex ? renderLatexPreviewHtml(sanitizedHtml) : sanitizedHtml;
 
   return `<article id="${escapeHtml(blockId)}" class="box">
