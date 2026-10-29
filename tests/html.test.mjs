@@ -214,13 +214,18 @@ test('a page from a site: its title, light images and only links that lead somew
 
 test('a site in a .zip becomes one project, with the pages, nesting and links of its menu', async () => {
   await withDir(async dir => {
-    const menu = `<nav><a href="Inicio.html">Mi sitio</a><ul>
+    // As in Google Sites: a banner with the menu and the site's name, then the
+    // page's title in an <h1>.
+    const menu = `<header><nav><ul>
 <li><a href="Inicio.html">Inicio</a></li>
 <li><div><a href="Unidad.html">Unidad 1</a></div><ul><li><a href="Unidad/Tema.html">Tema A</a></li></ul></li>
 <li><a href="Otra.html">Unidad 2</a></li>
 <li><a>Más</a><ul><li><a href="Inicio.html">Inicio</a></li><li><a href="Otra.html">Unidad 2</a></li></ul></li>
-</ul></nav>`;
-    const page = (title, body) => enc(`<html><head><title>${title}</title></head><body>${menu}${body}</body></html>`);
+</ul></nav><a href="Inicio.html">Mi sitio</a></header>`;
+    const page = (title, body) => {
+      const heading = title.replace(/^Mi sitio - /, '');
+      return enc(`<html><head><title>${title}</title></head><body>${menu}<h1>${heading === 'Mi sitio' ? 'Inicio' : heading}</h1>${body}</body></html>`);
+    };
     await writeFile(join(dir, 'takeout.zip'), zipSync({
       'Takeout/Drive/Sitio/Inicio.html': page('Mi sitio', '<p>Portada. Ver <a href="Unidad/Tema.html#h.x">el tema</a> y <a href="Extra.html">más</a>.</p><iframe src="marco.html"></iframe>'),
       'Takeout/Drive/Sitio/Unidad.html': page('Mi sitio - Unidad 1', '<p>Unidad. <img src="Unidad/foto.png" alt="Foto"></p>'),
@@ -236,8 +241,10 @@ test('a site in a .zip becomes one project, with the pages, nesting and links of
     assert.deepEqual(
       project.pages.map(page => [page.title, page.parent]),
       [['Inicio', -1], ['Unidad 1', -1], ['Tema A', 1], ['Unidad 2', -1], ['Mi sitio - Extra', -1]],
-      'menu order and nesting; the page the menu leaves out, at the end with its <title>; no frame',
+      'menu order and nesting; the page the menu leaves out, at the end with its <title>; no frame; no page for the banner or the <h1>',
     );
+    const content = project.pages.flatMap(page => page.blocks.map(block => block.html)).join(' ');
+    assert.doesNotMatch(content, /<h1>|Mi sitio/, 'neither the page title nor the banner reaches the content');
     assert.deepEqual(project.pages[2].blocks.map(block => block.name), ['Contenido', 'Ejercicio']);
 
     const ids = [...project.content.matchAll(/<odePageId>([^<]*)<\/odePageId>\s*<odeParentPageId>/g)].map(match => match[1]);

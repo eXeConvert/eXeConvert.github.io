@@ -98,16 +98,33 @@ async function buildPageProject(
   return project;
 }
 
-/** Cleans a parsed page and returns its content as top-level blocks, with its images read and its links to other pages of the site rewritten. */
+/**
+ * Cleans a parsed page and returns its content as top-level blocks, with its
+ * images read and its links to other pages of the site rewritten. A first
+ * <h1> that only repeats `pageTitle` is dropped: it is the page's own title,
+ * which eXeLearning shows by itself.
+ */
 async function preparePageContent(
   document: Document,
   resolveAsset?: AssetResolver,
   pageLink?: (href: string) => string | null,
+  pageTitle = '',
 ): Promise<string> {
   const body = document.body;
   recoverFormulas(document);
+  // A header that holds the site's menu is the site's banner, repeated on
+  // every page (Google Sites puts the site name there), not content.
+  for (const header of Array.from(body.querySelectorAll('header'))) {
+    if (header.querySelector('nav')) {
+      header.remove();
+    }
+  }
   for (const element of Array.from(body.querySelectorAll(NON_CONTENT_SELECTOR))) {
     element.remove();
+  }
+  const firstHeading = body.querySelector('h1');
+  if (pageTitle && firstHeading && normalizeText(firstHeading.textContent) === pageTitle) {
+    firstHeading.remove();
   }
   convertDollarDelimiters(body);
   if (pageLink) {
@@ -262,10 +279,15 @@ async function buildSiteProject(
     const document = site.document(sitePage.path);
     const name = sitePage.path.split('/').pop() || sitePage.path;
     const pageTitle = sitePage.title || titleOf(document) || stemOf(name);
-    const content = await preparePageContent(document, zipEntryResolver(site.entries, sitePage.path), href => {
-      const target = site.pagePath(sitePage.path, href);
-      return target ? `exe-node:${ids.get(target)}` : null;
-    });
+    const content = await preparePageContent(
+      document,
+      zipEntryResolver(site.entries, sitePage.path),
+      href => {
+        const target = site.pagePath(sitePage.path, href);
+        return target ? `exe-node:${ids.get(target)}` : null;
+      },
+      pageTitle,
+    );
     // Each file is imported as a page of its own: its headings make blocks, or
     // subpages of it, as they would in a single page.
     const imported = buildProjectFromHtml(content, name, options, pageTitle);
