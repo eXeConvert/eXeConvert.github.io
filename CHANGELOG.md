@@ -9,6 +9,18 @@ Categorías usadas: **Añadido**, **Cambiado**, **Corregido**, **Eliminado**.
 
 ## [Unreleased]
 
+## [0.7.2] - 2026-10-29
+
+### Corregido
+- Al importar un sitio que no marca su menú con `<nav>`, como los de MkDocs,
+  las páginas salían sin el orden ni los nombres del menú, cada una con una
+  subpágina para su `<h1>`, con el índice lateral como contenido y con el icono
+  de enlace permanente en los títulos. Ahora el menú puede ser también una
+  lista de enlaces a las páginas del sitio, solo se importa el contenido
+  marcado como principal (`<main>`), el `<h1>` con que empieza cada página es
+  su título y los enlaces permanentes se quitan. Probado con la web de MkDocs
+  descargada con `wget`. Detalle en `adr/0004`.
+
 ## [0.7.1] - 2026-10-29
 
 ### Corregido
