@@ -1,6 +1,6 @@
 # 0003. Importar un sitio web entero desde un .zip
 
-- **Estado:** aceptada
+- **Estado:** aceptada; el punto 2 lo completa la [0004](0004-sitios-sin-marcas-de-menu.md)
 - **Fecha:** 2026-10-29
 
 ## Contexto

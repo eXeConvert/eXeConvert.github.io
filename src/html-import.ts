@@ -91,7 +91,8 @@ async function buildPageProject(
   // the content before the first heading and, with no heading taken as the
   // resource title, the project.
   const pageTitle = titleOf(document);
-  const project = buildProjectFromHtml(await preparePageContent(document, resolveAsset), filename, options, pageTitle);
+  const { html } = await preparePageContent(document, resolveAsset);
+  const project = buildProjectFromHtml(html, filename, options, pageTitle);
   if (pageTitle && project.title === stemOf(filename)) {
     project.title = pageTitle;
   }
@@ -100,16 +101,15 @@ async function buildPageProject(
 
 /**
  * Cleans a parsed page and returns its content as top-level blocks, with its
- * images read and its links to other pages of the site rewritten. A first
- * <h1> that only repeats `pageTitle` is dropped: it is the page's own title,
- * which eXeLearning shows by itself.
+ * images read and its links to other pages of the site rewritten. In a site,
+ * the <h1> a page opens with is its title, which eXeLearning shows by itself:
+ * it is returned apart, not left to become a subpage.
  */
 async function preparePageContent(
   document: Document,
   resolveAsset?: AssetResolver,
-  pageLink?: (href: string) => string | null,
-  pageTitle = '',
-): Promise<string> {
+  site?: { pageLink: (href: string) => string | null },
+): Promise<{ html: string; heading: string }> {
   const body = document.body;
   recoverFormulas(document);
   // A header that holds the site's menu is the site's banner, repeated on
@@ -122,21 +122,66 @@ async function preparePageContent(
   for (const element of Array.from(body.querySelectorAll(NON_CONTENT_SELECTOR))) {
     element.remove();
   }
+  keepMainContent(body);
+  // Documentation sites follow each heading with a link to it, shown as ¶, #
+  // or an icon; it would end up in the block title.
+  for (const anchor of Array.from(body.querySelectorAll('h1 a[href], h2 a[href], h3 a[href], h4 a[href], h5 a[href], h6 a[href]'))) {
+    if ((anchor.getAttribute('href') || '').includes('#') && !/[\p{L}\p{N}]/u.test(anchor.textContent || '')) {
+      anchor.remove();
+    }
+  }
+  let heading = '';
   const firstHeading = body.querySelector('h1');
-  if (pageTitle && firstHeading && normalizeText(firstHeading.textContent) === pageTitle) {
+  if (site && firstHeading && !normalizeText(textBefore(body, firstHeading))) {
+    heading = normalizeText(firstHeading.textContent);
     firstHeading.remove();
   }
   convertDollarDelimiters(body);
-  if (pageLink) {
+  if (site) {
     for (const anchor of Array.from(body.querySelectorAll('a[href]'))) {
-      const link = pageLink(anchor.getAttribute('href') || '');
+      const link = site.pageLink(anchor.getAttribute('href') || '');
       if (link) {
         anchor.setAttribute('href', link);
       }
     }
   }
   await embedImages(body, resolveAsset);
-  return flattenContent(body);
+  return { html: flattenContent(body), heading };
+}
+
+// Pages that mark their content with <main> or role="main" (documentation
+// sites, blogs) keep sidebars and tables of contents outside it. Google Sites
+// marks only the page title that way, so the mark is trusted only when it
+// holds more than headings.
+function keepMainContent(body: Element): void {
+  const main = body.querySelector('main, [role="main"]');
+  if (!main || main === body || !main.querySelector('p, ul, ol, dl, table, pre, blockquote, figure, img')) {
+    return;
+  }
+  for (const child of Array.from(body.childNodes)) {
+    child.remove();
+  }
+  body.appendChild(main);
+}
+
+function textBefore(root: Node, target: Node): string {
+  let text = '';
+  let found = false;
+  const visit = (node: Node): void => {
+    if (found) return;
+    if (node === target) {
+      found = true;
+      return;
+    }
+    if (node.nodeType === 3) {
+      text += node.textContent || '';
+    }
+    for (const child of Array.from(node.childNodes)) {
+      visit(child);
+    }
+  };
+  visit(root);
+  return text;
 }
 
 // A web page saved with its images is one .html in the .zip; a site, such as
@@ -229,37 +274,78 @@ class SiteReader {
       .filter((target): target is string => target !== null && this.tryDocument(target) !== null);
   }
 
-  /** The first menu of the page that lists pages of the site, as nested lists of links. */
-  private readMenu(path: string): SitePage[] {
+  /**
+   * The site's menu in a page: the first list in a <nav> (or role="navigation")
+   * that links to pages of the site or, for sites that mark nothing (such as
+   * MkDocs), the first top-level list whose links lead mostly to them.
+   */
+  menuList(path: string): Element | null {
     const document = this.tryDocument(path);
-    for (const nav of Array.from(document?.querySelectorAll('nav') ?? [])) {
+    if (!document) {
+      return null;
+    }
+    const pageLinks = (list: Element) => {
+      const hrefs = Array.from(list.querySelectorAll('a[href]'))
+        .map(anchor => anchor.getAttribute('href') || '')
+        .filter(href => href && !href.startsWith('#'));
+      const pages = new Set(hrefs.map(href => this.pagePath(path, href)).filter(target => target && this.tryDocument(target)));
+      return { pages: pages.size, links: hrefs.length };
+    };
+    for (const nav of Array.from(document.querySelectorAll('nav, [role="navigation"]'))) {
       const list = nav.querySelector('ul, ol');
-      if (!list) {
-        continue;
-      }
-      const pages: SitePage[] = [];
-      const walk = (parentList: Element, parent: number | null) => {
-        for (const item of elementChildren(parentList).filter(child => tagOf(child) === 'li')) {
-          // The item's own link and lists, not those of the items nested in it.
-          const ownLink = Array.from(item.querySelectorAll('a[href]')).find(anchor => anchor.closest('li') === item);
-          const target = ownLink ? this.pagePath(path, ownLink.getAttribute('href') || '') : null;
-          let index = parent;
-          // Menus repeat entries (Google Sites adds them again under «More»).
-          if (target && this.tryDocument(target) && !pages.some(page => page.path === target)) {
-            pages.push({ path: target, title: normalizeText(ownLink?.textContent), parent });
-            index = pages.length - 1;
-          }
-          for (const nested of Array.from(item.querySelectorAll('ul, ol')).filter(candidate => candidate.parentElement?.closest('li') === item)) {
-            walk(nested, index);
-          }
-        }
-      };
-      walk(list, null);
-      if (pages.length > 0) {
-        return pages;
+      if (list && pageLinks(list).pages > 0) {
+        return list;
       }
     }
-    return [];
+    for (const list of Array.from(document.body.querySelectorAll('ul, ol'))) {
+      if (list.parentElement?.closest('li')) {
+        continue;
+      }
+      const { pages, links } = pageLinks(list);
+      if (pages >= 2 && pages * 2 >= links) {
+        return list;
+      }
+    }
+    return null;
+  }
+
+  /** The pages a menu links to, to tell the site's menu, repeated on every page, from a list of links in the content. */
+  menuTargets(path: string): string {
+    const list = this.menuList(path);
+    if (!list) {
+      return '';
+    }
+    const targets = Array.from(list.querySelectorAll('a[href]'))
+      .map(anchor => this.pagePath(path, anchor.getAttribute('href') || ''))
+      .filter((target): target is string => target !== null);
+    return Array.from(new Set(targets)).sort().join('\n');
+  }
+
+  /** The pages of the site's menu, in its order and nesting. */
+  private readMenu(path: string): SitePage[] {
+    const list = this.menuList(path);
+    if (!list) {
+      return [];
+    }
+    const pages: SitePage[] = [];
+    const walk = (parentList: Element, parent: number | null) => {
+      for (const item of elementChildren(parentList).filter(child => tagOf(child) === 'li')) {
+        // The item's own link and lists, not those of the items nested in it.
+        const ownLink = Array.from(item.querySelectorAll('a[href]')).find(anchor => anchor.closest('li') === item);
+        const target = ownLink ? this.pagePath(path, ownLink.getAttribute('href') || '') : null;
+        let index = parent;
+        // Menus repeat entries (Google Sites adds them again under «More»).
+        if (target && this.tryDocument(target) && !pages.some(page => page.path === target)) {
+          pages.push({ path: target, title: normalizeText(ownLink?.textContent), parent });
+          index = pages.length - 1;
+        }
+        for (const nested of Array.from(item.querySelectorAll('ul, ol')).filter(candidate => candidate.parentElement?.closest('li') === item)) {
+          walk(nested, index);
+        }
+      }
+    };
+    walk(list, null);
+    return pages;
   }
 }
 
@@ -274,23 +360,27 @@ async function buildSiteProject(
   const pages: ImportedPage[] = [];
   const pageIndexes: number[] = [];
   let projectTitle = '';
+  const siteMenu = site.menuTargets(sitePages[0].path);
 
   for (const sitePage of sitePages) {
     const document = site.document(sitePage.path);
     const name = sitePage.path.split('/').pop() || sitePage.path;
-    const pageTitle = sitePage.title || titleOf(document) || stemOf(name);
-    const content = await preparePageContent(
-      document,
-      zipEntryResolver(site.entries, sitePage.path),
-      href => {
+    // The menu is repeated on every page; it is the project's own menu now.
+    if (siteMenu && site.menuTargets(sitePage.path) === siteMenu) {
+      site.menuList(sitePage.path)?.remove();
+    }
+    const { html, heading } = await preparePageContent(document, zipEntryResolver(site.entries, sitePage.path), {
+      // A link to a part of the same page has nowhere to go: the ids are not kept.
+      pageLink: href => {
         const target = site.pagePath(sitePage.path, href);
-        return target ? `exe-node:${ids.get(target)}` : null;
+        return target && target !== sitePage.path ? `exe-node:${ids.get(target)}` : null;
       },
-      pageTitle,
-    );
-    // Each file is imported as a page of its own: its headings make blocks, or
-    // subpages of it, as they would in a single page.
-    const imported = buildProjectFromHtml(content, name, options, pageTitle);
+    });
+    // The menu's name is the short one; the page's <h1>, or its <title>, otherwise.
+    const pageTitle = sitePage.title || heading || titleOf(document) || stemOf(name);
+    // Each file is imported as a page of its own: its other headings make
+    // blocks, or subpages of it, as they would in a single page.
+    const imported = buildProjectFromHtml(html, name, options, pageTitle);
     projectTitle ||= titleOf(document) || imported.title;
 
     const parent = sitePage.parent === null ? null : pageIndexes[sitePage.parent];

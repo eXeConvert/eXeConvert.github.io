@@ -240,8 +240,8 @@ test('a site in a .zip becomes one project, with the pages, nesting and links of
     assert.equal(project.title, 'Mi sitio');
     assert.deepEqual(
       project.pages.map(page => [page.title, page.parent]),
-      [['Inicio', -1], ['Unidad 1', -1], ['Tema A', 1], ['Unidad 2', -1], ['Mi sitio - Extra', -1]],
-      'menu order and nesting; the page the menu leaves out, at the end with its <title>; no frame; no page for the banner or the <h1>',
+      [['Inicio', -1], ['Unidad 1', -1], ['Tema A', 1], ['Unidad 2', -1], ['Extra', -1]],
+      'menu order and nesting; the page the menu leaves out, at the end with its <h1>; no frame; no page for the banner or the <h1>',
     );
     const content = project.pages.flatMap(page => page.blocks.map(block => block.html)).join(' ');
     assert.doesNotMatch(content, /<h1>|Mi sitio/, 'neither the page title nor the banner reaches the content');
@@ -263,5 +263,35 @@ test('a site in a .zip becomes one project, with the pages, nesting and links of
 
     const preview = new TextDecoder().decode(project.entries['index.html']);
     assert.match(preview, /<a href="html\/tema-a\.html">el tema<\/a>/, 'the package pages link to each other');
+  });
+});
+
+test('a documentation site without <nav>: its menu list, its main content and its headings', async () => {
+  await withDir(async dir => {
+    // As in MkDocs: the menu is a plain list, the content is marked role="main"
+    // and a table of contents with links to the page's own sections sits
+    // beside it; headings carry a permalink icon.
+    const page = (title, body, root = '') => enc(`<html><head><title>${title} - Docs</title></head><body>
+<div class="navbar"><ul class="nav"><li><a href="${root}index.html">Home</a></li>
+<li class="dropdown"><a href="#">Guía</a><ul><li><a href="${root}guia/instalar.html">Instalar</a></li><li><a href="${root}guia/usar.html">Usar</a></li></ul></li></ul></div>
+<div class="sidebar"><ul><li><a href="#uno">Uno</a></li><li><a href="#dos">Dos</a></li></ul></div>
+<div role="main">${body}</div><footer>Hecho con Docs</footer></body></html>`);
+    await writeFile(join(dir, 'docs.zip'), zipSync({
+      'site/index.html': page('Docs', '<h1>Bienvenida a la documentación</h1><p>Lee la <a href="guia/instalar.html">instalación</a>.</p>'),
+      'site/guia/instalar.html': page('Instalar', `<h1 id="instalar">Cómo se instala<a class="headerlink" href="instalar.html#instalar">\uf0c1</a></h1>
+<p>Primero <a href="instalar.html#uno">esto</a>.</p><h2 id="uno">Requisitos<a class="headerlink" href="#uno">¶</a></h2><p>Ninguno.</p>
+<ul><li><a href="usar.html">Usar</a></li></ul>`, '../'),
+      'site/guia/usar.html': page('Usar', '<h1>Uso</h1><p>Vuelve al <a href="../index.html">inicio</a>.</p>', '../'),
+    }));
+    await call(['docs.zip', 'docs.elpx'], dir);
+    const project = await readProject(join(dir, 'docs.elpx'));
+    assert.deepEqual(project.pages.map(page => [page.title, page.parent]), [['Home', -1], ['Instalar', -1], ['Usar', -1]],
+      'the menu names the pages; a label with no page of its own leaves its items at its level; no page for the <h1>');
+    assert.equal(project.title, 'Docs - Docs');
+    const html = project.pages.map(page => page.blocks.map(block => `${block.name}: ${block.html}`).join(' '));
+    assert.deepEqual(project.pages[1].blocks.map(block => block.name), ['Contenido', 'Requisitos'], 'no permalink icon in the titles');
+    assert.ok(html[1].includes('Primero esto.'), 'a link to a part of the same page keeps only its text');
+    assert.ok(html[1].includes('<a href="exe-node:'), 'a list of links in the content is not taken for the menu');
+    assert.doesNotMatch(html.join(' '), /Hecho con Docs|>Uno<|>Dos<|Bienvenida|Guía/, 'no sidebar, footer, menu or page title in the content');
   });
 });
