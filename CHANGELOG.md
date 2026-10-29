@@ -9,6 +9,15 @@ Categorías usadas: **Añadido**, **Cambiado**, **Corregido**, **Eliminado**.
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-10-29
+
+### Corregido
+- Al importar un sitio de Google Sites, cada página salía dos veces: una con
+  el nombre del sitio de la cabecera y, dentro, otra con el título de la
+  página. La cabecera que lleva el menú del sitio ya no se importa, y el
+  primer `<h1>` que repite el título de la página es ese título, no una
+  subpágina. Probado con un Google Sites real de 27 páginas.
+
 ## [0.7.0] - 2026-10-29
 
 ### Añadido
