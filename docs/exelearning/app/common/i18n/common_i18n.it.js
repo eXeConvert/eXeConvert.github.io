@@ -39,6 +39,10 @@ $exe_i18n = {
     "reset": "Reimposta",
     "mode_toggler": "Modalità chiaro/scuro",
     "teacher_mode": "Modalità insegnante",
+    "presentation_mode": "Modalità presentazione",
+    "activate_presentation_mode": "Attiva la modalità presentazione",
+    "deactivate_presentation_mode": "Disattiva la modalità presentazione",
+    "presentation_mode_keys": "Tasti: Sinistra/Destra cambiano pagina, M menu, T modalità insegnante, F11 schermo intero",
     "elpxGenerating": "Generazione in corso...",
     "elpxProcessing": "Elaborazione...",
     "elpxFolderPickerTimeout": "Il selettore di cartelle non ha risposto. Questo può accadere quando si aprono file esportati direttamente dal filesystem (protocollo file://). Prova ad aprire il file tramite un server web locale.",
@@ -49,7 +53,10 @@ $exe_i18n = {
     "publicDomain": "Dominio pubblico",
     "attachment": "Allegato",
     "noFilesAttached": "Nessun file allegato.",
-    "fileUnavailable": "File non disponibile"
+    "fileUnavailable": "File non disponibile",
+    "passScoreNotice": "Punteggio minimo necessario per superare questa attività: %s",
+    "pagePassScore": "Punteggio minimo per superare: %s",
+    "pagePassEveryActivity": "Ogni attività deve raggiungere il proprio punteggio minimo"
 };
 // The following line should only be used if the ELP contains a hangman game:
 $exe_i18n.exeGames = {

@@ -39,6 +39,10 @@ $exe_i18n = {
     "reset": "Réinitialisation",
     "mode_toggler": "Mode clair/sombre",
     "teacher_mode": "Mode enseignant",
+    "presentation_mode": "Mode présentation",
+    "activate_presentation_mode": "Activer le mode présentation",
+    "deactivate_presentation_mode": "Désactiver le mode présentation",
+    "presentation_mode_keys": "Touches : Gauche/Droite changent de page, M menu, T mode enseignant, F11 plein écran",
     "elpxGenerating": "Génération...",
     "elpxProcessing": "Traitement en cours...",
     "elpxFolderPickerTimeout": "Le sélecteur de dossiers n'a pas répondu. Cela peut se produire lors de l'ouverture de fichiers exportés directement depuis votre ordinateur (protocole file://). Essayez d'ouvrir le fichier via un serveur web local.",
@@ -49,7 +53,10 @@ $exe_i18n = {
     "publicDomain": "Domaine public",
     "attachment": "Pièce jointe",
     "noFilesAttached": "Aucun fichier joint.",
-    "fileUnavailable": "Fichier non disponible"
+    "fileUnavailable": "Fichier non disponible",
+    "passScoreNotice": "Score minimal requis pour réussir cette activité : %s",
+    "pagePassScore": "Score minimal pour réussir : %s",
+    "pagePassEveryActivity": "Chaque activité doit atteindre son score minimal"
 };
 // The following line should only be used if the ELP contains a hangman game:
 $exe_i18n.exeGames = {

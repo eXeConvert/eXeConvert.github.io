@@ -39,6 +39,10 @@ $exe_i18n = {
     "reset": "Reiniciar",
     "mode_toggler": "Modo claro/escuro",
     "teacher_mode": "Modo docente",
+    "presentation_mode": "Modo presentación",
+    "activate_presentation_mode": "Activar o modo presentación",
+    "deactivate_presentation_mode": "Desactivar o modo presentación",
+    "presentation_mode_keys": "Teclas: Esquerda/Dereita cambian de páxina, M menú, T modo docente, F11 pantalla completa",
     "elpxGenerating": "Xerando...",
     "elpxProcessing": "Procesando...",
     "elpxFolderPickerTimeout": "O selector de cartafoles non respondeu. Isto pode ocorrer ao abrir ficheiros exportados directamente desde o sistema de ficheiros (protocolo file://). Intenta abrir o ficheiro a través dun servidor web local.",
@@ -49,7 +53,10 @@ $exe_i18n = {
     "publicDomain": "Dominio público",
     "attachment": "Anexo",
     "noFilesAttached": "Non hai ficheiros anexos.",
-    "fileUnavailable": "Ficheiro non dispoñible"
+    "fileUnavailable": "Ficheiro non dispoñible",
+    "passScoreNotice": "Puntuación mínima necesaria para aprobar esta actividade: %s",
+    "pagePassScore": "Puntuación mínima para aprobar: %s",
+    "pagePassEveryActivity": "Cada actividade debe acadar a súa puntuación mínima"
 };
 // The following line should only be used if the ELP contains a hangman game:
 $exe_i18n.exeGames = {

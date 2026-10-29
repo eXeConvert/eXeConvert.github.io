@@ -39,6 +39,10 @@ $exe_i18n = {
     "reset": "Rekomenci",
     "mode_toggler": "Luma/okuluma reĝimo",
     "teacher_mode": "Instrustila reĝimo",
+    "presentation_mode": "Prezenta reĝimo",
+    "activate_presentation_mode": "Aktivigi prezentan reĝimon",
+    "deactivate_presentation_mode": "Malaktivigi prezentan reĝimon",
+    "presentation_mode_keys": "Klavoj: Maldekstren/Dekstren ŝanĝas paĝon, M menuo, T instrustila reĝimo, F11 plena ekrano",
     "elpxGenerating": "Generante...",
     "elpxProcessing": "Prilaborante...",
     "elpxFolderPickerTimeout": "La dosiĝilo de dosierujo ne respondis. Tio povas okazi kiam malfermi eksportitajn dosierojn rekte de via komputilo (file:// protokolo). Provu malfermi la dosieron tra servilo.",
@@ -49,7 +53,10 @@ $exe_i18n = {
     "publicDomain": "Publika domajno",
     "attachment": "Aldonaĵo",
     "noFilesAttached": "Neniu dosiero aldonita.",
-    "fileUnavailable": "Dosiero ne disponebla"
+    "fileUnavailable": "Dosiero ne disponebla",
+    "passScoreNotice": "Minimuma poentaro necesa por sukcesi ĉi tiun aktivecon: %s",
+    "pagePassScore": "Minimuma poentaro por sukcesi: %s",
+    "pagePassEveryActivity": "Ĉiu aktiveco devas atingi sian minimuman poentaron"
 };
 // The following line should only be used if the ELP contains a hangman game:
 $exe_i18n.exeGames = {

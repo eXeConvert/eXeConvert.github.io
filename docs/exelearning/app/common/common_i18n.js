@@ -39,6 +39,10 @@ $exe_i18n = {
     "reset": c_("Reset"),
     "mode_toggler": c_("Light/Dark mode"),
     "teacher_mode": c_("Teacher mode"),
+    "presentation_mode": c_("Presentation mode"),
+    "activate_presentation_mode": c_("Activate presentation mode"),
+    "deactivate_presentation_mode": c_("Deactivate presentation mode"),
+    "presentation_mode_keys": c_("Keys: Left/Right change page, M menu, T teacher mode, F11 full screen"),
     "elpxGenerating": c_("Generating..."),
     "elpxProcessing": c_("Processing..."),
     "elpxFolderPickerTimeout": c_("The folder picker did not respond. This may happen when opening exported files directly from the filesystem (file:// protocol). Try opening the file through a local web server instead."),
@@ -49,7 +53,10 @@ $exe_i18n = {
     "publicDomain": c_("Public domain"),
     "attachment": c_("Attachment"),
     "noFilesAttached": c_("No files attached."),
-    "fileUnavailable": c_("File unavailable")
+    "fileUnavailable": c_("File unavailable"),
+    "passScoreNotice": c_("Minimum score needed to pass this activity: %s"),
+    "pagePassScore": c_("Minimum score to pass: %s"),
+    "pagePassEveryActivity": c_("Each activity must reach its minimum score")
 };
 // The following line should only be used if the ELP contains a hangman game:
 $exe_i18n.exeGames = {

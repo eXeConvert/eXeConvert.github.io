@@ -9,6 +9,8 @@ Categorías usadas: **Añadido**, **Cambiado**, **Corregido**, **Eliminado**.
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-29
+
 ### Añadido
 - Un `.zip` con un sitio web entero, como el que exporta Google Takeout de un
   Google Sites, se importa como un solo proyecto: cada página del sitio es una

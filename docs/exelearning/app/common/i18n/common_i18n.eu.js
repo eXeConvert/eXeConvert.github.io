@@ -39,6 +39,10 @@ $exe_i18n = {
     "reset": "Berrezarri",
     "mode_toggler": "Modu argia/iluna",
     "teacher_mode": "Irakasle modua",
+    "presentation_mode": "Aurkezpen modua",
+    "activate_presentation_mode": "Aurkezpen modua aktibatu",
+    "deactivate_presentation_mode": "Aurkezpen modua desaktibatu",
+    "presentation_mode_keys": "Teklak: Ezkerra/Eskuina orria aldatu, M menua, T irakasle modua, F11 pantaila osoa",
     "elpxGenerating": "Sortzen...",
     "elpxProcessing": "Prozesatzen...",
     "elpxFolderPickerTimeout": "Karpeta-hautatzaileak ez du erantzun. Hori gertatu daiteke esportatutako fitxategiak zuzenean fitxategi-sistematik irekitzean (fitxategia:// protokoloa). Saiatu fitxategia web zerbitzari lokal baten bidez irekitzen.",
@@ -49,7 +53,10 @@ $exe_i18n = {
     "publicDomain": "Domeinu publikoa",
     "attachment": "Eranskina",
     "noFilesAttached": "Ez dago fitxategi erantsirik.",
-    "fileUnavailable": "Fitxategia ez dago erabilgarri"
+    "fileUnavailable": "Fitxategia ez dago erabilgarri",
+    "passScoreNotice": "Jarduera hau gainditzeko behar den gutxieneko puntuazioa: %s",
+    "pagePassScore": "Gainditzeko gutxieneko puntuazioa: %s",
+    "pagePassEveryActivity": "Jarduera bakoitzak bere gutxieneko puntuazioa lortu behar du"
 };
 // The following line should only be used if the ELP contains a hangman game:
 $exe_i18n.exeGames = {
