@@ -9,6 +9,24 @@ Categorías usadas: **Añadido**, **Cambiado**, **Corregido**, **Eliminado**.
 
 ## [Unreleased]
 
+## [0.7.3] - 2026-10-29
+
+### Corregido
+- El AppImage no arrancaba en un Ubuntu 22.04 o 24.04 recién instalado: pedía
+  `libfuse2`, que ya no viene de serie, con un aviso técnico en inglés. Ahora se
+  construye con el `appimagetool` actual, que no la necesita.
+- El paquete `.deb` no declaraba las bibliotecas que necesita su navegador
+  para crear los PDF; en un sistema mínimo el PDF fallaba con un error del
+  cargador de bibliotecas. Ahora el sistema las instala solo. Probado en
+  Debian 12 y Ubuntu 22.04 y 24.04.
+- Si aun así faltan, el error dice en palabras normales qué pasa y qué hacer,
+  en castellano, catalán o inglés; el detalle técnico sale solo con
+  `EXECONVERT_DEBUG=1`.
+- La instalación con npm descargaba dos navegadores (636 MB) y solo se usa uno;
+  ahora baja el que hace falta (377 MB).
+- «Preparando las imágenes…» ya no aparece al convertir un documento sin
+  imágenes.
+
 ## [0.7.2] - 2026-10-29
 
 ### Corregido
