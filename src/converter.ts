@@ -559,6 +559,14 @@ async function buildPdfBlobFromPuppeteer(
     if (detail.includes('Could not find Chrome') || detail.includes('Could not find expected browser')) {
       throw new Error(`No se encontró el ejecutable empaquetado del navegador para generar el PDF. ${detail}`);
     }
+    // The bundled Chrome is there but the system lacks libraries it needs:
+    // the loader error is only useful to someone who knows what it means.
+    if (/error while loading shared libraries|symbol lookup error/.test(detail)) {
+      throw Object.assign(
+        new Error('No se puede abrir el navegador que crea los PDF: a este equipo le faltan bibliotecas del sistema.'),
+        { code: 'EXECONVERT_PDF_LIBRARIES', cause: error },
+      );
+    }
     if (detail.includes('Failed to launch') || detail.includes('Executable does not exist')) {
       throw new Error(`No se pudo lanzar el navegador embebido para generar el PDF. ${detail}`);
     }

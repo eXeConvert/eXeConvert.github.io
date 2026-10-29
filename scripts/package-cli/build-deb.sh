@@ -22,12 +22,22 @@ exec /opt/execonvert/execonvert "$@"
 EOF
 chmod 755 "$PKG_ROOT/usr/bin/execonvert"
 
+# The bundled Chrome, which makes the PDFs, needs these system libraries. A
+# desktop usually has them, a minimal system does not, and without them the
+# PDF fails with a loader error nobody understands. Ubuntu 24.04 renamed some
+# of them (the t64 suffix), so both names are accepted, the new one first: in
+# Ubuntu the old libasound2 is also provided by liboss4-salsa-asound2, which
+# Chrome cannot use.
+CHROME_DEPENDS="libasound2t64 | libasound2, libatk-bridge2.0-0t64 | libatk-bridge2.0-0, libatk1.0-0t64 | libatk1.0-0, libatspi2.0-0t64 | libatspi2.0-0, libcairo2, libcups2t64 | libcups2, libdbus-1-3, libexpat1, libgbm1, libglib2.0-0t64 | libglib2.0-0, libnspr4, libnss3, libpango-1.0-0, libx11-6, libxcb1, libxcomposite1, libxdamage1, libxext6, libxfixes3, libxkbcommon0, libxrandr2"
+
 cat >"$PKG_ROOT/DEBIAN/control" <<EOF
 Package: execonvert
 Version: $VERSION
 Section: utils
 Priority: optional
 Architecture: amd64
+Depends: $CHROME_DEPENDS
+Recommends: fonts-liberation
 Maintainer: eXeConvert
 Description: eXeConvert CLI
  Static converter for eXeLearning projects.

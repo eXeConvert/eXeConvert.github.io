@@ -113,7 +113,9 @@ export async function convertProjectToElpx(
   previewOptions: PreviewOptions = {},
 ): Promise<ImportToElpxResult> {
 
-  onProgress?.({ phase: 'template', message: 'Preparando las imágenes...', messageKey: 'progress.prepareImages' });
+  if (project.pages.some(page => page.blocks.some(block => block.html.includes('data:image/')))) {
+    onProgress?.({ phase: 'template', message: 'Preparando las imágenes...', messageKey: 'progress.prepareImages' });
+  }
   const imageEntries = await moveImagesToResources(project, createResourceId());
 
   onProgress?.({ phase: 'template', message: 'Aplicando la plantilla base de eXeLearning...', messageKey: 'progress.applyTemplate' });

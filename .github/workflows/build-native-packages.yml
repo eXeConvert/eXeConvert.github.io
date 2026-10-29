@@ -39,7 +39,7 @@ jobs:
 
       - name: Download appimagetool
         run: |
-          curl -L https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage -o ./appimagetool.AppImage
+          curl -L https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage -o ./appimagetool.AppImage
           chmod +x ./appimagetool.AppImage
 
       - name: Build AppImage

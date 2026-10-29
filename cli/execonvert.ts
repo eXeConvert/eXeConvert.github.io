@@ -131,6 +131,7 @@ const cliMessages: Record<Locale, Record<string, string>> = {
     'warn.latexUnrecognized': 'Aviso: comandos de LaTeX sin conversión en {file} (se ha conservado su texto): {list}',
     'error.unknownPageRef': 'Referencia de página desconocida: {ref}',
     'error.unsupportedConversion': 'Conversión no compatible: {input} -> {output}',
+    'error.pdfLibraries': 'No se puede abrir el navegador que crea los PDF: a este equipo le faltan bibliotecas del sistema. En Debian o Ubuntu, instala eXeConvert con el paquete .deb, que las añade solo; si no, pide ayuda a quien administre el equipo. Las demás conversiones funcionan igual.',
     'error.prefix': 'Error: {message}',
     'error.batchArity': 'El modo --to requiere al menos un archivo de entrada.',
     'error.batchNoTo': 'Se esperaban exactamente dos archivos (entrada y salida). Usa --to <formato> para convertir múltiples archivos.',
@@ -189,6 +190,7 @@ const cliMessages: Record<Locale, Record<string, string>> = {
     'warn.latexUnrecognized': 'Avís: ordres de LaTeX sense conversió a {file} (se n’ha conservat el text): {list}',
     'error.unknownPageRef': 'Referència de pàgina desconeguda: {ref}',
     'error.unsupportedConversion': 'Conversió no compatible: {input} -> {output}',
+    'error.pdfLibraries': 'No es pot obrir el navegador que crea els PDF: a aquest equip li falten biblioteques del sistema. A Debian o Ubuntu, instal·la eXeConvert amb el paquet .deb, que les afegeix tot sol; si no, demana ajuda a qui administri l’equip. La resta de conversions funcionen igual.',
     'error.prefix': 'Error: {message}',
     'error.batchArity': 'El mode --to requereix almenys un fitxer d’entrada.',
     'error.batchNoTo': 'S’esperaven exactament dos fitxers (entrada i sortida). Usa --to <format> per convertir múltiples fitxers.',
@@ -247,6 +249,7 @@ const cliMessages: Record<Locale, Record<string, string>> = {
     'warn.latexUnrecognized': 'Warning: LaTeX commands with no conversion in {file} (their text was kept): {list}',
     'error.unknownPageRef': 'Unknown page ref: {ref}',
     'error.unsupportedConversion': 'Unsupported conversion: {input} -> {output}',
+    'error.pdfLibraries': 'The browser that makes the PDFs cannot start: this computer is missing some system libraries. On Debian or Ubuntu, install eXeConvert with the .deb package, which adds them; otherwise, ask whoever manages the computer. All other conversions work as usual.',
     'error.prefix': 'Error: {message}',
     'error.batchArity': '--to mode requires at least one input file.',
     'error.batchNoTo': 'Expected exactly two files (input and output). Use --to <format> to convert multiple files.',
@@ -1203,7 +1206,13 @@ async function main(): Promise<void> {
 }
 
 await main().catch(error => {
-  const message = error instanceof Error ? error.message : String(error);
+  // A known failure is told in plain words; the technical detail, only on request.
+  const known = (error as { code?: string } | null)?.code === 'EXECONVERT_PDF_LIBRARIES';
+  const message = known ? currentCliTranslator.t('error.pdfLibraries') : error instanceof Error ? error.message : String(error);
   stderr.write(`${currentCliTranslator.t('error.prefix', { message })}\n`);
+  const cause = (error as { cause?: unknown } | null)?.cause;
+  if (known && process.env.EXECONVERT_DEBUG && cause) {
+    stderr.write(`${cause instanceof Error ? cause.message : String(cause)}\n`);
+  }
   process.exit(1);
 });
