@@ -10,6 +10,10 @@ Categorías usadas: **Añadido**, **Cambiado**, **Corregido**, **Eliminado**.
 ## [Unreleased]
 
 ### Cambiado
+- El instalador de Windows habla el idioma de Windows: castellano, catalán,
+  gallego, euskera o, en cualquier otro, inglés, como hasta ahora. El gallego y
+  el euskera son traducciones de usuarios de Inno Setup, el programa que crea el
+  instalador.
 - Al cargar en la web un `.zip` con un sitio entero, el aviso dice cuántas
   páginas tiene y que la tabla de títulos se aplica dentro de cada página.
 

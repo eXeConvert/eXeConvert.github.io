@@ -69,6 +69,19 @@ eXeLearning shows them, with the limit and quality of the default preset of
 [elpx-optimizer](https://github.com/ateeducacion/elpx-optimizer), which uses
 the same codecs.
 
+## Inno Setup translations for the Windows installer
+
+- Source: https://github.com/jrsoftware/issrc (`Files/Languages/Unofficial/`),
+  under the Inno Setup license (https://jrsoftware.org/files/is/license.txt).
+- `scripts/package-cli/inno-languages/Galician.isl`: Galician messages for Inno
+  Setup 6.5.0+, translated by MdL.
+- `scripts/package-cli/inno-languages/Basque.isl`: Basque messages for Inno
+  Setup 6.5.0+, translated by Xabier Aramendi and Marimar.
+
+Both are user-contributed translations, copied as published with a UTF-8 byte
+order mark added so that Inno Setup reads their accents correctly. The
+English, Spanish and Catalan messages are the ones shipped with Inno Setup.
+
 ## Additional license notes
 
 - `app/public/idevices/text/text.js` contains a header pointing to:

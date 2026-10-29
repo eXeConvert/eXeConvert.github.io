@@ -15,6 +15,18 @@ OutputBaseFilename=execonvert-{#MyAppVersion}-{#MyArch}-setup
 Compression=lzma
 SolidCompression=yes
 ChangesEnvironment=yes
+; The wizard speaks the language of Windows when it is one of these, English
+; otherwise, and asks only when it cannot tell.
+ShowLanguageDialog=auto
+
+[Languages]
+Name: "en"; MessagesFile: "compiler:Default.isl"
+Name: "es"; MessagesFile: "compiler:Languages\Spanish.isl"
+Name: "ca"; MessagesFile: "compiler:Languages\Catalan.isl"
+; Galician and Basque are not shipped with Inno Setup: these are its
+; user-contributed translations (see THIRD_PARTY_NOTICES.md).
+Name: "gl"; MessagesFile: "inno-languages\Galician.isl"
+Name: "eu"; MessagesFile: "inno-languages\Basque.isl"
 
 [Files]
 Source: "{#MySourceDir}\*"; DestDir: "{app}"; Flags: recursesubdirs ignoreversion
