@@ -9,6 +9,10 @@ Categorías usadas: **Añadido**, **Cambiado**, **Corregido**, **Eliminado**.
 
 ## [Unreleased]
 
+### Cambiado
+- Al cargar en la web un `.zip` con un sitio entero, el aviso dice cuántas
+  páginas tiene y que la tabla de títulos se aplica dentro de cada página.
+
 ## [0.7.3] - 2026-10-29
 
 ### Corregido

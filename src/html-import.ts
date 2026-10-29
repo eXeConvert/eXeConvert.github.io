@@ -416,6 +416,16 @@ function titleOf(document: Document): string {
   return normalizeText(document.querySelector('title')?.textContent);
 }
 
+/** How many pages of a site a .zip holds, 1 for a single web page: what the import will make of it, told before converting. */
+export function countSitePages(data: Uint8Array): number {
+  if (!isZip(data)) {
+    return 1;
+  }
+  const entries = unzipDocumentEntries(data);
+  const mainPath = findMainEntry(Object.keys(entries), /\.html?$/i, /(^|\/)index\.html?$/i);
+  return mainPath ? new SiteReader(entries).findPages(mainPath).length : 0;
+}
+
 // Saved web pages still come in legacy encodings, and the <meta charset> is the
 // only place that says so. Anything the decoder does not know falls back to UTF-8.
 function decodeHtml(data: Uint8Array): string {

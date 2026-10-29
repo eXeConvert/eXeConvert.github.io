@@ -12,7 +12,7 @@ import {
 } from './converter';
 import { convertDocxToElpx, type DocxImportProgress, type Heading1Mode, type HeadingMode } from './docx-import';
 import { convertElpxToMarkdown } from './elpx-markdown';
-import { convertHtmlToElpxProject } from './html-import';
+import { convertHtmlToElpxProject, countSitePages } from './html-import';
 import { detectZipContentKind } from './import-files';
 import { convertElpToElpx } from './legacy-elp';
 import { convertMarkdownToElpx } from './markdown-import';
@@ -439,6 +439,8 @@ document.addEventListener('keydown', event => {
 
 let selectedFile: File | null = null;
 let selectedKind: InputKind | null = null;
+// Pages of the site in a .zip, to say so before converting; 1 for a single page.
+let detectedSitePages = 1;
 let selectedElpxPages = new Set<string>();
 let availableElpxPages: ElpxPageInfo[] = [];
 let pageInspectionSequence = 0;
@@ -919,6 +921,7 @@ function handleSelectedFile(file: File | null): void {
           return;
         }
         const zipKind = detectZipContentKind(new Uint8Array(buffer));
+        detectedSitePages = zipKind === 'html' ? countSitePages(new Uint8Array(buffer)) : 1;
         if (zipKind) {
           applySelectedKind(file, zipKind);
         } else {
@@ -935,6 +938,7 @@ function handleSelectedFile(file: File | null): void {
     return;
   }
 
+  detectedSitePages = 1;
   applySelectedKind(file, kind);
 }
 
@@ -1049,7 +1053,7 @@ function syncDetectedMessage(): void {
 
   if (selectedKind === 'html') {
     detectedHelp.innerHTML = t(hasPreparedCurrentConversion ? 'detected.htmlToElpxDone' : 'detected.htmlToElpx');
-    setStatus(t('status.htmlDetected'));
+    setStatus(detectedSitePages > 1 ? t('status.siteDetected', { count: detectedSitePages }) : t('status.htmlDetected'));
     return;
   }
 
