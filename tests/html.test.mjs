@@ -211,3 +211,50 @@ test('a page from a site: its title, light images and only links that lead somew
     assert.match(preview, /src="content\/resources\/[^"]+\/imagen-1\.png"/, 'the package pages find the files');
   });
 });
+
+test('a site in a .zip becomes one project, with the pages, nesting and links of its menu', async () => {
+  await withDir(async dir => {
+    const menu = `<nav><a href="Inicio.html">Mi sitio</a><ul>
+<li><a href="Inicio.html">Inicio</a></li>
+<li><div><a href="Unidad.html">Unidad 1</a></div><ul><li><a href="Unidad/Tema.html">Tema A</a></li></ul></li>
+<li><a href="Otra.html">Unidad 2</a></li>
+<li><a>Más</a><ul><li><a href="Inicio.html">Inicio</a></li><li><a href="Otra.html">Unidad 2</a></li></ul></li>
+</ul></nav>`;
+    const page = (title, body) => enc(`<html><head><title>${title}</title></head><body>${menu}${body}</body></html>`);
+    await writeFile(join(dir, 'takeout.zip'), zipSync({
+      'Takeout/Drive/Sitio/Inicio.html': page('Mi sitio', '<p>Portada. Ver <a href="Unidad/Tema.html#h.x">el tema</a> y <a href="Extra.html">más</a>.</p><iframe src="marco.html"></iframe>'),
+      'Takeout/Drive/Sitio/Unidad.html': page('Mi sitio - Unidad 1', '<p>Unidad. <img src="Unidad/foto.png" alt="Foto"></p>'),
+      'Takeout/Drive/Sitio/Unidad/Tema.html': page('Mi sitio - Tema A', '<p>Tema, <a href="../Otra.html">la otra</a>. <img src="foto.png" alt="Foto"></p><h2>Ejercicio</h2><p>Hazlo.</p>'),
+      'Takeout/Drive/Sitio/Unidad/foto.png': PNG,
+      'Takeout/Drive/Sitio/Otra.html': page('Mi sitio - Unidad 2', '<p>Otra, <a href="Inicio.html">volver</a>.</p>'),
+      'Takeout/Drive/Sitio/Extra.html': page('Mi sitio - Extra', '<p>Solo enlazada desde el texto.</p>'),
+      'Takeout/Drive/Sitio/marco.html': page('Marco', '<p>Un marco, no una página.</p>'),
+    }));
+    await call(['takeout.zip', 'sitio.elpx'], dir);
+    const project = await readProject(join(dir, 'sitio.elpx'));
+    assert.equal(project.title, 'Mi sitio');
+    assert.deepEqual(
+      project.pages.map(page => [page.title, page.parent]),
+      [['Inicio', -1], ['Unidad 1', -1], ['Tema A', 1], ['Unidad 2', -1], ['Mi sitio - Extra', -1]],
+      'menu order and nesting; the page the menu leaves out, at the end with its <title>; no frame',
+    );
+    assert.deepEqual(project.pages[2].blocks.map(block => block.name), ['Contenido', 'Ejercicio']);
+
+    const ids = [...project.content.matchAll(/<odePageId>([^<]*)<\/odePageId>\s*<odeParentPageId>/g)].map(match => match[1]);
+    const linkTo = index => `href="exe-node:${ids[index]}"`;
+    const html = project.pages.map(page => page.blocks.map(block => block.html).join(' '));
+    assert.ok(html[0].includes(`<a ${linkTo(2)}>el tema</a>`), html[0]);
+    assert.ok(html[0].includes(`<a ${linkTo(4)}>más</a>`), html[0]);
+    assert.ok(html[2].includes(`<a ${linkTo(3)}>la otra</a>`), html[2]);
+    assert.ok(html[3].includes(`<a ${linkTo(0)}>volver</a>`), html[3]);
+    assert.doesNotMatch(project.content, /Un marco/);
+
+    const references = [...project.content.matchAll(/src="\{\{context_path\}\}\/([^"]+)"/g)].map(match => match[1]);
+    assert.equal(references.length, 2);
+    assert.equal(references[0], references[1], 'the photo two pages share is one file');
+    assert.deepEqual(imageFiles(project, html[1]), [PNG]);
+
+    const preview = new TextDecoder().decode(project.entries['index.html']);
+    assert.match(preview, /<a href="html\/tema-a\.html">el tema<\/a>/, 'the package pages link to each other');
+  });
+});

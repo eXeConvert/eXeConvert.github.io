@@ -50,7 +50,7 @@ The project exposes a **shared conversion core** (`src/`) through two separate f
 | `docx-import.ts` | Import `.docx` → `.elpx`. |
 | `elpx-markdown.ts` | Export `.elpx` → `.md`. |
 | `markdown-import.ts` | Import `.md`/`.txt` → `.elpx`. |
-| `html-import.ts` | Import `.html`/`.htm`/`.zip` (web page + images) → `.elpx`. |
+| `html-import.ts` | Import `.html`/`.htm`/`.zip` (web page + images, or a whole site such as a Google Takeout export, ADR 0003) → `.elpx`. |
 | `latex-import.ts` | Import `.tex`/`.zip` (LaTeX project) → `.elpx` via the unified-latex AST; formulas are copied verbatim from the source. Lazy-loaded in the web app. |
 | `import-files.ts` | Shared by importers: `.zip` detection by contents, relative paths, image embedding. |
 | `import-images.ts` | Shared final step: moves the imported data: images to `content/resources` and reduces those over 1920 px with the jSquash WebAssembly codecs (ADR 0002). |

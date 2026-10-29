@@ -9,6 +9,14 @@ Categorías usadas: **Añadido**, **Cambiado**, **Corregido**, **Eliminado**.
 
 ## [Unreleased]
 
+### Añadido
+- Un `.zip` con un sitio web entero, como el que exporta Google Takeout de un
+  Google Sites, se importa como un solo proyecto: cada página del sitio es una
+  página de eXeLearning, en el orden y con la jerarquía de su menú, y los
+  enlaces entre ellas siguen funcionando. Entran las páginas que se alcanzan
+  desde la principal; un `.html` suelto al que no lleva ningún enlace, no.
+  Detalle en `adr/0003`.
+
 ## [0.6.4] - 2026-10-29
 
 ### Corregido

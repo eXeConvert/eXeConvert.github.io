@@ -4,11 +4,15 @@ import {
   convertProjectToElpx,
   type DocxImportOptions,
   type DocxImportProgress,
+  type ImportedPage,
+  type ImportedProject,
   type ImportToElpxResult,
 } from './docx-import.js';
 import {
+  dirnameOf,
   findMainEntry,
   isZip,
+  joinPath,
   readImageDataUrl,
   unzipDocumentEntries,
   zipEntryResolver,
@@ -41,8 +45,7 @@ export async function convertHtmlToElpxProject(
 ): Promise<ImportToElpxResult> {
   onProgress?.({ phase: 'read', message: 'Leyendo el archivo HTML...', messageKey: 'progress.readHtml' });
   const data = new Uint8Array(await file.arrayBuffer());
-  let source: string;
-  let resolver = resolveAsset;
+  let project: ImportedProject;
 
   if (isZip(data)) {
     const entries = unzipDocumentEntries(data);
@@ -50,13 +53,21 @@ export async function convertHtmlToElpxProject(
     if (!mainPath) {
       throw new Error('No se ha encontrado ningún archivo .html dentro del .zip.');
     }
-    source = decodeHtml(entries[mainPath]);
-    resolver = zipEntryResolver(entries, mainPath);
+    onProgress?.({ phase: 'parse', message: 'Interpretando la estructura del HTML...', messageKey: 'progress.parseHtmlStructure' });
+    const site = new SiteReader(entries);
+    const sitePages = site.findPages(mainPath);
+    project = sitePages.length > 1
+      ? await buildSiteProject(site, sitePages, file.name, options)
+      : await buildPageProject(site.document(mainPath), file.name, options, zipEntryResolver(entries, mainPath));
   } else {
-    source = decodeHtml(data);
+    onProgress?.({ phase: 'parse', message: 'Interpretando la estructura del HTML...', messageKey: 'progress.parseHtmlStructure' });
+    project = await buildPageProject(parseHtml(data), file.name, options, resolveAsset);
   }
+  return convertProjectToElpx(project, file.name, undefined, onProgress, { renderLatex: true });
+}
 
-  onProgress?.({ phase: 'parse', message: 'Interpretando la estructura del HTML...', messageKey: 'progress.parseHtmlStructure' });
+function parseHtml(data: Uint8Array): Document {
+  const source = decodeHtml(data);
   if (!source.trim()) {
     throw new Error('El archivo HTML está vacío.');
   }
@@ -64,27 +75,233 @@ export async function convertHtmlToElpxProject(
   // the CLI runs on, returns a document without them and cannot be queried.
   const markup = /<html[\s>]/i.test(source) ? source : `<!doctype html><html><body>${source}</body></html>`;
   const document = new DOMParser().parseFromString(markup, 'text/html');
-  const body = document.body;
-  if (!body) {
+  if (!document.body) {
     throw new Error('El archivo HTML no tiene contenido.');
   }
+  return document;
+}
 
+async function buildPageProject(
+  document: Document,
+  filename: string,
+  options: DocxImportOptions,
+  resolveAsset?: AssetResolver,
+): Promise<ImportedProject> {
+  // The page's own <title> says more than the file name or «Página 1»: it names
+  // the content before the first heading and, with no heading taken as the
+  // resource title, the project.
+  const pageTitle = titleOf(document);
+  const project = buildProjectFromHtml(await preparePageContent(document, resolveAsset), filename, options, pageTitle);
+  if (pageTitle && project.title === stemOf(filename)) {
+    project.title = pageTitle;
+  }
+  return project;
+}
+
+/** Cleans a parsed page and returns its content as top-level blocks, with its images read and its links to other pages of the site rewritten. */
+async function preparePageContent(
+  document: Document,
+  resolveAsset?: AssetResolver,
+  pageLink?: (href: string) => string | null,
+): Promise<string> {
+  const body = document.body;
   recoverFormulas(document);
   for (const element of Array.from(body.querySelectorAll(NON_CONTENT_SELECTOR))) {
     element.remove();
   }
   convertDollarDelimiters(body);
-  await embedImages(body, resolver);
-
-  // The page's own <title> says more than the file name or «Página 1»: it names
-  // the content before the first heading and, with no heading taken as the
-  // resource title, the project.
-  const pageTitle = normalizeText(document.querySelector('title')?.textContent);
-  const project = buildProjectFromHtml(flattenContent(body), file.name, options, pageTitle);
-  if (pageTitle && project.title === stemOf(file.name)) {
-    project.title = pageTitle;
+  if (pageLink) {
+    for (const anchor of Array.from(body.querySelectorAll('a[href]'))) {
+      const link = pageLink(anchor.getAttribute('href') || '');
+      if (link) {
+        anchor.setAttribute('href', link);
+      }
+    }
   }
-  return convertProjectToElpx(project, file.name, undefined, onProgress, { renderLatex: true });
+  await embedImages(body, resolveAsset);
+  return flattenContent(body);
+}
+
+// A web page saved with its images is one .html in the .zip; a site, such as
+// the one Google Takeout exports from Google Sites, is one .html per page.
+// Only the pages reached by links from the main one belong to the site: the
+// frames a browser saves next to a page are .html files nobody links to.
+
+interface SitePage {
+  path: string;
+  /** What the site's menu calls the page, if it does. */
+  title: string;
+  /** Index of the parent page in the list, from the nesting of the menu. */
+  parent: number | null;
+}
+
+class SiteReader {
+  private readonly documents = new Map<string, Document | null>();
+
+  constructor(readonly entries: Record<string, Uint8Array>) {}
+
+  document(path: string): Document {
+    const document = this.tryDocument(path);
+    if (!document) {
+      throw new Error(`No se ha podido leer ${path}.`);
+    }
+    return document;
+  }
+
+  /** The .html of the .zip a link from the page at `fromPath` leads to, if any. */
+  pagePath(fromPath: string, href: string): string | null {
+    const value = href.trim();
+    if (!value || value.startsWith('#') || /^(?:[a-z][a-z0-9+.-]*:|\/\/)/i.test(value)) {
+      return null;
+    }
+    let plain = value.split('#')[0].split('?')[0];
+    try {
+      plain = decodeURIComponent(plain);
+    } catch {
+      // Keep the address as written.
+    }
+    const path = joinPath(dirnameOf(fromPath), plain);
+    return /\.html?$/i.test(path) && this.entries[path] ? path : null;
+  }
+
+  /** The pages of the site in the order and nesting of its menu, then those it leaves out as they are linked, starting from the main one. */
+  findPages(mainPath: string): SitePage[] {
+    const reached = [mainPath];
+    for (let index = 0; index < reached.length; index += 1) {
+      for (const target of this.linkedPages(reached[index])) {
+        if (!reached.includes(target)) {
+          reached.push(target);
+        }
+      }
+    }
+    if (reached.length === 1) {
+      return [{ path: mainPath, title: '', parent: null }];
+    }
+
+    // Without an index.html the main page is just the first file, so the
+    // menu decides which page opens the project.
+    const pages = this.readMenu(mainPath);
+    for (const path of reached) {
+      if (!pages.some(page => page.path === path)) {
+        pages.push({ path, title: '', parent: null });
+      }
+    }
+    return pages;
+  }
+
+  private tryDocument(path: string): Document | null {
+    if (!this.documents.has(path)) {
+      let document: Document | null = null;
+      try {
+        document = parseHtml(this.entries[path]);
+      } catch {
+        // An empty or unreadable page is left out of the site.
+      }
+      this.documents.set(path, document);
+    }
+    return this.documents.get(path) ?? null;
+  }
+
+  private linkedPages(path: string): string[] {
+    const document = this.tryDocument(path);
+    if (!document) {
+      return [];
+    }
+    return Array.from(document.querySelectorAll('a[href]'))
+      .map(anchor => this.pagePath(path, anchor.getAttribute('href') || ''))
+      .filter((target): target is string => target !== null && this.tryDocument(target) !== null);
+  }
+
+  /** The first menu of the page that lists pages of the site, as nested lists of links. */
+  private readMenu(path: string): SitePage[] {
+    const document = this.tryDocument(path);
+    for (const nav of Array.from(document?.querySelectorAll('nav') ?? [])) {
+      const list = nav.querySelector('ul, ol');
+      if (!list) {
+        continue;
+      }
+      const pages: SitePage[] = [];
+      const walk = (parentList: Element, parent: number | null) => {
+        for (const item of elementChildren(parentList).filter(child => tagOf(child) === 'li')) {
+          // The item's own link and lists, not those of the items nested in it.
+          const ownLink = Array.from(item.querySelectorAll('a[href]')).find(anchor => anchor.closest('li') === item);
+          const target = ownLink ? this.pagePath(path, ownLink.getAttribute('href') || '') : null;
+          let index = parent;
+          // Menus repeat entries (Google Sites adds them again under «More»).
+          if (target && this.tryDocument(target) && !pages.some(page => page.path === target)) {
+            pages.push({ path: target, title: normalizeText(ownLink?.textContent), parent });
+            index = pages.length - 1;
+          }
+          for (const nested of Array.from(item.querySelectorAll('ul, ol')).filter(candidate => candidate.parentElement?.closest('li') === item)) {
+            walk(nested, index);
+          }
+        }
+      };
+      walk(list, null);
+      if (pages.length > 0) {
+        return pages;
+      }
+    }
+    return [];
+  }
+}
+
+async function buildSiteProject(
+  site: SiteReader,
+  sitePages: SitePage[],
+  filename: string,
+  options: DocxImportOptions,
+): Promise<ImportedProject> {
+  // Links between pages become eXeLearning's own, exe-node:<page id>.
+  const ids = new Map(sitePages.map(page => [page.path, crypto.randomUUID()]));
+  const pages: ImportedPage[] = [];
+  const pageIndexes: number[] = [];
+  let projectTitle = '';
+
+  for (const sitePage of sitePages) {
+    const document = site.document(sitePage.path);
+    const name = sitePage.path.split('/').pop() || sitePage.path;
+    const pageTitle = sitePage.title || titleOf(document) || stemOf(name);
+    const content = await preparePageContent(document, zipEntryResolver(site.entries, sitePage.path), href => {
+      const target = site.pagePath(sitePage.path, href);
+      return target ? `exe-node:${ids.get(target)}` : null;
+    });
+    // Each file is imported as a page of its own: its headings make blocks, or
+    // subpages of it, as they would in a single page.
+    const imported = buildProjectFromHtml(content, name, options, pageTitle);
+    projectTitle ||= titleOf(document) || imported.title;
+
+    const parent = sitePage.parent === null ? null : pageIndexes[sitePage.parent];
+    const localIndexes: number[] = [];
+    imported.pages.forEach((page, localIndex) => {
+      const pageParent = localIndex === 0 ? parent : localIndexes[page.parentIndex ?? 0];
+      const placed = placeUnder(pages, pageParent);
+      pages.push({
+        ...page,
+        ...(localIndex === 0 ? { id: ids.get(sitePage.path), title: pageTitle } : {}),
+        level: placed.level,
+        parentIndex: placed.parentIndex,
+      });
+      localIndexes.push(pages.length - 1);
+    });
+    pageIndexes.push(localIndexes[0]);
+  }
+
+  return { title: projectTitle || stemOf(filename), subtitle: '', pages };
+}
+
+/** Level and parent for a page under `parent`. eXeLearning projects made here go four levels deep; deeper pages become siblings of their parent. */
+function placeUnder(pages: ImportedPage[], parent: number | null): { level: 1 | 2 | 3 | 4; parentIndex: number | null } {
+  let parentIndex = parent;
+  while (parentIndex !== null && pages[parentIndex].level >= 4) {
+    parentIndex = pages[parentIndex].parentIndex;
+  }
+  const level = parentIndex === null ? 1 : pages[parentIndex].level + 1;
+  return { level: level as 1 | 2 | 3 | 4, parentIndex };
+}
+
+function titleOf(document: Document): string {
+  return normalizeText(document.querySelector('title')?.textContent);
 }
 
 // Saved web pages still come in legacy encodings, and the <meta charset> is the

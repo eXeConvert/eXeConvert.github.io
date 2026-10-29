@@ -18,7 +18,7 @@ const dictionaries: Record<Locale, Record<string, string>> = {
     'panel.conversion': 'Conversión',
 
     'drop.title': 'Suelta aquí un archivo o selecciónalo',
-    'drop.help': 'Archivos compatibles: <code>.elp</code>, <code>.elpx</code>, <code>.docx</code>, <code>.md</code>, <code>.html</code>, <code>.tex</code> y <code>.zip</code> (página web o documento LaTeX con sus imágenes).',
+    'drop.help': 'Archivos compatibles: <code>.elp</code>, <code>.elpx</code>, <code>.docx</code>, <code>.md</code>, <code>.html</code>, <code>.tex</code> y <code>.zip</code> (página web o sitio entero, como el que exporta Google Takeout, o documento LaTeX con sus imágenes).',
     'button.openFile': 'Abrir archivo',
     'file.none': 'Ningún archivo seleccionado.',
 
@@ -198,7 +198,7 @@ const dictionaries: Record<Locale, Record<string, string>> = {
     'panel.conversion': 'Conversió',
 
     'drop.title': 'Deixa anar aquí un fitxer o selecciona’l',
-    'drop.help': 'Fitxers compatibles: <code>.elp</code>, <code>.elpx</code>, <code>.docx</code>, <code>.md</code>, <code>.html</code>, <code>.tex</code> i <code>.zip</code> (pàgina web o document LaTeX amb les seves imatges).',
+    'drop.help': 'Fitxers compatibles: <code>.elp</code>, <code>.elpx</code>, <code>.docx</code>, <code>.md</code>, <code>.html</code>, <code>.tex</code> i <code>.zip</code> (pàgina web o lloc sencer, com el que exporta Google Takeout, o document LaTeX amb les seves imatges).',
     'button.openFile': 'Obrir fitxer',
     'file.none': 'Cap fitxer seleccionat.',
 
@@ -378,7 +378,7 @@ const dictionaries: Record<Locale, Record<string, string>> = {
     'panel.conversion': 'Conversion',
 
     'drop.title': 'Drop a file here or choose one',
-    'drop.help': 'Supported files: <code>.elp</code>, <code>.elpx</code>, <code>.docx</code>, <code>.md</code>, <code>.html</code>, <code>.tex</code>, and <code>.zip</code> (web page or LaTeX document with its images).',
+    'drop.help': 'Supported files: <code>.elp</code>, <code>.elpx</code>, <code>.docx</code>, <code>.md</code>, <code>.html</code>, <code>.tex</code>, and <code>.zip</code> (web page or whole site, such as the one Google Takeout exports, or LaTeX document with its images).',
     'button.openFile': 'Open file',
     'file.none': 'No file selected.',
 

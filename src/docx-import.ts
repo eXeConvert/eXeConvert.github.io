@@ -40,6 +40,8 @@ export interface ImportedProject {
 }
 
 export interface ImportedPage {
+  /** Fixed when other pages link to this one with exe-node:<id>; generated otherwise. */
+  id?: string;
   title: string;
   level: 1 | 2 | 3 | 4;
   parentIndex: number | null;
@@ -815,7 +817,7 @@ function generateContentXml(project: ImportedProject): string {
   const odeVersionId = createResourceId();
   const modified = String(Date.now());
   const generatedAtIso = new Date().toISOString();
-  const pageIds = project.pages.map(() => createPageId());
+  const pageIds = project.pages.map(page => page.id || createPageId());
   const navStructuresXml = project.pages
     .map((page, index) => generateOdeNavStructureXml(page, index, pageIds))
     .join('');
@@ -999,9 +1001,14 @@ function generatePreviewPageHtml(
   const prevPage = activeIndex > 0 ? pages[activeIndex - 1] : null;
   const nextPage = activeIndex < pages.length - 1 ? pages[activeIndex + 1] : null;
   const navItems = generatePreviewNavHtml(pages, activePageInfo.pageNumber, activeIndex);
-  const blocks = activePage.blocks
-    .map((block, blockIndex) => generatePreviewBlockHtml(block, activePageInfo.pageNumber, blockIndex, assetPrefix, previewOptions))
-    .join('\n');
+  const blocks = resolvePageLinks(
+    activePage.blocks
+      .map((block, blockIndex) => generatePreviewBlockHtml(block, activePageInfo.pageNumber, blockIndex, assetPrefix, previewOptions))
+      .join('\n'),
+    project,
+    pages,
+    activeIndex,
+  );
   const prevHref = prevPage
     ? activeIndex === 1
       ? '../index.html'
@@ -1107,6 +1114,24 @@ function generatePreviewNavHtml(pages: PreviewPageInfo[], activePageNumber: numb
   };
 
   return renderBranch(null);
+}
+
+// Links between pages are stored as exe-node:<page id>, which eXeLearning turns
+// into the address of each page on export. The package pages and the preview
+// need that address already.
+function resolvePageLinks(html: string, project: ImportedProject, pages: PreviewPageInfo[], activeIndex: number): string {
+  if (!html.includes('exe-node:')) {
+    return html;
+  }
+  return html.replace(/href="exe-node:([^"#]+)(?:#[^"]*)?"/g, (match, pageId: string) => {
+    const targetIndex = project.pages.findIndex(page => page.id === pageId);
+    if (targetIndex < 0) {
+      return match;
+    }
+    const target = pages[targetIndex].href;
+    const relative = activeIndex === 0 ? target : targetIndex === 0 ? '../index.html' : target.replace(/^html\//, '');
+    return `href="${relative}"`;
+  });
 }
 
 function generatePreviewBlockHtml(
