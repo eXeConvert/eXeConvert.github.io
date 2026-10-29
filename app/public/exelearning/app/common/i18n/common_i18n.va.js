@@ -14,12 +14,12 @@ $exe_i18n = {
     "solution": "Solució",
     "download": "Baixa",
     "print": "Imprimeix",
-    "search": "Cerca",
+    "search": "Busca",
     "dataError": "Error de dades",
     "epubJSerror": "Això pot ser que no funcione en aquest lector d’ePub",
     "epubDisabled": "Aquesta activitat no funciona en format ePub",
-    "fullSearch": "Cerca completa",
-    "noSearchResults": "Sense resultats de cerca",
+    "fullSearch": "Busca completa",
+    "noSearchResults": "Sense resultats de busca",
     "searchResults": "Resultats de recerca per",
     "hideResults": "Ocultar resultats",
     "block": "bloc",
@@ -39,6 +39,10 @@ $exe_i18n = {
     "reset": "Reinicialitza",
     "mode_toggler": "Mode clar / fosc",
     "teacher_mode": "Mode professor",
+    "presentation_mode": "Mode presentació",
+    "activate_presentation_mode": "Activar el mode presentació",
+    "deactivate_presentation_mode": "Desactivar el mode presentació",
+    "presentation_mode_keys": "Tecles: Esquerra/Dreta canvien de pàgina, M menú, T mode professor, F11 pantalla completa",
     "elpxGenerating": "Generant...",
     "elpxProcessing": "Processant...",
     "elpxFolderPickerTimeout": "El selector de carpetes no va respondre. Això pot passar en obrir arxius exportats directament des del teu equip (protocol file://). Prova d'obrir l'arxiu a través d'un servidor.",
@@ -49,7 +53,10 @@ $exe_i18n = {
     "publicDomain": "Domini públic",
     "attachment": "Adjunt",
     "noFilesAttached": "No hi ha cap fitxer adjunt.",
-    "fileUnavailable": "Fitxer no disponible"
+    "fileUnavailable": "Fitxer no disponible",
+    "passScoreNotice": "Puntuació mínima necessària per a aprovar esta activitat: %s",
+    "pagePassScore": "Puntuació mínima per a aprovar: %s",
+    "pagePassEveryActivity": "Cada activitat ha d’aconseguir la seua puntuació mínima"
 };
 // The following line should only be used if the ELP contains a hangman game:
 $exe_i18n.exeGames = {

@@ -17,6 +17,13 @@ Categorías usadas: **Añadido**, **Cambiado**, **Corregido**, **Eliminado**.
   desde la principal; un `.html` suelto al que no lleva ningún enlace, no.
   Detalle en `adr/0003`.
 
+### Cambiado
+- Runtime embebido de eXeLearning actualizado de **v4.0.5** a **v4.0.6**;
+  comprobadas las conversiones de la CLI y la vista previa web. Trae los
+  estilos oficiales nuevos Cedec, eTwinning, INTEF y Kids, y las correcciones
+  de esa versión, como las fórmulas en línea que se cortaban en el primer `=` o
+  `+`. Los proyectos de versiones anteriores se siguen convirtiendo igual.
+
 ## [0.6.4] - 2026-10-29
 
 ### Corregido

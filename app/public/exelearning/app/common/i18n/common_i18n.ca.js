@@ -39,6 +39,10 @@ $exe_i18n = {
     "reset": "Reinicia",
     "mode_toggler": "Mode clar/fosc",
     "teacher_mode": "Mode professor",
+    "presentation_mode": "Mode presentació",
+    "activate_presentation_mode": "Activa el mode presentació",
+    "deactivate_presentation_mode": "Desactiva el mode presentació",
+    "presentation_mode_keys": "Tecles: Esquerra/Dreta canvien de pàgina, M menú, T mode professor, F11 pantalla completa",
     "elpxGenerating": " S'està generant...",
     "elpxProcessing": "Processant...",
     "elpxFolderPickerTimeout": "El selector de carpetes no ha respost. Això pot passar en obrir arxius exportats directament des del teu equip (protocol file://). Intenta obrir l'arxiu a través d'un servidor.",
@@ -49,7 +53,10 @@ $exe_i18n = {
     "publicDomain": "Domini públic",
     "attachment": "Adjunt",
     "noFilesAttached": "No hi ha cap fitxer adjunt.",
-    "fileUnavailable": "Fitxer no disponible"
+    "fileUnavailable": "Fitxer no disponible",
+    "passScoreNotice": "Puntuació mínima necessària per aprovar aquesta activitat: %s",
+    "pagePassScore": "Puntuació mínima per aprovar: %s",
+    "pagePassEveryActivity": "Cada activitat ha d'assolir la seva puntuació mínima"
 };
 // The following line should only be used if the ELP contains a hangman game:
 $exe_i18n.exeGames = {

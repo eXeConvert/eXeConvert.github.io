@@ -39,6 +39,10 @@ $exe_i18n = {
     "reset": "Zurücksetzen",
     "mode_toggler": "Hell/Dunkel-Modus",
     "teacher_mode": "Lehrer-Modus",
+    "presentation_mode": "Präsentationsmodus",
+    "activate_presentation_mode": "Präsentationsmodus aktivieren",
+    "deactivate_presentation_mode": "Präsentationsmodus deaktivieren",
+    "presentation_mode_keys": "Tasten: Links/Rechts Seite wechseln, M Menü, T Lehrer-Modus, F11 Vollbild",
     "elpxGenerating": "Wird generiert...",
     "elpxProcessing": "Verarbeite...",
     "elpxFolderPickerTimeout": "Der Ordner-Auswahldialog hat nicht reagiert. Dies kann passieren, wenn du exportierte Dateien direkt von deinem Gerät öffnest (file://-Protokoll). Versuche, die Datei über einen Server zu öffnen.",
@@ -49,7 +53,10 @@ $exe_i18n = {
     "publicDomain": "Gemeinfrei",
     "attachment": "Anhang",
     "noFilesAttached": "Keine Dateien angehängt.",
-    "fileUnavailable": "Datei nicht verfügbar"
+    "fileUnavailable": "Datei nicht verfügbar",
+    "passScoreNotice": "Erforderliche Mindestpunktzahl zum Bestehen dieser Aktivität: %s",
+    "pagePassScore": "Mindestpunktzahl zum Bestehen: %s",
+    "pagePassEveryActivity": "Jede Aktivität muss ihre Mindestpunktzahl erreichen"
 };
 // The following line should only be used if the ELP contains a hangman game:
 $exe_i18n.exeGames = {

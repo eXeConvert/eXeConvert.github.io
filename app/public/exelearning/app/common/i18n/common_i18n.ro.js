@@ -39,6 +39,10 @@ $exe_i18n = {
     "reset": "Resetează",
     "mode_toggler": "Mod Luminos/Întunecat",
     "teacher_mode": "Mod profesor",
+    "presentation_mode": "Mod prezentare",
+    "activate_presentation_mode": "Activează modul prezentare",
+    "deactivate_presentation_mode": "Dezactivează modul prezentare",
+    "presentation_mode_keys": "Taste: Stânga/Dreapta schimbă pagina, M meniu, T mod profesor, F11 ecran complet",
     "elpxGenerating": "Se generează...",
     "elpxProcessing": "Se procesează...",
     "elpxFolderPickerTimeout": "Selectorul de foldere nu a răspuns. Acest lucru se poate întâmpla la deschiderea fișierelor exportate direct din sistemul de fișiere (protocolul file://). Încercați să deschideți fișierul printr-un server web local.",
@@ -49,7 +53,10 @@ $exe_i18n = {
     "publicDomain": "Domeniu public",
     "attachment": "Atașament",
     "noFilesAttached": "Niciun fișier atașat.",
-    "fileUnavailable": "Fișier indisponibil"
+    "fileUnavailable": "Fișier indisponibil",
+    "passScoreNotice": "Punctaj minim necesar pentru a promova această activitate: %s",
+    "pagePassScore": "Punctaj minim de promovare: %s",
+    "pagePassEveryActivity": "Fiecare activitate trebuie să atingă punctajul minim"
 };
 // The following line should only be used if the ELP contains a hangman game:
 $exe_i18n.exeGames = {
