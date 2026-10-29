@@ -9,6 +9,8 @@ Categorías usadas: **Añadido**, **Cambiado**, **Corregido**, **Eliminado**.
 
 ## [Unreleased]
 
+## [0.6.4] - 2026-10-29
+
 ### Corregido
 - Las imágenes de un documento importado (`.docx`, `.md`, `.html` o `.tex`)
   llegaban al `.elpx` incrustadas en el texto, repetidas en la vista previa y a
