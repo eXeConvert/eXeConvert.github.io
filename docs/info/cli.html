@@ -3,9 +3,6 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="analytics-endpoint" content="https://bilateria.org/app/estadistica/execonvert-cli/track.php" />
-    <meta name="analytics-stats-url" content="https://bilateria.org/app/estadistica/execonvert-cli/admin-stats.php" />
-    <meta name="analytics-site-id" content="execonvert-cli" />
     <title>eXeConvert CLI</title>
     <link rel="icon" href="./execonvert-cli-icon.svg" type="image/svg+xml" />
     <script src="../theme.js"></script>
@@ -628,7 +625,7 @@ execonvert inspect proyecto.elpx</pre>
           <a id="footer-privacy-link" href="#">Privacidad</a>.
         </p>
         <p id="footer-privacy" hidden>
-          Esta aplicación recoge únicamente estadísticas de uso agregadas con un sistema propio para conocer su utilización y mejorar la herramienta. No se almacenan direcciones IP ni se usan cookies de analítica para los visitantes.
+          Esta página no recoge estadísticas de uso ni usa cookies: solo recuerda en el navegador el idioma y el tema elegidos. Para mostrar la última versión consulta la API de GitHub, que recibe la dirección IP, como en cualquier visita a una web.
         </p>
       </footer>
     </div>
@@ -711,7 +708,7 @@ execonvert inspect proyecto.elpx</pre>
           footerThirdParty: "Este proyecto reutiliza recursos de eXeLearning para compatibilidad con <code>.elpx</code>. Consulta las atribuciones en",
           footerPrivacyLink: "Privacidad",
           footerPrivacy:
-            "Esta aplicación recoge únicamente estadísticas de uso agregadas con un sistema propio para conocer su utilización y mejorar la herramienta. No se almacenan direcciones IP ni se usan cookies de analítica para los visitantes."
+            "Esta página no recoge estadísticas de uso ni usa cookies: solo recuerda en el navegador el idioma y el tema elegidos. Para mostrar la última versión consulta la API de GitHub, que recibe la dirección IP, como en cualquier visita a una web."
         },
         ca: {
           pageTitle: "eXeConvert CLI",
@@ -785,7 +782,7 @@ execonvert inspect proyecto.elpx</pre>
           footerThirdParty: "Aquest projecte reutilitza recursos d'eXeLearning per compatibilitat amb <code>.elpx</code>. Consulta les atribucions a",
           footerPrivacyLink: "Privadesa",
           footerPrivacy:
-            "Aquesta aplicació recull únicament estadístiques d'ús agregades amb un sistema propi per conèixer-ne la utilització i millorar l'eina. No s'emmagatzemen adreces IP ni s'utilitzen cookies d'analítica per als visitants."
+            "Aquesta pàgina no recull estadístiques d'ús ni fa servir galetes: només recorda al navegador l'idioma i el tema triats. Per mostrar l'última versió consulta l'API de GitHub, que rep l'adreça IP, com en qualsevol visita a un web."
         },
         en: {
           pageTitle: "eXeConvert CLI",
@@ -859,7 +856,7 @@ execonvert inspect proyecto.elpx</pre>
           footerThirdParty: "This project reuses eXeLearning resources for <code>.elpx</code> compatibility. See attributions in",
           footerPrivacyLink: "Privacy",
           footerPrivacy:
-            "This application only collects aggregated usage statistics with an in-house system to understand how it is used and improve the tool. No IP addresses are stored and no analytics cookies are used for visitors."
+            "This page does not collect usage statistics or use cookies: it only remembers the chosen language and theme in your browser. To show the latest version it queries the GitHub API, which receives your IP address, as with any visit to a website."
         }
       };
 
@@ -1006,101 +1003,9 @@ execonvert inspect proyecto.elpx</pre>
         }
       }
 
-      function loadAnalyticsInBackground() {
-        const endpoint = document.querySelector('meta[name="analytics-endpoint"]')?.content;
-        const siteId = document.querySelector('meta[name="analytics-site-id"]')?.content;
-        if (!endpoint || !siteId) {
-          return;
-        }
-
-        const cooldownMs = 30 * 60 * 1000;
-        const timeoutMs = 2500;
-        const storageKey = `analytics:last-visit:${siteId}`;
-        let summaryOnly = false;
-
-        try {
-          const lastVisit = Number(localStorage.getItem(storageKey) || "0");
-          if (lastVisit > 0 && Date.now() - lastVisit < cooldownMs) {
-            summaryOnly = true;
-          }
-        } catch {
-          summaryOnly = false;
-        }
-
-        const callbackName = `analyticsCallback_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-        const url = new URL(endpoint);
-        const currentUrl = new URL(window.location.href);
-
-        url.searchParams.set("callback", callbackName);
-        url.searchParams.set("page_url", currentUrl.href);
-        if (document.referrer) {
-          url.searchParams.set("referrer", document.referrer);
-        }
-        for (const key of ["utm_source", "utm_medium", "utm_campaign"]) {
-          const value = currentUrl.searchParams.get(key);
-          if (value) {
-            url.searchParams.set(key, value);
-          }
-        }
-        if (summaryOnly) {
-          url.searchParams.set("summary_only", "1");
-        }
-
-        const script = document.createElement("script");
-        let finished = false;
-        let timeoutId = 0;
-
-        const cleanup = () => {
-          if (finished) {
-            return;
-          }
-          finished = true;
-          window.clearTimeout(timeoutId);
-          delete window[callbackName];
-          script.remove();
-        };
-
-        window[callbackName] = () => {
-          if (!summaryOnly) {
-            try {
-              localStorage.setItem(storageKey, String(Date.now()));
-            } catch {
-              // Ignore storage failures and keep the page working.
-            }
-          }
-          cleanup();
-        };
-
-        script.async = true;
-        script.src = url.toString();
-        script.onerror = cleanup;
-        timeoutId = window.setTimeout(cleanup, timeoutMs);
-        document.head.appendChild(script);
-      }
-
-      function scheduleAnalyticsLoad() {
-        // Un <script async> inyectado antes de que se dispare «load» retrasa ese
-        // evento hasta que la peticion termina. Si el servidor de estadisticas se
-        // cuelga, «load» no llegaria a dispararse nunca. Por eso se espera siempre
-        // a «load» antes de programar nada.
-        const programar = () => {
-          if ("requestIdleCallback" in window) {
-            window.requestIdleCallback(loadAnalyticsInBackground, { timeout: 2000 });
-          } else {
-            window.setTimeout(loadAnalyticsInBackground, 0);
-          }
-        };
-        if (document.readyState === "complete") {
-          programar();
-        } else {
-          window.addEventListener("load", programar, { once: true });
-        }
-      }
-
       const activeLocale = resolveLocale();
       applyTranslations(activeLocale);
       loadLatestVersion();
-      scheduleAnalyticsLoad();
 
       document.getElementById("language-select")?.addEventListener("change", event => {
         const locale = event.target.value;

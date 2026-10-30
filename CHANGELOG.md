@@ -9,6 +9,8 @@ Categorías usadas: **Añadido**, **Cambiado**, **Corregido**, **Eliminado**.
 
 ## [Unreleased]
 
+## [0.7.6] - 2026-10-30
+
 ### Eliminado
 - La web y la página de la versión de terminal ya no cuentan las visitas: se
   retira el contador propio que enviaba a bilateria.org la dirección de la
