@@ -18,7 +18,7 @@
     "THIRD_PARTY_NOTICES.md"
   ],
   "engines": {
-    "node": ">=22"
+    "node": ">=22.12"
   },
   "puppeteer": {
     "chrome-headless-shell": {
@@ -80,7 +80,7 @@
     "mathml-to-latex": "^1.5.0",
     "mathml2omml": "^0.5.0",
     "pdfmake": "^0.3.6",
-    "puppeteer": "^24.8.2",
+    "puppeteer": "^25.16.0",
     "temml": "^0.13.1",
     "tsx": "^4.21.0",
     "turndown": "^7.2.2",

@@ -460,9 +460,13 @@ async function buildPdfBlobFromPuppeteer(
       stat,
       bundledCacheDir,
     });
+    // The first run after installing can be slow: on Windows the antivirus
+    // scans the bundled browser while it starts, and 30 s was not enough.
+    const firstRunTimeout = 120_000;
     const browser = await puppeteer.launch({
       executablePath,
       headless: true,
+      timeout: firstRunTimeout,
       args: [
         '--disable-gpu',
         '--disable-dev-shm-usage',
@@ -472,7 +476,7 @@ async function buildPdfBlobFromPuppeteer(
 
     try {
       const page = await browser.newPage();
-      await page.goto(url.pathToFileURL(inputPath).href, { waitUntil: 'load' });
+      await page.goto(url.pathToFileURL(inputPath).href, { waitUntil: 'load', timeout: firstRunTimeout });
 
       if (containsLatex(htmlDocument)) {
         try {
@@ -665,7 +669,7 @@ async function resolvePuppeteerExecutablePath({
   bundledCacheDir: string | null;
 }): Promise<string> {
   try {
-    const resolved = puppeteer.executablePath();
+    const resolved = await puppeteer.executablePath();
     await access(resolved, constants.X_OK);
     return resolved;
   } catch {
