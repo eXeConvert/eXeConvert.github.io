@@ -9,6 +9,8 @@ Categorías usadas: **Añadido**, **Cambiado**, **Corregido**, **Eliminado**.
 
 ## [Unreleased]
 
+## [0.7.4] - 2026-10-30
+
 ### Añadido
 - Tema oscuro en la web, la infografía y la página de la versión de terminal:
   sigue al del dispositivo y un botón en la cabecera lo cambia a mano. La
