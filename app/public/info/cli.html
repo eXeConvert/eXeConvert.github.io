@@ -8,6 +8,7 @@
     <meta name="analytics-site-id" content="execonvert-cli" />
     <title>eXeConvert CLI</title>
     <link rel="icon" href="./execonvert-cli-icon.svg" type="image/svg+xml" />
+    <script src="../theme.js"></script>
     <style>
       :root {
         --bg: #f3f7ef;
@@ -19,6 +20,33 @@
         --brand-soft: #e5f1de;
         --accent: #184c7c;
         --shadow: 0 18px 44px rgba(53, 77, 47, 0.1);
+        --bg-top: #f8fbf6;
+        --soft: #f8fbf6;
+        --field: rgba(255, 255, 255, 0.92);
+        --card-top: rgba(255, 255, 255, 0.96);
+        --card-bottom: #f7fbf4;
+        --edge: rgba(47, 93, 47, 0.12);
+        color-scheme: light;
+      }
+
+      /* Mismos nombres, valores para el tema oscuro (lo fija ../theme.js). */
+      :root[data-theme="dark"] {
+        --bg: #121812;
+        --panel: rgba(27, 36, 27, 0.96);
+        --line: #334033;
+        --ink: #e2eadf;
+        --muted: #a9b5a6;
+        --brand-dark: #a8d48a;
+        --brand-soft: #24331f;
+        --accent: #8cc2f0;
+        --shadow: 0 18px 44px rgba(0, 0, 0, 0.35);
+        --bg-top: #172017;
+        --soft: #1f281f;
+        --field: rgba(21, 28, 21, 0.92);
+        --card-top: rgba(34, 45, 34, 0.96);
+        --card-bottom: #1d261d;
+        --edge: rgba(168, 212, 138, 0.14);
+        color-scheme: dark;
       }
 
       * {
@@ -33,7 +61,7 @@
         background:
           radial-gradient(circle at 86% 10%, rgba(95, 155, 61, 0.14), transparent 18rem),
           radial-gradient(circle at 10% 90%, rgba(24, 76, 124, 0.08), transparent 18rem),
-          linear-gradient(180deg, #f8fbf6 0%, var(--bg) 100%);
+          linear-gradient(180deg, var(--bg-top) 0%, var(--bg) 100%);
       }
 
       a {
@@ -79,11 +107,41 @@
         flex: 0 0 72px;
       }
 
+      .locale-picker {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .theme-toggle {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 44px;
+        height: 44px;
+        flex: 0 0 44px;
+        border-radius: 999px;
+        border: 1px solid var(--edge);
+        background: var(--field);
+        color: var(--brand-dark);
+        cursor: pointer;
+      }
+
+      .theme-toggle svg {
+        width: 20px;
+        height: 20px;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 2;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+
       .locale-picker select {
         min-width: 140px;
         border-radius: 999px;
-        border: 1px solid rgba(47, 93, 47, 0.16);
-        background: rgba(255, 255, 255, 0.92);
+        border: 1px solid var(--edge);
+        background: var(--field);
         color: var(--brand-dark);
         padding: 10px 16px;
         font: inherit;
@@ -251,8 +309,8 @@
       .download-card {
         padding: 16px 16px 18px;
         border-radius: 20px;
-        border: 1px solid rgba(47, 93, 47, 0.12);
-        background: linear-gradient(180deg, rgba(255, 255, 255, 0.96) 0%, #f7fbf4 100%);
+        border: 1px solid var(--edge);
+        background: linear-gradient(180deg, var(--card-top) 0%, var(--card-bottom) 100%);
       }
 
       .download-card strong {
@@ -296,8 +354,8 @@
       .faq-item {
         padding: 14px 16px;
         border-radius: 18px;
-        background: #f8fbf6;
-        border: 1px solid rgba(47, 93, 47, 0.08);
+        background: var(--soft);
+        border: 1px solid var(--edge);
       }
 
       .step strong,
@@ -317,7 +375,7 @@
         padding: 18px 24px;
         border: 1px solid var(--line);
         border-radius: 18px;
-        background: linear-gradient(180deg, var(--panel) 0%, #f6faf4 100%);
+        background: linear-gradient(180deg, var(--panel) 0%, var(--soft) 100%);
         box-shadow: var(--shadow);
         text-align: center;
       }
@@ -400,6 +458,9 @@
               <option value="ca">Català</option>
               <option value="en">English</option>
             </select>
+            <button type="button" id="theme-toggle" class="theme-toggle" data-theme-toggle title="Modo claro u oscuro" aria-label="Modo claro u oscuro">
+              <svg viewBox="0 0 24 24" aria-hidden="true"></svg>
+            </button>
           </div>
         </div>
 
@@ -581,6 +642,7 @@ execonvert inspect proyecto.elpx</pre>
         es: {
           pageTitle: "eXeConvert CLI",
           langLabel: "Idioma",
+          themeLabel: "Modo claro u oscuro",
           title: "eXeConvert CLI",
           releaseLabel: "Última versión publicada:",
           subtitle: "La versión para usar desde un terminal o para automatizar conversiones",
@@ -654,6 +716,7 @@ execonvert inspect proyecto.elpx</pre>
         ca: {
           pageTitle: "eXeConvert CLI",
           langLabel: "Idioma",
+          themeLabel: "Mode clar o fosc",
           title: "eXeConvert CLI",
           releaseLabel: "Última versió publicada:",
           subtitle: "La versió per fer servir des d'un terminal o per automatitzar conversions",
@@ -727,6 +790,7 @@ execonvert inspect proyecto.elpx</pre>
         en: {
           pageTitle: "eXeConvert CLI",
           langLabel: "Language",
+          themeLabel: "Light or dark mode",
           title: "eXeConvert CLI",
           releaseLabel: "Latest published version:",
           subtitle: "The version to use from a terminal or for automating conversions",
@@ -840,6 +904,12 @@ execonvert inspect proyecto.elpx</pre>
         if (select) {
           select.setAttribute("aria-label", copy.langLabel);
           select.value = locale;
+        }
+
+        const themeToggle = document.getElementById("theme-toggle");
+        if (themeToggle) {
+          themeToggle.title = copy.themeLabel;
+          themeToggle.setAttribute("aria-label", copy.themeLabel);
         }
 
         setText("cli-title", copy.title);

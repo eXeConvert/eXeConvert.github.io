@@ -4,9 +4,18 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>eXeConvert</title>
+    <script src="../theme.js"></script>
     <style>
-      :root {
+      /* La captura PNG lleva .theme-light: sale en claro aunque la pantalla no. */
+      :root,
+      .theme-light {
+        color-scheme: light;
         --bg: #f3f7ef;
+        --bg-top: #f8fbf6;
+        --tile: rgba(255, 255, 255, 0.72);
+        --tile-pdf: rgba(217, 48, 37, 0.08);
+        --hover: rgba(255, 255, 255, 0.58);
+        --shadow-rgb: 53, 77, 47;
         --panel: rgba(255, 255, 255, 0.92);
         --line: #bfd0b7;
         --ink: #243024;
@@ -22,6 +31,25 @@
         --md: #111111;
       }
 
+      /* Mismos nombres, valores para el tema oscuro (lo fija ../theme.js). Las
+         fichas de los iconos siguen claras para que se vean los logotipos. */
+      :root[data-theme="dark"] {
+        color-scheme: dark;
+        --bg: #121812;
+        --bg-top: #172017;
+        --panel: rgba(27, 36, 27, 0.92);
+        --line: #334033;
+        --ink: #e2eadf;
+        --muted: #a9b5a6;
+        --brand-dark: #a8d48a;
+        --brand-soft: #24331f;
+        --arrow-out: #8cc79a;
+        --tile: #eef3ea;
+        --tile-pdf: #f7e4e2;
+        --hover: rgba(255, 255, 255, 0.08);
+        --shadow-rgb: 0, 0, 0;
+      }
+
       * {
         box-sizing: border-box;
       }
@@ -34,7 +62,7 @@
         background:
           radial-gradient(circle at 82% 12%, rgba(95, 155, 61, 0.12), transparent 18rem),
           radial-gradient(circle at 10% 88%, rgba(95, 155, 61, 0.08), transparent 16rem),
-          linear-gradient(180deg, #f8fbf6 0%, var(--bg) 100%);
+          linear-gradient(180deg, var(--bg-top) 0%, var(--bg) 100%);
       }
 
       /* The layout follows the width of this container, not of the window, so the
@@ -47,7 +75,35 @@
       }
 
       .hero {
+        position: relative;
         margin-bottom: 22px;
+      }
+
+      .theme-toggle {
+        position: absolute;
+        top: 0;
+        right: 0;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 44px;
+        height: 44px;
+        padding: 0;
+        border-radius: 999px;
+        border: 2px solid var(--line);
+        background: var(--panel);
+        color: var(--brand-dark);
+        cursor: pointer;
+      }
+
+      .theme-toggle svg {
+        width: 20px;
+        height: 20px;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 2;
+        stroke-linecap: round;
+        stroke-linejoin: round;
       }
 
       .logo-row-hero {
@@ -55,6 +111,7 @@
         align-items: center;
         gap: 18px;
         margin-bottom: 6px;
+        padding-right: 56px;
       }
 
       .capture-trigger {
@@ -77,8 +134,8 @@
       .capture-trigger:hover,
       .capture-trigger:focus-visible {
         transform: translateY(-1px);
-        box-shadow: 0 10px 24px rgba(53, 77, 47, 0.14);
-        background: rgba(255, 255, 255, 0.58);
+        box-shadow: 0 10px 24px rgba(var(--shadow-rgb), 0.14);
+        background: var(--hover);
         outline: none;
       }
 
@@ -158,7 +215,7 @@
         border: 2px solid var(--line);
         border-radius: 26px;
         background: var(--panel);
-        box-shadow: 0 14px 30px rgba(53, 77, 47, 0.07);
+        box-shadow: 0 14px 30px rgba(var(--shadow-rgb), 0.07);
         display: flex;
         flex-direction: column;
         justify-content: center;
@@ -188,7 +245,7 @@
         display: grid;
         place-items: center;
         border-radius: 16px;
-        background: rgba(255, 255, 255, 0.72);
+        background: var(--tile);
         box-shadow: inset 0 0 0 1px rgba(47, 93, 47, 0.08);
       }
 
@@ -210,7 +267,7 @@
       }
 
       .format-icon.pdf {
-        background: rgba(217, 48, 37, 0.08);
+        background: var(--tile-pdf);
         box-shadow: inset 0 0 0 1px rgba(217, 48, 37, 0.14);
       }
 
@@ -228,7 +285,7 @@
         padding: 48px 32px;
         border-radius: 38px;
         background: linear-gradient(155deg, #6aa844 0%, #46792c 100%);
-        box-shadow: 0 25px 50px rgba(53, 77, 47, 0.22);
+        box-shadow: 0 25px 50px rgba(var(--shadow-rgb), 0.22);
         color: white;
       }
 
@@ -335,6 +392,16 @@
       }
 
       @container infographic (max-width: 600px) {
+        /* El título no deja sitio al lado: el botón baja a su propia línea. */
+        .logo-row-hero {
+          padding-right: 0;
+        }
+
+        .theme-toggle {
+          position: static;
+          margin-top: 10px;
+        }
+
         .card {
           min-height: 104px;
           padding: 16px 16px 16px 86px;
@@ -374,6 +441,9 @@
           </button>
           <h1>eXeConvert</h1>
         </div>
+        <button type="button" id="theme-toggle" class="theme-toggle" data-theme-toggle title="Modo claro u oscuro" aria-label="Modo claro u oscuro">
+          <svg viewBox="0 0 24 24" aria-hidden="true"></svg>
+        </button>
         <p class="subtitle" id="info-subtitle">Convierte proyectos de eXeLearning en el navegador.</p>
       </header>
 
@@ -518,6 +588,7 @@
             "Proyecto independiente. eXeLearning y sus logotipos se usan aqui solo con fines identificativos. No existe afiliacion ni respaldo oficial por parte del proyecto eXeLearning.",
           pageTitle: "eXeConvert",
           captureTitle: "Descargar captura PNG",
+          themeLabel: "Modo claro u oscuro",
           captureAria: "Descargar una captura PNG de esta pagina",
           captureBusy: "Generando captura...",
           captureError: "No se pudo generar la captura PNG en este navegador.",
@@ -546,6 +617,7 @@
             "Projecte independent. eXeLearning i els seus logotips s'utilitzen aqui nomes amb finalitats identificatives. No hi ha afiliacio ni suport oficial per part del projecte eXeLearning.",
           pageTitle: "eXeConvert",
           captureTitle: "Descarregar captura PNG",
+          themeLabel: "Mode clar o fosc",
           captureAria: "Descarregar una captura PNG d'aquesta pagina",
           captureBusy: "Generant captura...",
           captureError: "No s'ha pogut generar la captura PNG en aquest navegador.",
@@ -574,6 +646,7 @@
             "Independent project. eXeLearning and its logos are used here for identification purposes only. No official affiliation with or endorsement by the eXeLearning project is implied.",
           pageTitle: "eXeConvert",
           captureTitle: "Download PNG capture",
+          themeLabel: "Light or dark mode",
           captureAria: "Download a PNG capture of this page",
           captureBusy: "Generating capture...",
           captureError: "The PNG capture could not be generated in this browser.",
@@ -628,6 +701,9 @@
         document.getElementById("info-url-label").setAttribute("aria-label", copy.publicUrlAria);
         captureButton?.setAttribute("title", copy.captureTitle);
         captureButton?.setAttribute("aria-label", copy.captureAria);
+        const themeToggle = document.getElementById("theme-toggle");
+        themeToggle?.setAttribute("title", copy.themeLabel);
+        themeToggle?.setAttribute("aria-label", copy.themeLabel);
 
         return copy;
       }
@@ -651,7 +727,7 @@
         const shapes = [];
 
         const connect = (cards, direction) => {
-          const color = direction === "in" ? "#78b757" : "#2d6c4d";
+          const color = direction === "in" ? "var(--arrow-in)" : "var(--arrow-out)";
           const spread = Math.min(hubBox.height * 0.56, cards.length * 44);
           cards.forEach((card, index) => {
             const box = card.getBoundingClientRect();
@@ -664,8 +740,8 @@
             const tip = x2 - 13;
             const middle = (x1 + tip) / 2;
             shapes.push(
-              `<path d="M${x1} ${y1} C${middle} ${y1} ${middle} ${y2} ${tip} ${y2}" fill="none" stroke="${color}" stroke-width="3.5" stroke-linecap="round"/>`,
-              `<path d="M${x2} ${y2} L${tip - 2} ${y2 - 8} L${tip - 2} ${y2 + 8} Z" fill="${color}"/>`
+              `<path d="M${x1} ${y1} C${middle} ${y1} ${middle} ${y2} ${tip} ${y2}" fill="none" style="stroke: ${color}" stroke-width="3.5" stroke-linecap="round"/>`,
+              `<path d="M${x2} ${y2} L${tip - 2} ${y2 - 8} L${tip - 2} ${y2 + 8} Z" style="fill: ${color}"/>`
             );
           });
         };
@@ -697,6 +773,8 @@
         try {
           const exportNode = captureRoot.cloneNode(true);
           exportNode.id = "capture-export-clone";
+          exportNode.classList.add("theme-light");
+          exportNode.querySelector("[data-theme-toggle]")?.remove();
           exportNode.style.width = "1240px";
           exportNode.style.margin = "0";
           exportNode.style.padding = "26px 60px 34px";

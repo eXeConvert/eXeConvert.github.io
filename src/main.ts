@@ -132,6 +132,9 @@ app.innerHTML = `
             <option value="ca" ${locale === 'ca' ? 'selected' : ''}>${t('lang.ca')}</option>
             <option value="en" ${locale === 'en' ? 'selected' : ''}>${t('lang.en')}</option>
           </select>
+          <button type="button" class="theme-toggle" data-theme-toggle title="${escapeAttribute(t('theme.toggle'))}" aria-label="${escapeAttribute(t('theme.toggle'))}">
+            <svg viewBox="0 0 24 24" aria-hidden="true"></svg>
+          </button>
         </div>
       </div>
       <p class="lede">

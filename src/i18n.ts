@@ -8,6 +8,7 @@ const dictionaries: Record<Locale, Record<string, string>> = {
     'lang.es': 'Español',
     'lang.ca': 'Català',
     'lang.en': 'English',
+    'theme.toggle': 'Modo claro u oscuro',
 
     'app.heroAria': 'Cabecera de la aplicación',
     'app.subtitle': 'Conversor para eXeLearning',
@@ -189,6 +190,7 @@ const dictionaries: Record<Locale, Record<string, string>> = {
     'lang.es': 'Español',
     'lang.ca': 'Català',
     'lang.en': 'English',
+    'theme.toggle': 'Mode clar o fosc',
 
     'app.heroAria': 'Capçalera de l’aplicació',
     'app.subtitle': 'Convertidor per a eXeLearning',
@@ -370,6 +372,7 @@ const dictionaries: Record<Locale, Record<string, string>> = {
     'lang.es': 'Español',
     'lang.ca': 'Català',
     'lang.en': 'English',
+    'theme.toggle': 'Light or dark mode',
 
     'app.heroAria': 'Application header',
     'app.subtitle': 'Converter for eXeLearning',

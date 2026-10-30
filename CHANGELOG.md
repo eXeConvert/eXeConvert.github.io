@@ -9,6 +9,12 @@ Categorías usadas: **Añadido**, **Cambiado**, **Corregido**, **Eliminado**.
 
 ## [Unreleased]
 
+### Añadido
+- Tema oscuro en la web, la infografía y la página de la versión de terminal:
+  sigue al del dispositivo y un botón en la cabecera lo cambia a mano. La
+  elección se recuerda en el navegador. La vista previa del documento convertido
+  y la imagen PNG de la infografía siguen en claro, porque son el resultado.
+
 ### Cambiado
 - El instalador de Windows habla el idioma de Windows: castellano, catalán,
   gallego, euskera o, en cualquier otro, inglés, como hasta ahora. El gallego y

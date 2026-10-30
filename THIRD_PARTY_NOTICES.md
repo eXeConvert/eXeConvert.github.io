@@ -82,6 +82,13 @@ Both are user-contributed translations, copied as published with a UTF-8 byte
 order mark added so that Inno Setup reads their accents correctly. The
 English, Spanish and Catalan messages are the ones shipped with Inno Setup.
 
+## Lucide icons
+
+- Source: https://lucide.dev, under the ISC license
+  (https://github.com/lucide-icons/lucide/blob/main/LICENSE).
+- `app/public/theme.js`: the `moon` and `sun` icons of the light and dark mode
+  button, embedded as SVG paths.
+
 ## Additional license notes
 
 - `app/public/idevices/text/text.js` contains a header pointing to:
