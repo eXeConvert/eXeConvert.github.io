@@ -274,22 +274,6 @@ La idea es siempre la misma:
 - descargar Chrome for Testing dentro de `runtime/puppeteer`
 - instalar un comando final llamado `execonvert`
 
-## Estadísticas de visitas
-
-La app puede integrarse con un contador propio en IONOS:
-
-- resumen mínimo en el pie
-- carga asíncrona para no bloquear la UI
-- panel privado por aplicación
-- series temporales y referrers
-
-Backend base de esta app:
-
-- `analytics/execonvert/track.php`
-- `analytics/execonvert/admin-stats.php`
-- `analytics/execonvert/lib.php`
-- `analytics/execonvert/config.sample.php`
-
 ## Arquitectura
 
 - `src/converter.ts`: parser del `.elpx`, selección de páginas, normalización HTML y exportación a `.docx` y `.pdf`.

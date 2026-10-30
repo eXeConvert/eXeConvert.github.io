@@ -9,6 +9,12 @@ Categorías usadas: **Añadido**, **Cambiado**, **Corregido**, **Eliminado**.
 
 ## [Unreleased]
 
+### Eliminado
+- La web y la página de la versión de terminal ya no cuentan las visitas: se
+  retira el contador propio que enviaba a bilateria.org la dirección de la
+  página y la de procedencia (ADR 0006). La versión de terminal nunca lo usó.
+  El aviso «Privacidad» del pie explica ahora qué hace de verdad cada página.
+
 ## [0.7.5] - 2026-10-30
 
 ### Corregido

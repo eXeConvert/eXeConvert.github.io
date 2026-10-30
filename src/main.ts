@@ -26,10 +26,6 @@ interface FilePickerWindow extends Window {
   showSaveFilePicker?: (options?: SaveFilePickerOptions) => Promise<FileSystemFileHandle>;
 }
 
-interface JsonpWindow extends Window {
-  [key: string]: unknown;
-}
-
 interface SaveFilePickerOptions {
   suggestedName?: string;
   types?: Array<{
@@ -98,9 +94,6 @@ if (!app) {
 }
 
 const APP_VERSION = `v${PKG_VERSION}`;
-const ANALYTICS_FALLBACK_ENDPOINT = 'https://bilateria.org/app/estadistica/execonvert/track.php';
-const ANALYTICS_FALLBACK_STATS_URL = 'https://bilateria.org/app/estadistica/execonvert/admin-stats.php';
-const ANALYTICS_VISIT_COOLDOWN_MS = 30 * 60 * 1000;
 const locale = resolveInitialLocale();
 const { t } = createI18n(locale);
 
@@ -361,8 +354,8 @@ app.innerHTML = `
         ${t('footer.note.thirdParty')}
         <a href="./THIRD_PARTY_NOTICES.md" target="_blank" rel="noopener noreferrer">THIRD_PARTY_NOTICES</a>
         ·
-        <a id="privacy-button" href="#">${t('footer.note.analyticsLink')}</a>.
-        <span id="privacy-popover" class="footer-popover" hidden>${t('footer.note.analytics')}</span>
+        <a id="privacy-button" href="#">${t('footer.note.privacyLink')}</a>.
+        <span id="privacy-popover" class="footer-popover" hidden>${t('footer.note.privacy')}</span>
       </p>
     </footer>
   </main>
@@ -497,132 +490,6 @@ function revokePreparedPreviewUrl(conversion: PreparedConversion | null): void {
   }
 }
 
-function getMetaContent(name: string): string {
-  const node = document.querySelector<HTMLMetaElement>(`meta[name="${name}"]`);
-  return String(node?.content || '').trim();
-}
-
-function getAnalyticsConfig() {
-  return {
-    endpoint: getMetaContent('analytics-endpoint') || ANALYTICS_FALLBACK_ENDPOINT,
-    statsUrl: getMetaContent('analytics-stats-url') || ANALYTICS_FALLBACK_STATS_URL,
-    siteId: getMetaContent('analytics-site-id') || 'execonvert',
-  };
-}
-
-function getAnalyticsVisitStorageKey(siteId: string): string {
-  return `analytics:last-visit:${siteId}`;
-}
-
-function shouldCountAnalyticsVisit(siteId: string): boolean {
-  try {
-    const lastVisit = Number.parseInt(window.localStorage.getItem(getAnalyticsVisitStorageKey(siteId)) || '', 10);
-    if (Number.isFinite(lastVisit) && Date.now() - lastVisit < ANALYTICS_VISIT_COOLDOWN_MS) {
-      return false;
-    }
-  } catch {
-    return true;
-  }
-  return true;
-}
-
-function rememberAnalyticsVisit(siteId: string): void {
-  try {
-    window.localStorage.setItem(getAnalyticsVisitStorageKey(siteId), String(Date.now()));
-  } catch {
-    // Ignore storage failures and keep analytics best-effort.
-  }
-}
-
-function shouldTrackAnalytics(): boolean {
-  const protocol = String(window.location.protocol || '');
-  const host = String(window.location.hostname || '').toLowerCase();
-  if (protocol !== 'http:' && protocol !== 'https:') return false;
-  if (host === 'localhost' || host === '127.0.0.1' || host === '::1') return false;
-  return !host.endsWith('.local');
-}
-
-function updateAnalyticsSummary(payload: { total?: number; today?: number } | null | undefined): void {
-  const total = Number.parseInt(String(payload?.total ?? ''), 10);
-  const today = Number.parseInt(String(payload?.today ?? ''), 10);
-  if (!Number.isFinite(total) || !Number.isFinite(today)) return;
-}
-
-function loadAnalyticsSummary(): void {
-  if (!shouldTrackAnalytics()) return;
-  const config = getAnalyticsConfig();
-  if (!config.endpoint) return;
-  const jsonpWindow = window as unknown as JsonpWindow;
-
-  const callbackName = `__exeConvertAnalytics_${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`;
-  const query = new URLSearchParams();
-  const urlParams = new URLSearchParams(window.location.search || '');
-  const script = document.createElement('script');
-  let settled = false;
-  let timeoutId = 0;
-  const shouldCountVisit = shouldCountAnalyticsVisit(config.siteId);
-
-  const cleanup = () => {
-    if (settled) return;
-    settled = true;
-    if (timeoutId) window.clearTimeout(timeoutId);
-    try {
-      delete jsonpWindow[callbackName];
-    } catch {
-      jsonpWindow[callbackName] = undefined;
-    }
-    script.remove();
-  };
-
-  query.set('site', config.siteId);
-  query.set('callback', callbackName);
-  query.set('page_url', window.location.href);
-  query.set('referrer', document.referrer || '');
-  if (!shouldCountVisit) query.set('summary_only', '1');
-  ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content'].forEach(key => {
-    const value = String(urlParams.get(key) || '').trim();
-    if (value) query.set(key, value);
-  });
-
-  jsonpWindow[callbackName] = (payload: unknown) => {
-    try {
-      updateAnalyticsSummary(payload as { total?: number; today?: number });
-      if (shouldCountVisit && payload && typeof payload === 'object' && 'ok' in payload && (payload as { ok?: boolean }).ok) {
-        rememberAnalyticsVisit(config.siteId);
-      }
-    } finally {
-      cleanup();
-    }
-  };
-
-  script.async = true;
-  script.src = `${config.endpoint}${config.endpoint.includes('?') ? '&' : '?'}${query.toString()}`;
-  script.onerror = () => cleanup();
-  timeoutId = window.setTimeout(cleanup, 4000);
-  document.head.append(script);
-}
-
-function scheduleAnalyticsLoad(): void {
-  if (!shouldTrackAnalytics()) return;
-  const run = () => window.setTimeout(loadAnalyticsSummary, 0);
-  // Un <script async> inyectado antes de que se dispare «load» retrasa ese
-  // evento hasta que la peticion termina. Si el servidor de estadisticas se
-  // cuelga, «load» no llegaria a dispararse nunca. Por eso se espera siempre
-  // a «load» antes de programar nada.
-  const programar = () => {
-    if (typeof window.requestIdleCallback === 'function') {
-      window.requestIdleCallback(run, { timeout: 2500 });
-    } else {
-      window.setTimeout(run, 0);
-    }
-  };
-  if (document.readyState === 'complete') {
-    programar();
-    return;
-  }
-  window.addEventListener('load', programar, { once: true });
-}
-
 languageSelect.addEventListener('change', () => {
   const value = languageSelect.value;
   if (value === locale || (value !== 'es' && value !== 'ca' && value !== 'en')) {
@@ -631,8 +498,6 @@ languageSelect.addEventListener('change', () => {
   persistLocale(value as Locale);
   window.location.reload();
 });
-
-scheduleAnalyticsLoad();
 
 pickButton.addEventListener('click', () => {
   fileInput.click();

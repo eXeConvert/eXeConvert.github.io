@@ -88,7 +88,7 @@ try {
     args: process.platform === 'linux' ? ['--no-sandbox', '--disable-setuid-sandbox'] : [],
   });
   const page = await browser.newPage();
-  // The application may have external fonts/analytics; this test is local only.
+  // The application may load external fonts; this test is local only.
   await page.setRequestInterception(true);
   page.on('request', request => {
     if (/^(data:|blob:|about:)/.test(request.url()) || request.url().startsWith(origin + '/')) void request.continue();
