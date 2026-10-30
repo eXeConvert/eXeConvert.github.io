@@ -312,6 +312,8 @@ function resolveCliLocale(argv: string[]): Locale {
     normalizeLocaleToken(process.env.LC_ALL) ??
     normalizeLocaleToken(process.env.LC_MESSAGES) ??
     normalizeLocaleToken(process.env.LANG) ??
+    // Windows has no LANG: ask the system for its language instead.
+    normalizeLocaleToken(Intl.DateTimeFormat().resolvedOptions().locale) ??
     'en'
   );
 }
