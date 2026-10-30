@@ -22,6 +22,26 @@ Categorías usadas: **Añadido**, **Cambiado**, **Corregido**, **Eliminado**.
   instalador.
 - Al cargar en la web un `.zip` con un sitio entero, el aviso dice cuántas
   páginas tiene y que la tabla de títulos se aplica dentro de cada página.
+- El icono «eXeConvert CLI» del menú Inicio de Windows abre una ventana de
+  órdenes con la ayuda, que se queda abierta para escribir. Antes abría una
+  ventana que se cerraba antes de poder leerla.
+- La última pantalla del instalador de Windows explica cómo usar el programa,
+  en lugar de remitir a «los iconos instalados».
+- La versión de npm pide Node.js 22.12 o posterior, por el cambio de Puppeteer
+  (ADR 0005).
+
+### Corregido
+- Con Node 26, la versión de npm no podía hacer PDF: el navegador que descarga
+  al instalarse quedaba a medio descomprimir, sin ningún aviso. Ahora usa
+  Puppeteer 25, que lo descomprime entero (ADR 0005).
+- En Windows, la versión de terminal hablaba siempre inglés. Ahora usa el idioma
+  del sistema (castellano, catalán o inglés).
+- El primer PDF después de instalar podía fallar en Windows por agotar el
+  tiempo de espera mientras se abría el navegador. Ahora espera hasta dos
+  minutos.
+- La página de la versión de terminal avisa de que en Windows las órdenes de npm
+  se escriben en el Símbolo del sistema: PowerShell las bloquea si no tiene
+  permitido ejecutar scripts.
 
 ## [0.7.3] - 2026-10-29
 
