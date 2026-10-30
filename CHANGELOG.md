@@ -24,7 +24,9 @@ Categorías usadas: **Añadido**, **Cambiado**, **Corregido**, **Eliminado**.
   páginas tiene y que la tabla de títulos se aplica dentro de cada página.
 - El icono «eXeConvert CLI» del menú Inicio de Windows abre una ventana de
   órdenes con la ayuda, que se queda abierta para escribir. Antes abría una
-  ventana que se cerraba antes de poder leerla.
+  ventana que se cerraba antes de poder leerla. Lo mismo pasaba al buscar
+  «execonvert» en el menú Inicio: ahora la ayuda espera a que se pulse una
+  tecla.
 - La última pantalla del instalador de Windows explica cómo usar el programa,
   en lugar de remitir a «los iconos instalados».
 - La versión de npm pide Node.js 22.12 o posterior, por el cambio de Puppeteer

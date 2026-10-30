@@ -87,6 +87,16 @@ setlocal
 set "SELF_DIR=%~dp0"
 set "EXECONVERT_RUNTIME_ROOT=%SELF_DIR:~0,-1%"
 "%SELF_DIR%runtime\\node\\node.exe" "%SELF_DIR%bin\\execonvert.js" %*
+set "EXECONVERT_EXIT=%ERRORLEVEL%"
+rem Opened on its own, from the Start menu search or with a double click, the
+rem window would close before the help could be read: wait for a key then.
+rem Delayed expansion only now, so that a "!" in the arguments is kept, and
+rem without the quotes of cmdcmdline, which break the comparison.
+if not "%~1"=="" exit /b %EXECONVERT_EXIT%
+setlocal EnableDelayedExpansion
+set "EXECONVERT_LINE=!cmdcmdline:"=!"
+if /i not "!EXECONVERT_LINE:/c=!"=="!EXECONVERT_LINE!" pause
+exit /b %EXECONVERT_EXIT%
 `;
 }
 
