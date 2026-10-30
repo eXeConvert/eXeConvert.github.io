@@ -15,6 +15,10 @@ trap 'rm -rf "$PKG_ROOT"' EXIT
 mkdir -p "$PKG_ROOT/usr/local/lib/execonvert" "$PKG_ROOT/usr/local/bin"
 cp -a "$BUNDLE_DIR"/. "$PKG_ROOT/usr/local/lib/execonvert/"
 node "$(dirname "$0")/write-install-channel.mjs" "$PKG_ROOT/usr/local/lib/execonvert" pkg
+# Whoever runs the program must be able to read all of it: mktemp makes the
+# root 0700, and some bundled files come without read access for others
+# (Chrome's deb.deps and rpm.deps are 0600).
+chmod -R a+rX "$PKG_ROOT"
 PACKAGE_ARCH=$(node -p process.arch)
 
 cat >"$PKG_ROOT/usr/local/bin/execonvert" <<'EOF'

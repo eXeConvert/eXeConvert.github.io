@@ -16,6 +16,10 @@ trap 'rm -rf "$APPDIR"' EXIT
 mkdir -p "$APPDIR/usr/lib/execonvert" "$APPDIR/usr/bin"
 cp -a "$BUNDLE_DIR"/. "$APPDIR/usr/lib/execonvert/"
 node "$(dirname "$0")/write-install-channel.mjs" "$APPDIR/usr/lib/execonvert" appimage
+# Whoever runs the program must be able to read all of it: mktemp makes the
+# root 0700, and some bundled files come without read access for others
+# (Chrome's deb.deps and rpm.deps are 0600).
+chmod -R a+rX "$APPDIR"
 
 cat >"$APPDIR/usr/bin/execonvert" <<'EOF'
 #!/bin/sh
