@@ -9,6 +9,11 @@ Categorías usadas: **Añadido**, **Cambiado**, **Corregido**, **Eliminado**.
 
 ## [Unreleased]
 
+### Corregido
+- Con Node 26, cada orden de la versión de npm empezaba con un aviso técnico
+  en inglés («ExperimentalWarning: localStorage is not available…»). Lo
+  provocaba la biblioteca `docx` al cargarse; ahora no sale.
+
 ## [0.7.4] - 2026-10-30
 
 ### Añadido
