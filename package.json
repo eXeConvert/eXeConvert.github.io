@@ -52,7 +52,8 @@
     "test:html": "node --test tests/html.test.mjs",
     "test:latex": "node --test tests/latex.test.mjs",
     "test:pdf": "node --import tsx --test tests/pdf-import.test.mjs",
-    "sync:pdf": "node scripts/sync-pdf-import.mjs"
+    "sync:pdf": "node scripts/sync-pdf-import.mjs",
+    "test:pdf-cli": "node --test tests/pdf-cli.test.mjs"
   },
   "dependencies": {
     "@jsquash/jpeg": "1.6.0",
@@ -84,6 +85,7 @@
     "pdfmake": "^0.3.6",
     "puppeteer": "^25.16.0",
     "temml": "^0.13.1",
+    "tesseract.js": "7.0.0",
     "tsx": "^4.21.0",
     "turndown": "^7.2.2",
     "turndown-plugin-gfm": "^1.0.2",

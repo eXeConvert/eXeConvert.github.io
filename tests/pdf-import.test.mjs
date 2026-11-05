@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { placeFootnotes, renderPdfMarkdown } from '../src/pdf-import.ts';
+import { placeFootnotes, renderPdfMarkdown } from '../src/pdf-markdown.ts';
 
 test('cada nota va al final de la sección que la cita', () => {
   const markdown = [

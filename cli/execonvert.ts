@@ -20,6 +20,8 @@ import { convertLatexToElpx } from '../src/latex-import.js';
 import { detectZipContentKind, type AssetResolver } from '../src/import-files.js';
 import { convertElpToElpx } from '../src/legacy-elp.js';
 import { convertMarkdownToElpx } from '../src/markdown-import.js';
+import { convertPdfResultToElpx } from '../src/pdf-markdown.js';
+import { convertPdfToMarkdown, OCR_LANGUAGES, PdfCliError } from './pdf-node.js';
 import { installCliRuntime } from './runtime.js';
 import { EXE_RUNTIME_VERSION, isNewerThanRuntime } from '../src/exe-runtime.js';
 import { automaticCheck, autoCheckAllowed, runUpdate, updateText } from './updates.js';
@@ -61,6 +63,10 @@ type ParsedArgs = {
   h4: Exclude<StructureValue, 'resource-title'>;
   pages: string[];
   pageIds: string[];
+  keepHeaders: boolean;
+  noImages: boolean;
+  ocr: boolean;
+  ocrLang?: string;
 };
 
 const CLI_VERSION = '__CLI_VERSION__'.startsWith('__')
@@ -95,6 +101,7 @@ const cliMessages: Record<Locale, Record<string, string>> = {
     'help.input.markdown': '.md, .txt',
     'help.input.html': '.html, .htm',
     'help.input.latex': '.tex',
+    'help.input.pdf': '.pdf',
     'help.input.zip': '.zip (proyecto de eXeLearning, o página web o documento LaTeX con sus imágenes)',
     'help.output.elp': 'desde .elp: .elpx, .md, .docx, .pdf',
     'help.output.elpx': 'desde .elpx: .md, .docx, .pdf',
@@ -102,16 +109,21 @@ const cliMessages: Record<Locale, Record<string, string>> = {
     'help.output.markdown': 'desde .md/.txt: .elpx',
     'help.output.html': 'desde .html/.htm: .elpx',
     'help.output.latex': 'desde .tex: .elpx',
+    'help.output.pdf': 'desde .pdf: .elpx',
     'help.output.zip': 'desde .zip: lo que admita su contenido',
     'help.option.to': 'Formato de salida para conversión múltiple (elpx, docx, md, pdf). Los archivos no compatibles se ignoran.',
     'warn.skippedInput': 'Aviso: se ignora {file}: no se puede convertir a {format}.',
     'warn.newerProject': 'Aviso: el proyecto se creó con eXeLearning {version} y esta versión incorpora la {runtime}. La conversión puede no reconocer los elementos nuevos.',
     'help.option.outDir': 'Directorio de salida (por defecto: mismo directorio que cada entrada)',
     'help.option.json': 'Imprime JSON legible por máquina',
-    'help.option.pages': 'Exporta solo las referencias de página seleccionadas de un .elpx',
+    'help.option.pages': 'Exporta solo las referencias de página seleccionadas de un .elpx; en un .pdf, convierte solo esas páginas (1-3,5)',
     'help.option.pageId': 'Exporta solo el identificador interno de página indicado (repetible)',
     'help.option.pageIds': 'Exporta solo los identificadores internos de página indicados',
     'help.option.images': 'Mantiene imágenes embebidas al exportar .elpx a Markdown',
+    'help.option.keepHeaders': 'Al importar un .pdf, conserva los encabezados y pies que se repiten en las páginas',
+    'help.option.noImages': 'Al importar un .pdf, deja fuera las imágenes y las fórmulas detectadas como imagen',
+    'help.option.ocr': 'Al importar un .pdf, aplica OCR a las páginas escaneadas (la primera vez descarga los datos del idioma)',
+    'help.option.ocrLang': 'Idioma del OCR: spa | cat | eng | glg | eus (de partida, el de --lang)',
     'help.option.h1': 'page | resource-title',
     'help.option.h2': 'idevice | subpage',
     'help.option.h3': 'idevice | subpage',
@@ -139,6 +151,16 @@ const cliMessages: Record<Locale, Record<string, string>> = {
     'result.batchDone': '{count} archivo(s) convertido(s).',
     'progress.generatePdf': 'Generando el documento .pdf...',
     'progress.composePdf': 'Componiendo el documento .pdf...',
+    'progress.pdfLoading': 'Cargando el conversor de PDF...',
+    'progress.pdfHeaders': 'Analizando encabezados y pies: página {done} de {total}',
+    'progress.pdfAnalysing': 'Analizando el documento: página {done} de {total}',
+    'progress.pdfConverting': 'Convirtiendo el PDF: página {done} de {total}',
+    'progress.pdfOcr': 'Reconociendo texto (OCR): página {done} de {total}',
+    'warn.pdfScanned': 'Aviso: {count} página(s) de {file} no tienen texto extraíble y salen como imagen. Con --ocr se reconoce su texto.',
+    'error.pdfPassword': 'El PDF está protegido con contraseña. Usa una copia sin contraseña.',
+    'error.pdfPages': 'Intervalo de páginas no válido o fuera del documento. Ejemplo: --pages 1-3,5',
+    'error.pdfEmpty': 'No se ha recuperado contenido del PDF. Si es escaneado, prueba con --ocr.',
+    'error.pdfOcr': 'No se pudo completar el OCR: {message}. Para descargar los datos del idioma la primera vez hace falta conexión.',
   },
   ca: {
     'help.title': 'CLI d’eXeConvert',
@@ -154,6 +176,7 @@ const cliMessages: Record<Locale, Record<string, string>> = {
     'help.input.markdown': '.md, .txt',
     'help.input.html': '.html, .htm',
     'help.input.latex': '.tex',
+    'help.input.pdf': '.pdf',
     'help.input.zip': '.zip (projecte d’eXeLearning, o pàgina web o document LaTeX amb les seves imatges)',
     'help.output.elp': 'des de .elp: .elpx, .md, .docx, .pdf',
     'help.output.elpx': 'des de .elpx: .md, .docx, .pdf',
@@ -161,16 +184,21 @@ const cliMessages: Record<Locale, Record<string, string>> = {
     'help.output.markdown': 'des de .md/.txt: .elpx',
     'help.output.html': 'des de .html/.htm: .elpx',
     'help.output.latex': 'des de .tex: .elpx',
+    'help.output.pdf': 'des de .pdf: .elpx',
     'help.output.zip': 'des de .zip: el que admeti el seu contingut',
     'help.option.to': 'Format de sortida per a conversió múltiple (elpx, docx, md, pdf). Els fitxers no compatibles s’ignoren.',
     'warn.skippedInput': 'Avís: s’ignora {file}: no es pot convertir a {format}.',
     'warn.newerProject': 'Avís: el projecte s’ha creat amb eXeLearning {version} i aquesta versió incorpora la {runtime}. La conversió pot no reconèixer els elements nous.',
     'help.option.outDir': 'Directori de sortida (per defecte: mateix directori que cada entrada)',
     'help.option.json': 'Imprimeix JSON llegible per màquines',
-    'help.option.pages': 'Exporta només les referències de pàgina seleccionades d’un .elpx',
+    'help.option.pages': 'Exporta només les referències de pàgina seleccionades d’un .elpx; en un .pdf, converteix només aquestes pàgines (1-3,5)',
     'help.option.pageId': 'Exporta només l’identificador intern de pàgina indicat (repetible)',
     'help.option.pageIds': 'Exporta només els identificadors interns de pàgina indicats',
     'help.option.images': 'Manté imatges incrustades en exportar .elpx a Markdown',
+    'help.option.keepHeaders': 'En importar un .pdf, conserva els encapçalaments i peus que es repeteixen a les pàgines',
+    'help.option.noImages': 'En importar un .pdf, deixa fora les imatges i les fórmules detectades com a imatge',
+    'help.option.ocr': 'En importar un .pdf, aplica OCR a les pàgines escanejades (la primera vegada baixa les dades de l’idioma)',
+    'help.option.ocrLang': 'Idioma de l’OCR: spa | cat | eng | glg | eus (d’entrada, el de --lang)',
     'help.option.h1': 'page | resource-title',
     'help.option.h2': 'idevice | subpage',
     'help.option.h3': 'idevice | subpage',
@@ -198,6 +226,16 @@ const cliMessages: Record<Locale, Record<string, string>> = {
     'result.batchDone': '{count} fitxer(s) convertit(s).',
     'progress.generatePdf': 'S’està generant el document .pdf...',
     'progress.composePdf': 'S’està component el document .pdf...',
+    'progress.pdfLoading': 'S’està carregant el convertidor de PDF...',
+    'progress.pdfHeaders': 'S’analitzen encapçalaments i peus: pàgina {done} de {total}',
+    'progress.pdfAnalysing': 'S’analitza el document: pàgina {done} de {total}',
+    'progress.pdfConverting': 'Es converteix el PDF: pàgina {done} de {total}',
+    'progress.pdfOcr': 'Es reconeix el text (OCR): pàgina {done} de {total}',
+    'warn.pdfScanned': 'Avís: {count} pàgina(es) de {file} no tenen text extraïble i surten com a imatge. Amb --ocr se’n reconeix el text.',
+    'error.pdfPassword': 'El PDF està protegit amb contrasenya. Fes servir una còpia sense contrasenya.',
+    'error.pdfPages': 'Interval de pàgines no vàlid o fora del document. Exemple: --pages 1-3,5',
+    'error.pdfEmpty': 'No s’ha recuperat contingut del PDF. Si és escanejat, prova amb --ocr.',
+    'error.pdfOcr': 'No s’ha pogut completar l’OCR: {message}. Per baixar les dades de l’idioma la primera vegada cal connexió.',
   },
   en: {
     'help.title': 'eXeConvert CLI',
@@ -213,6 +251,7 @@ const cliMessages: Record<Locale, Record<string, string>> = {
     'help.input.markdown': '.md, .txt',
     'help.input.html': '.html, .htm',
     'help.input.latex': '.tex',
+    'help.input.pdf': '.pdf',
     'help.input.zip': '.zip (eXeLearning project, or web page or LaTeX document with its images)',
     'help.output.elp': 'from .elp: .elpx, .md, .docx, .pdf',
     'help.output.elpx': 'from .elpx: .md, .docx, .pdf',
@@ -220,16 +259,21 @@ const cliMessages: Record<Locale, Record<string, string>> = {
     'help.output.markdown': 'from .md/.txt: .elpx',
     'help.output.html': 'from .html/.htm: .elpx',
     'help.output.latex': 'from .tex: .elpx',
+    'help.output.pdf': 'from .pdf: .elpx',
     'help.output.zip': 'from .zip: whatever its contents allow',
     'help.option.to': 'Output format for batch conversion (elpx, docx, md, pdf). Incompatible files are skipped.',
     'warn.skippedInput': 'Warning: skipping {file}: it cannot be converted to {format}.',
     'warn.newerProject': 'Warning: this project was created with eXeLearning {version} and this build carries {runtime}. The conversion may not recognise its newer elements.',
     'help.option.outDir': 'Output directory (default: same directory as each input)',
     'help.option.json': 'Print machine-readable JSON',
-    'help.option.pages': 'Export only selected page refs from an .elpx input',
+    'help.option.pages': 'Export only selected page refs from an .elpx input; for a .pdf, convert only those pages (1-3,5)',
     'help.option.pageId': 'Export only the given internal page id (repeatable)',
     'help.option.pageIds': 'Export only the given internal page ids',
     'help.option.images': 'Keep embedded images when exporting .elpx to Markdown',
+    'help.option.keepHeaders': 'When importing a .pdf, keep the headers and footers repeated on its pages',
+    'help.option.noImages': 'When importing a .pdf, leave out images and formulas detected as images',
+    'help.option.ocr': 'When importing a .pdf, apply OCR to scanned pages (downloads the language data the first time)',
+    'help.option.ocrLang': 'OCR language: spa | cat | eng | glg | eus (by default, the one from --lang)',
     'help.option.h1': 'page | resource-title',
     'help.option.h2': 'idevice | subpage',
     'help.option.h3': 'idevice | subpage',
@@ -257,6 +301,16 @@ const cliMessages: Record<Locale, Record<string, string>> = {
     'result.batchDone': '{count} file(s) converted.',
     'progress.generatePdf': 'Generating the .pdf document...',
     'progress.composePdf': 'Composing the .pdf document...',
+    'progress.pdfLoading': 'Loading the PDF converter...',
+    'progress.pdfHeaders': 'Analysing headers and footers: page {done} of {total}',
+    'progress.pdfAnalysing': 'Analysing the document: page {done} of {total}',
+    'progress.pdfConverting': 'Converting the PDF: page {done} of {total}',
+    'progress.pdfOcr': 'Recognising text (OCR): page {done} of {total}',
+    'warn.pdfScanned': 'Warning: {count} page(s) of {file} have no extractable text and come out as images. With --ocr their text is recognised.',
+    'error.pdfPassword': 'The PDF is password-protected. Use a copy without a password.',
+    'error.pdfPages': 'Invalid page range or outside the document. Example: --pages 1-3,5',
+    'error.pdfEmpty': 'No content was recovered from the PDF. If it is scanned, try --ocr.',
+    'error.pdfOcr': 'OCR could not be completed: {message}. Downloading the language data the first time needs a connection.',
   },
 };
 
@@ -335,6 +389,7 @@ ${t('help.inputs')}:
   ${t('help.input.markdown')}
   ${t('help.input.html')}
   ${t('help.input.latex')}
+  ${t('help.input.pdf')}
   ${t('help.input.zip')}
 
 ${t('help.outputs')}:
@@ -344,6 +399,7 @@ ${t('help.outputs')}:
   ${t('help.output.markdown')}
   ${t('help.output.html')}
   ${t('help.output.latex')}
+  ${t('help.output.pdf')}
   ${t('help.output.zip')}
 
 ${t('help.options')}:
@@ -354,6 +410,10 @@ ${t('help.options')}:
   --page-id <id>          ${t('help.option.pageId')}
   --page-ids a,b,c        ${t('help.option.pageIds')}
   --images                ${t('help.option.images')}
+  --keep-headers          ${t('help.option.keepHeaders')}
+  --no-images             ${t('help.option.noImages')}
+  --ocr                   ${t('help.option.ocr')}
+  --ocr-lang <code>       ${t('help.option.ocrLang')}
   --h1 <mode>             ${t('help.option.h1')}
   --h2 <mode>             ${t('help.option.h2')}
   --h3 <mode>             ${t('help.option.h3')}
@@ -371,6 +431,7 @@ ${t('help.examples')}:
   execonvert page.html page.elpx --h1 resource-title --h2 subpage
   execonvert notes.tex notes.elpx
   execonvert overleaf-project.zip notes.elpx
+  execonvert report.pdf report.elpx --pages 1-10 --ocr
   execonvert *.elpx --to docx
   execonvert *.elpx --to pdf --out-dir ./output
   execonvert inspect project.elpx --json
@@ -391,6 +452,9 @@ function parseArgs(argv: string[], t: CliTranslator['t'], locale: Locale): Parse
     h4: 'idevice',
     pages: [],
     pageIds: [],
+    keepHeaders: false,
+    noImages: false,
+    ocr: false,
   };
 
   const args = [...argv];
@@ -515,6 +579,24 @@ function parseOptionFlags(args: string[], defaults: ParsedArgs, t: CliTranslator
         break;
       case '--images':
         options.includeImages = true;
+        break;
+      case '--keep-headers':
+        options.keepHeaders = true;
+        break;
+      case '--no-images':
+        options.noImages = true;
+        break;
+      case '--ocr':
+        options.ocr = true;
+        break;
+      case '--ocr-lang':
+        ensureOptionValue(value, nextValue, t);
+        if (!(OCR_LANGUAGES as readonly string[]).includes(nextValue.trim().toLowerCase())) {
+          throw new Error(t('error.invalidValue', { value: nextValue, allowed: OCR_LANGUAGES.join(', ') }));
+        }
+        options.ocrLang = nextValue.trim().toLowerCase();
+        options.ocr = true;
+        index += 1;
         break;
       case '--pages':
         ensureOptionValue(value, nextValue, t);
@@ -752,6 +834,83 @@ async function runInspect(inputPath: string, json: boolean): Promise<void> {
   printInspectText(pages);
 }
 
+const OCR_LANGUAGE_BY_LOCALE: Record<Locale, string> = { es: 'spa', ca: 'cat', en: 'eng' };
+const PDF_PROGRESS_KEYS: Record<string, string> = {
+  headers: 'progress.pdfHeaders',
+  analysing: 'progress.pdfAnalysing',
+  converting: 'progress.pdfConverting',
+  ocr: 'progress.pdfOcr',
+};
+
+// PDF → .elpx with EdiMarkdown's converter running in Node (ADR 0008).
+async function convertPdfInput(
+  args: ParsedArgs,
+  inputPath: string,
+  outputPath: string,
+  inputFile: File,
+  i18n: CliTranslator,
+): Promise<void> {
+  // A long document reports every page: show the first, every tenth and the last.
+  const onProgress = (stage: string, done: number, total: number) => {
+    if (stage === 'loading') {
+      progressLogger({ phase: 'pdf', message: i18n.t('progress.pdfLoading') }, i18n);
+      return;
+    }
+    const key = PDF_PROGRESS_KEYS[stage];
+    if (!key || !done || (done !== 1 && done !== total && done % 10 !== 0)) return;
+    progressLogger({ phase: 'pdf', message: i18n.t(key, { done, total }) }, i18n);
+  };
+  let pdf;
+  try {
+    pdf = await convertPdfToMarkdown(
+      new Uint8Array(await inputFile.arrayBuffer()),
+      {
+        pages: args.pages.join(','),
+        removeHeaders: !args.keepHeaders,
+        keepImages: !args.noImages,
+        ocr: args.ocr,
+        ocrLanguage: args.ocrLang ?? OCR_LANGUAGE_BY_LOCALE[args.locale] ?? 'spa',
+      },
+      onProgress,
+    );
+  } catch (error) {
+    if (error instanceof PdfCliError) {
+      const key = { pdf_password: 'error.pdfPassword', pdf_pages_invalid: 'error.pdfPages', pdf_empty: 'error.pdfEmpty' }[error.key];
+      if (key) throw new Error(i18n.t(key));
+    }
+    if (args.ocr && /tesseract|traineddata|fetch|network|ENOTFOUND|ECONN/i.test(String(error))) {
+      throw new Error(i18n.t('error.pdfOcr', { message: error instanceof Error ? error.message : String(error) }));
+    }
+    throw error;
+  }
+  const result = await convertPdfResultToElpx(
+    pdf,
+    basename(inputPath),
+    {
+      heading1Mode: args.h1 === 'resource-title' ? 'resource' : 'page',
+      heading2Mode: args.h2 === 'subpage' ? 'page' : 'block',
+      heading3Mode: args.h3 === 'subpage' ? 'page' : 'block',
+      heading4Mode: args.h4 === 'subpage' ? 'page' : 'block',
+    },
+    progress => progressLogger(progress, i18n),
+  );
+  await writeBlob(outputPath, result.blob);
+  const scanned = pdf.pages - pdf.textPages;
+  if (scanned > 0 && !args.ocr && !args.json) {
+    stderr.write(`${i18n.t('warn.pdfScanned', { count: scanned, file: basename(inputPath) })}\n`);
+  }
+  printConvertResult(args.json, {
+    input: resolve(inputPath),
+    output: resolve(outputPath),
+    inputFormat: 'pdf',
+    outputFormat: 'elpx',
+    pageCount: result.pageCount,
+    blockCount: result.blockCount,
+    pdfPages: pdf.pages,
+    ocrPages: pdf.ocrPages,
+  }, i18n.t);
+}
+
 async function runConvert(args: ParsedArgs): Promise<void> {
   installCliRuntime();
   const i18n = createCliTranslator(args.locale);
@@ -901,6 +1060,11 @@ async function runConvert(args: ParsedArgs): Promise<void> {
       pageCount: result.pageCount,
       blockCount: result.blockCount,
     }, i18n.t);
+    return;
+  }
+
+  if (inputFormat === 'pdf' && outputFormat === 'elpx') {
+    await convertPdfInput(args, inputPath, outputPath, inputFile, i18n);
     return;
   }
 
@@ -1081,7 +1245,7 @@ function isSupportedConversion(inputFormat: FileFormat, outputFormat: FileFormat
   const exports: FileFormat[] = ['docx', 'markdown', 'pdf'];
   if (inputFormat === 'elpx') return exports.includes(outputFormat);
   if (inputFormat === 'elp') return outputFormat === 'elpx' || exports.includes(outputFormat);
-  if (inputFormat === 'docx' || inputFormat === 'markdown' || inputFormat === 'html' || inputFormat === 'latex') return outputFormat === 'elpx';
+  if (inputFormat === 'docx' || inputFormat === 'markdown' || inputFormat === 'html' || inputFormat === 'latex' || inputFormat === 'pdf') return outputFormat === 'elpx';
   return false;
 }
 

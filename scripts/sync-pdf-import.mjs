@@ -72,6 +72,11 @@ try {
     checked += 1;
   }
   if (!checked) throw new Error('El manifiesto del motor no trae ninguna huella que comprobar.');
+  // La versión de terminal carga el motor en Node (ADR 0008). eXeConvert es
+  // un paquete de módulos ES, y Pyodide se carga como CommonJS: sin esta
+  // marca, Node lee pyodide.asm.js como módulo y falla en su `require`. El
+  // navegador no la mira, y no es ninguna de las piezas del manifiesto.
+  await writeFile(join(target, 'vendor/pdf-runtime/package.json'), '{\n  "type": "commonjs"\n}\n');
 
   const locales = {};
   for (const locale of LOCALES) {

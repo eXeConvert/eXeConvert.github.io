@@ -29,6 +29,9 @@ jobs:
       - run: npm run test:updates
       - run: npm run build:cli
       - run: npm run test:cli
+      - run: npm run test:pdf-cli
+        env:
+          EXECONVERT_TEST_OCR: '1'
       - run: npm run test:docx
       - run: npm run test:args
       - run: npm run test:version
