@@ -1,0 +1,5 @@
+# The PDF importer and its runtime are copied byte for byte from EdiMarkdown and
+# checked against the SHA-256 of their manifest (ADR 0007): no line-ending
+# conversion on any platform, or the Windows checkout breaks the hashes.
+app/public/pdf/** -text
+docs/pdf/** -text
