@@ -1,6 +1,6 @@
 # 0007. Importar PDF con el conversor de EdiMarkdown
 
-- **Estado:** aceptada
+- **Estado:** aceptada; sustituida en parte por el [ADR 0008](0008-importar-pdf-tambien-en-la-version-de-terminal.md), que lleva el PDF también a la versión de terminal
 - **Fecha:** 2026-11-05
 
 ## Contexto

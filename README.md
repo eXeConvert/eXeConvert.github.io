@@ -1,6 +1,6 @@
 # eXeConvert
 
-Conversor estático en navegador para transformar proyectos de eXeLearning y convertir entre `.elp`, `.elpx`, `.docx`, `.md` y `.pdf`, e importar `.html` y `.tex` (y, en la web, `.pdf`), sin salir del navegador.
+Conversor estático en navegador para transformar proyectos de eXeLearning y convertir entre `.elp`, `.elpx`, `.docx`, `.md` y `.pdf`, e importar `.html`, `.tex` y `.pdf`, sin salir del navegador.
 
 ## Qué hace ahora
 
@@ -10,8 +10,8 @@ Conversor estático en navegador para transformar proyectos de eXeLearning y con
 - Reconstruye una versión HTML estable del contenido para previsualización y exportación.
 - Exporta `.elpx` a `.docx`, `.md` o `.pdf`.
 - En CLI y paquetes nativos, la exportación `.pdf` usa Puppeteer con navegador embebido y MathJax en SVG para mantener fórmulas vectoriales.
-- Importa `.docx`, `.md`, `.html` y `.tex` a `.elpx`, y en la web también `.pdf`.
-- Al importar un PDF (solo en la web), se abre el conversor de [EdiMarkdown](https://edimarkdown.github.io/): se eligen las páginas, se quitan los encabezados y pies repetidos, se conservan las imágenes y, si hay páginas escaneadas, se puede aplicar OCR; una vista previa enseña el resultado antes de crear el proyecto. Se recupera el contenido (texto, títulos, listas, tablas con líneas, imágenes y notas al pie), no el diseño. Las notas quedan al final de la sección que las cita. El conversor (unos 34 MB) solo se descarga al abrir un PDF ([ADR 0007](adr/0007-importar-pdf-con-el-conversor-de-edimarkdown.md)).
+- Importa `.docx`, `.md`, `.html`, `.tex` y `.pdf` a `.elpx`.
+- Al importar un PDF en la web se abre el conversor de [EdiMarkdown](https://edimarkdown.github.io/): se eligen las páginas, se quitan los encabezados y pies repetidos, se conservan las imágenes y, si hay páginas escaneadas, se puede aplicar OCR; una vista previa enseña el resultado antes de crear el proyecto. Se recupera el contenido (texto, títulos, listas, tablas con líneas, imágenes y notas al pie), no el diseño. Las notas quedan al final de la sección que las cita. El conversor (unos 34 MB) solo se descarga al abrir un PDF ([ADR 0007](adr/0007-importar-pdf-con-el-conversor-de-edimarkdown.md)). La versión de terminal usa el mismo conversor, con las opciones como parámetros: `--pages 1-3,5`, `--keep-headers`, `--no-images`, `--ocr` y `--ocr-lang spa|cat|eng|glg|eus`; los datos del idioma del OCR se descargan la primera vez ([ADR 0008](adr/0008-importar-pdf-tambien-en-la-version-de-terminal.md)).
 - Al importar HTML, desenvuelve los contenedores de la página (`div`, `section`, `main`…), descarta menús y scripts, y recoge las imágenes locales: las que están junto al `.html` en la CLI, o las que van dentro del `.zip`. La página que reúne el contenido anterior al primer encabezado toma el título de la página web. Los enlaces que no llevan a una dirección completa (otras páginas del sitio, anclas) se quitan y queda su texto. Recupera en LaTeX las fórmulas ya mostradas con MathJax 2 o 3, KaTeX o MathML.
 - Al importar LaTeX, las fórmulas pasan tal cual, porque eXeLearning las muestra con MathJax: `$...$`, `\[...\]` y los entornos `equation`, `align`, `gather`… se conservan editables. Se convierten secciones y capítulos en páginas e iDevices, listas, tablas, figuras con pie, teoremas declarados con `\newtheorem`, notas al pie, referencias cruzadas con su numeración, enlaces, código literal, acentos al estilo `\'a` y diapositivas de Beamer. Las macros propias (`\newcommand`, `\def`, `\DeclareMathOperator`) se expanden, y se leen los archivos de `\input`/`\include` y las imágenes de `\includegraphics`: desde la carpeta del `.tex` en la CLI, o desde un `.zip` con el proyecto completo (como el que descarga Overleaf). Lo que no tiene conversión conserva su texto y se avisa.
 - Un `.zip` se identifica por su contenido: proyecto `.elpx`, proyecto `.elp`, proyecto LaTeX o página web.
@@ -84,6 +84,7 @@ npm run cli -- proyecto.elpx resumen.md --pages 1,2.1
 npm run cli -- pagina.html pagina.elpx --h1 resource-title --h2 subpage
 npm run cli -- apuntes.tex apuntes.elpx
 npm run cli -- proyecto-overleaf.zip apuntes.elpx
+npm run cli -- informe.pdf informe.elpx --pages 1-10 --ocr
 npm run cli -- inspect proyecto.elpx --json
 ```
 
@@ -93,7 +94,8 @@ Opciones principales:
 - `--json`: salida pensada para scripts.
 - `--pages 1,2.1`: exporta solo esas páginas de un `.elpx`.
 - `--page-id <id>` / `--page-ids a,b,c`: selección por IDs internos.
-- `--h1`, `--h2`, `--h3`, `--h4`: controlan cómo se interpreta la estructura al importar `.docx`, `.md`, `.html` o `.tex` a `.elpx`.
+- `--h1`, `--h2`, `--h3`, `--h4`: controlan cómo se interpreta la estructura al importar `.docx`, `.md`, `.html`, `.tex` o `.pdf` a `.elpx`.
+- `--pages 1-3,5` (en un `.pdf`), `--keep-headers`, `--no-images`, `--ocr`, `--ocr-lang <código>`: opciones de la importación de PDF.
 
 Valores admitidos para la estructura de importación:
 

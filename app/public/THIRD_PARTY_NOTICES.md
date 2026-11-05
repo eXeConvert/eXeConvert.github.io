@@ -103,7 +103,7 @@ English, Spanish and Catalan messages are the ones shipped with Inno Setup.
 - This file is provided as a practical attribution summary for reused third-party assets.
 - It does not replace the original licenses distributed by their respective authors.
 
-## PDF importer copied from EdiMarkdown (web only)
+## PDF importer copied from EdiMarkdown
 
 - Source project: https://github.com/edimarkdown/edimarkdown.github.io (Juan José de Haro)
 - Project license: AGPL-3.0-only
@@ -128,8 +128,12 @@ Included in this repository:
   - tabulate 0.9.0 · MIT · https://github.com/astanin/python-tabulate
   - packaging 24.2 · Apache-2.0 or BSD-2-Clause · https://github.com/pypa/packaging
 
-Loaded from jsDelivr only when OCR is applied to a scanned PDF (not stored in
-this repository):
+OCR of scanned PDFs (Tesseract.js 7.0.0 and tesseract.js-core 7.0.0 · Apache-2.0 ·
+https://github.com/naptha/tesseract.js): in the web app it is loaded from jsDelivr
+only when OCR is applied; the CLI and its installers carry it as an npm dependency
+(ADR 0008). The `@tesseract.js-data` language files (MIT ·
+https://github.com/naptha/tessdata) are downloaded from jsDelivr the first time a
+language is used, and the CLI keeps them in the user's cache.
 
-- Tesseract.js 7.0.0 and tesseract.js-core 7.0.0 · Apache-2.0 · https://github.com/naptha/tesseract.js
-- `@tesseract.js-data` language files · MIT · https://github.com/naptha/tessdata
+In the CLI, `app/public/pdf/vendor/pdf-runtime/package.json` is not an upstream
+file: it marks the runtime as CommonJS so that Node can load Pyodide.

@@ -9,6 +9,13 @@ Categorías usadas: **Añadido**, **Cambiado**, **Corregido**, **Eliminado**.
 
 ## [Unreleased]
 
+### Añadido
+- La versión de terminal y los instaladores también importan PDF, con el mismo
+  conversor que la web: `execonvert informe.pdf informe.elpx`. Las opciones
+  del diálogo pasan a parámetros: `--pages 1-3,5`, `--keep-headers`,
+  `--no-images`, `--ocr` y `--ocr-lang spa|cat|eng|glg|eus`. Los datos del
+  idioma del OCR se descargan la primera vez (ADR 0008).
+
 ## [0.8.1] - 2026-11-05
 
 ### Corregido
