@@ -36,6 +36,7 @@ jobs:
       - run: npm run test:markdown
       - run: npm run test:html
       - run: npm run test:latex
+      - run: npm run test:pdf
   conversions:
     runs-on: ubuntu-latest
     timeout-minutes: 20

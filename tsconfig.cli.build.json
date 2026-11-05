@@ -11,5 +11,5 @@
     "moduleResolution": "NodeNext"
   },
   "include": ["cli/**/*.ts", "src/**/*.ts"],
-  "exclude": ["src/main.ts", "app/**/*.ts", "vite.config.ts"]
+  "exclude": ["src/main.ts", "src/pdf-import.ts", "app/**/*.ts", "vite.config.ts"]
 }

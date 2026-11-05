@@ -16,6 +16,7 @@ import { convertHtmlToElpxProject, countSitePages } from './html-import';
 import { detectZipContentKind } from './import-files';
 import { convertElpToElpx } from './legacy-elp';
 import { convertMarkdownToElpx } from './markdown-import';
+import { convertPdfResultToElpx, openPdfDialog, type PdfImportResult } from './pdf-import';
 import { createI18n, persistLocale, resolveInitialLocale, type Locale } from './i18n';
 import MarkdownIt from 'markdown-it';
 // @ts-expect-error markdown-it-texmath does not ship TypeScript declarations.
@@ -48,7 +49,7 @@ interface PendingSaveTarget {
   filename: string;
 }
 
-type InputKind = 'docx' | 'markdown' | 'html' | 'latex' | 'elpx' | 'elp';
+type InputKind = 'docx' | 'markdown' | 'html' | 'latex' | 'pdf' | 'elpx' | 'elp';
 type ConversionKind = 'docx' | 'markdown' | 'elpx' | 'pdf';
 type OutputKind = ConversionKind;
 type MarkdownPreviewMode = 'formatted' | 'source';
@@ -149,7 +150,7 @@ app.innerHTML = `
       <h2>${t('panel.conversion')}</h2>
       <form id="conversion-form" class="form">
         <div id="drop-field" class="dropzone" tabindex="0" role="button" aria-describedby="drop-help">
-          <input id="file-input" type="file" accept=".elp,.elpx,.zip,.docx,.md,.markdown,.mdown,.txt,.html,.htm,.tex" hidden />
+          <input id="file-input" type="file" accept=".elp,.elpx,.zip,.docx,.md,.markdown,.mdown,.txt,.html,.htm,.tex,.pdf" hidden />
           <p class="dropzone-title">${t('drop.title')}</p>
           <p id="drop-help" class="drop-help">
             ${t('drop.help')}
@@ -443,6 +444,16 @@ let pageInspectionSequence = 0;
 let autoPreviewSequence = 0;
 let preparedConversion: PreparedConversion | null = null;
 let legacyIntermediateElpx: IntermediateElpxSave | null = null;
+// What the PDF dialog returned for the selected file (ADR 0007).
+let pdfResult: PdfImportResult | null = null;
+
+class PdfCancelledError extends Error {}
+
+const IMPORT_KINDS: ReadonlySet<InputKind> = new Set(['docx', 'markdown', 'html', 'latex', 'pdf']);
+
+function isImportKind(kind: InputKind | null): kind is 'docx' | 'markdown' | 'html' | 'latex' | 'pdf' {
+  return kind !== null && IMPORT_KINDS.has(kind);
+}
 let cachedElpxHtml: CachedElpxHtml | null = null;
 let previewVirtualPages: Record<string, string> | null = null;
 let previewCurrentPath = 'index.html';
@@ -646,6 +657,10 @@ previewButton.addEventListener('click', async () => {
     syncDetectedMessage();
     setStatus(preparedConversion.notice ? `${t('status.previewReady')} ${preparedConversion.notice}` : t('status.previewReady'));
   } catch (error) {
+    if (error instanceof PdfCancelledError) {
+      setStatus(t('status.pdfCancelled'));
+      return;
+    }
     const message = error instanceof Error ? error.message : String(error);
     setStatus(t('status.errorPrefix', { message }), true);
   } finally {
@@ -711,7 +726,9 @@ form.addEventListener('submit', async event => {
               ? t('source.htmlImport')
               : selectedKind === 'latex'
                 ? t('source.latexImport')
-                : t('source.elpImport');
+                : selectedKind === 'pdf'
+                  ? t('source.pdfImport')
+                  : t('source.elpImport');
       setStatus(
         savedWithDialog
           ? t('done.import.withDialog', {
@@ -755,6 +772,7 @@ function handleSelectedFile(file: File | null): void {
   autoPreviewSequence += 1;
   selectedFile = file;
   legacyIntermediateElpx = null;
+  pdfResult = null;
 
   if (!file) {
     selectedKind = null;
@@ -852,6 +870,10 @@ function detectInputKind(filename: string): InputKind | null {
     return 'latex';
   }
 
+  if (lowerName.endsWith('.pdf')) {
+    return 'pdf';
+  }
+
   if (lowerName.endsWith('.elpx') || lowerName.endsWith('.zip')) {
     return 'elpx';
   }
@@ -925,6 +947,12 @@ function syncDetectedMessage(): void {
     return;
   }
 
+  if (selectedKind === 'pdf') {
+    detectedHelp.innerHTML = t(hasPreparedCurrentConversion ? 'detected.pdfToElpxDone' : 'detected.pdfToElpx');
+    setStatus(t('status.pdfDetected'));
+    return;
+  }
+
   if (selectedKind === 'latex') {
     detectedHelp.innerHTML = t(hasPreparedCurrentConversion ? 'detected.latexToElpxDone' : 'detected.latexToElpx');
     setStatus(t('status.latexDetected'));
@@ -965,7 +993,7 @@ function hasCurrentPreparedConversion(): boolean {
 }
 
 function syncStructureControls(): void {
-  if (selectedKind !== 'docx' && selectedKind !== 'markdown' && selectedKind !== 'html' && selectedKind !== 'latex') {
+  if (!isImportKind(selectedKind)) {
     structureField.hidden = true;
     return;
   }
@@ -1211,7 +1239,8 @@ function syncActionButtons(): void {
         selectedKind === 'docx' ||
         selectedKind === 'markdown' ||
         selectedKind === 'html' ||
-        selectedKind === 'latex'),
+        selectedKind === 'latex' ||
+        selectedKind === 'pdf'),
   );
   const shouldShowFinalSaveButton = Boolean(hasFile && (hasCurrentPreparedConversion || requiresPreviewBeforeSave));
 
@@ -1492,7 +1521,7 @@ async function prepareCurrentConversion(file: File, kind: InputKind): Promise<Pr
     throw new Error(t('error.selectAtLeastOnePage'));
   }
 
-  if (kind === 'docx' || kind === 'markdown' || kind === 'html' || kind === 'latex') {
+  if (isImportKind(kind)) {
     const onImportProgress = (progress: DocxImportProgress) => {
       updateProgress(progress);
       setStatus(toLocalizedProgressMessage(progress));
@@ -1510,6 +1539,14 @@ async function prepareCurrentConversion(file: File, kind: InputKind): Promise<Pr
       if (importResult.unrecognized.length > 0) {
         notice = t('status.latexUnrecognized', { list: importResult.unrecognized.join(', ') });
       }
+    } else if (kind === 'pdf') {
+      // The dialog decides pages, images and OCR once per file; changing the
+      // page structure afterwards reuses its result instead of asking again.
+      pdfResult ||= await openPdfDialog(file, locale, t);
+      if (!pdfResult) {
+        throw new PdfCancelledError();
+      }
+      importResult = await convertPdfResultToElpx(pdfResult, file.name, getHeadingOptions(), onImportProgress);
     } else {
       importResult = await convertMarkdownToElpx(file, getHeadingOptions(), onImportProgress);
     }

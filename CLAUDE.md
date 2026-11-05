@@ -53,6 +53,7 @@ The project exposes a **shared conversion core** (`src/`) through two separate f
 | `html-import.ts` | Import `.html`/`.htm`/`.zip` (web page + images, or a whole site such as a Google Takeout export, ADR 0003) → `.elpx`. |
 | `latex-import.ts` | Import `.tex`/`.zip` (LaTeX project) → `.elpx` via the unified-latex AST; formulas are copied verbatim from the source. Lazy-loaded in the web app. |
 | `import-files.ts` | Shared by importers: `.zip` detection by contents, relative paths, image embedding. |
+| `pdf-import.ts` | Web only: opens EdiMarkdown's PDF dialog (copied verbatim into `app/public/pdf/` by `npm run sync:pdf`, never edited by hand) and turns its Markdown into `.elpx`, notes at the end of their section (ADR 0007). Excluded from the CLI build. |
 | `import-images.ts` | Shared final step: moves the imported data: images to `content/resources` and reduces those over 1920 px with the jSquash WebAssembly codecs (ADR 0002). |
 | `i18n.ts` | Shared i18n (es/ca/en). CLI adds its own message layer on top in `execonvert.ts`. |
 
@@ -65,6 +66,7 @@ The project exposes a **shared conversion core** (`src/`) through two separate f
 .md   → .elpx
 .html → .elpx
 .tex  → .elpx
+.pdf  → .elpx                    (web only, ADR 0007)
 .zip  → by contents: content.xml = .elpx, contentv3.xml = .elp, any .tex = LaTeX project, else .html page
 ```
 

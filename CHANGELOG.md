@@ -9,6 +9,15 @@ Categorías usadas: **Añadido**, **Cambiado**, **Corregido**, **Eliminado**.
 
 ## [Unreleased]
 
+### Añadido
+- La web importa PDF: abre el conversor de EdiMarkdown, que deja elegir las
+  páginas, quitar encabezados y pies repetidos, conservar las imágenes y
+  aplicar OCR a las páginas escaneadas, con una vista previa antes de crear el
+  proyecto. Se recupera el contenido, no el diseño; las notas al pie quedan al
+  final de su sección. El conversor solo se descarga al abrir un PDF, y
+  Tesseract.js, solo si se aplica el OCR (ADR 0007). La versión de terminal no
+  importa PDF.
+
 ## [0.7.6] - 2026-10-30
 
 ### Eliminado

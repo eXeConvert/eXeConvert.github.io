@@ -36,7 +36,14 @@ const cliBundle = resolve(distDir, 'cli/execonvert.js');
 const cliSource = await readFile(cliBundle, 'utf8');
 await writeFile(cliBundle, cliSource.replace(/__CLI_VERSION__/g, version), 'utf8');
 await mkdir(publicTargetDir, { recursive: true });
-await cp(publicSourceDir, publicTargetDir, { recursive: true });
+// The PDF importer (app/public/pdf, ~34 MB of Pyodide and PyMuPDF) only runs
+// in the web app (ADR 0007): the CLI does not import PDFs, so it stays out of
+// the npm package and the installers.
+const pdfImporterDir = resolve(publicSourceDir, 'pdf');
+await cp(publicSourceDir, publicTargetDir, {
+  recursive: true,
+  filter: source => source !== pdfImporterDir && !source.startsWith(`${pdfImporterDir}/`) && !source.startsWith(`${pdfImporterDir}\\`),
+});
 
 // tsc only emits TypeScript, and the vendored omml2mathml is plain JavaScript.
 const vendorSourceDir = fileURLToPath(new URL('../src/vendor', import.meta.url));

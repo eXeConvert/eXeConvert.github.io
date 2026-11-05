@@ -8,40 +8,51 @@ import {
   type ImportToElpxResult,
 } from './docx-import.js';
 
-const markdown = new MarkdownIt({
-  html: false,
-  linkify: true,
-  typographer: false,
-  breaks: false,
-});
+/*
+  The PDF importer (ADR 0007) renders the Markdown that EdiMarkdown produces,
+  which carries some HTML of its own (`<sup>`, `<br>` in table cells), so it
+  needs `html: true`; a plain .md import keeps HTML off. Both share the formula
+  rules below.
+*/
+export function createMarkdownRenderer({ html = false }: { html?: boolean } = {}): MarkdownIt {
+  const renderer = new MarkdownIt({
+    html,
+    linkify: true,
+    typographer: false,
+    breaks: false,
+  });
 
-markdown.use(texmath, {
-  engine: {
-    renderToString(content: string, options?: { displayMode?: boolean }) {
-      const trimmed = content.trim();
-      return options?.displayMode ? `\\[${trimmed}\\]` : `\\(${trimmed}\\)`;
+  renderer.use(texmath, {
+    engine: {
+      renderToString(content: string, options?: { displayMode?: boolean }) {
+        const trimmed = content.trim();
+        return options?.displayMode ? `\\[${trimmed}\\]` : `\\(${trimmed}\\)`;
+      },
     },
-  },
-  delimiters: ['dollars', 'brackets', 'beg_end'],
-});
+    delimiters: ['dollars', 'brackets', 'beg_end'],
+  });
 
-// texmath only accepts \[...\] as a block of its own, while $$...$$ also works
-// inside a paragraph. Without this rule markdown-it reads \[ and \] as escaped
-// brackets and drops the backslashes, so the formula ends up as plain text.
-const bracketDisplayRule = {
-  name: 'math_inline_bracket_display',
-  rex: /\\\[([\s\S]+?)\\\]/gy,
-  tag: '\\[',
-};
-markdown.inline.ruler.before('escape', bracketDisplayRule.name, texmath.inline(bracketDisplayRule));
+  // texmath only accepts \[...\] as a block of its own, while $$...$$ also works
+  // inside a paragraph. Without this rule markdown-it reads \[ and \] as escaped
+  // brackets and drops the backslashes, so the formula ends up as plain text.
+  const bracketDisplayRule = {
+    name: 'math_inline_bracket_display',
+    rex: /\\\[([\s\S]+?)\\\]/gy,
+    tag: '\\[',
+  };
+  renderer.inline.ruler.before('escape', bracketDisplayRule.name, texmath.inline(bracketDisplayRule));
 
-// texmath wraps display math found inside a paragraph in <section>, which the
-// HTML parser cannot nest in <p>: it closes the paragraph there and the text
-// after the formula is lost. Keep the formula inline in the paragraph instead.
-for (const name of ['math_inline_double', bracketDisplayRule.name]) {
-  markdown.renderer.rules[name] = (tokens, idx) =>
-    `<eqn>${texmath.render(tokens[idx].content, true, {})}</eqn>`;
+  // texmath wraps display math found inside a paragraph in <section>, which the
+  // HTML parser cannot nest in <p>: it closes the paragraph there and the text
+  // after the formula is lost. Keep the formula inline in the paragraph instead.
+  for (const name of ['math_inline_double', bracketDisplayRule.name]) {
+    renderer.renderer.rules[name] = (tokens, idx) =>
+      `<eqn>${texmath.render(tokens[idx].content, true, {})}</eqn>`;
+  }
+  return renderer;
 }
+
+const markdown = createMarkdownRenderer();
 
 export function renderMarkdownForTests(source: string): string {
   return markdown.render(source);

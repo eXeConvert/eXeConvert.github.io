@@ -889,3 +889,121 @@ button:disabled {
     overflow-wrap: anywhere;
   }
 }
+
+/*
+  PDF import dialog (ADR 0007). The markup comes verbatim from EdiMarkdown's
+  pdf-import.js; these rules give it eXeConvert's palette in both themes.
+*/
+.pdf-import-dialog {
+  width: min(960px, calc(100vw - 32px));
+  height: min(850px, 92vh);
+  max-height: 92vh;
+  overflow: auto;
+  border: 1px solid var(--line-strong);
+  border-radius: 16px;
+  padding: 20px;
+  color: var(--ink);
+  background: var(--panel);
+  box-shadow: 0 24px 60px rgba(var(--shadow-rgb), 0.28);
+}
+.pdf-import-dialog::backdrop { background: rgba(15, 23, 15, 0.6); }
+/* On a short screen the whole dialog scrolls, with the actions kept in view. */
+.pdf-import-content { display: flex; flex-direction: column; gap: 12px; min-height: 100%; margin: 0; }
+.pdf-import-content > * { flex-shrink: 0; margin: 0; }
+.pdf-import-content h2 { font-size: 1.3rem; font-weight: 700; color: var(--brand-dark); }
+.pdf-import-filename { overflow-wrap: anywhere; font-weight: 600; }
+.pdf-import-info {
+  padding: 10px 12px;
+  border: 1px solid #d99a1e;
+  border-left-width: 5px;
+  border-radius: 8px;
+  color: #6b4210;
+  background: #fff8e6;
+  font-weight: 600;
+}
+.pdf-import-info:empty { display: none; }
+.pdf-import-note { font-size: 0.9rem; color: var(--muted); }
+.pdf-import-options { display: grid; gap: 8px; }
+.pdf-import-options label { display: flex; align-items: center; gap: 8px; }
+.pdf-import-options input[type='checkbox'] { flex: none; margin: 0; accent-color: var(--accent); width: 1.05rem; height: 1.05rem; }
+.pdf-import-options input[type='text'],
+.pdf-import-options select {
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  padding: 7px 10px;
+  color: inherit;
+  background: var(--field);
+  font: inherit;
+}
+.pdf-ocr-language { padding-left: 26px; }
+.pdf-ocr-language[hidden],
+.pdf-ocr-option[hidden] { display: none; }
+.pdf-ocr-language > span { white-space: nowrap; }
+.pdf-ocr-language select { flex: 0 1 auto; width: auto; min-width: 9rem; max-width: 100%; }
+#pdf-import-preview {
+  width: 100%;
+  flex: 1 0 auto;
+  min-height: max(220px, 30vh);
+  height: 20vh;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+.pdf-import-actions {
+  position: sticky;
+  bottom: -20px;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
+  margin: 0 -20px -20px !important;
+  padding: 12px 20px 20px;
+  background: var(--panel);
+  border-top: 1px solid var(--line-soft);
+}
+.pdf-import-actions button {
+  padding: 9px 16px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  color: var(--ink);
+  background: var(--panel-soft);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.pdf-import-actions button:hover:not(:disabled) { border-color: var(--line-hover); }
+.pdf-import-actions button:disabled { opacity: 0.45; cursor: not-allowed; }
+.pdf-import-actions .pdf-primary-action {
+  border-color: var(--accent-strong);
+  color: #fff;
+  background: var(--accent-strong);
+}
+.pdf-import-actions .pdf-primary-action:hover:not(:disabled) { background: var(--accent); }
+#pdf-import-progress { width: 100%; height: 6px; border-radius: 3px; overflow: hidden; background: var(--line-soft); }
+#pdf-import-progress[hidden] { display: none; }
+#pdf-import-progress .pdf-import-progress-bar {
+  display: block;
+  height: 100%;
+  width: 0;
+  border-radius: 3px;
+  background: var(--accent);
+  transition: width 0.2s linear;
+}
+#pdf-import-progress[data-indeterminate='true'] .pdf-import-progress-bar {
+  width: 35%;
+  animation: pdf-import-sweep 1.4s ease-in-out infinite;
+}
+@keyframes pdf-import-sweep {
+  0% { margin-left: -35%; }
+  100% { margin-left: 100%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  #pdf-import-progress[data-indeterminate='true'] .pdf-import-progress-bar { width: 100%; animation: none; opacity: 0.5; }
+}
+:root[data-theme='dark'] .pdf-import-info { border-color: #e0b04a; color: #fdf0cf; background: #3a2a0c; }
+:root[data-theme='dark'] .pdf-import-actions .pdf-primary-action { color: #0f160f; background: var(--accent-light); border-color: var(--accent-light); }
+@media (max-width: 600px) {
+  .pdf-import-dialog { padding: 14px; height: 94vh; max-height: 94vh; }
+  .pdf-import-actions { bottom: -14px; margin: 0 -14px -14px !important; padding: 10px 14px 14px; }
+  .pdf-import-actions button { flex: 1 1 auto; }
+}

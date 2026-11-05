@@ -50,7 +50,9 @@
     "test:primes": "node --import tsx --test tests/latex-primes.test.mjs",
     "test:markdown": "node --import tsx --test tests/markdown-math.test.mjs",
     "test:html": "node --test tests/html.test.mjs",
-    "test:latex": "node --test tests/latex.test.mjs"
+    "test:latex": "node --test tests/latex.test.mjs",
+    "test:pdf": "node --import tsx --test tests/pdf-import.test.mjs",
+    "sync:pdf": "node scripts/sync-pdf-import.mjs"
   },
   "dependencies": {
     "@jsquash/jpeg": "1.6.0",
