@@ -9,6 +9,10 @@ Categorías usadas: **Añadido**, **Cambiado**, **Corregido**, **Eliminado**.
 
 ## [Unreleased]
 
+### Corregido
+- La infografía de formatos tenía palabras sin tilde en castellano y en
+  catalán («Exportacion», «version», «unico»…).
+
 ## [0.8.0] - 2026-11-05
 
 ### Añadido
