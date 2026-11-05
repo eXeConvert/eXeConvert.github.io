@@ -19,7 +19,7 @@ const dictionaries: Record<Locale, Record<string, string>> = {
     'panel.conversion': 'Conversión',
 
     'drop.title': 'Suelta aquí un archivo o selecciónalo',
-    'drop.help': 'Archivos compatibles: <code>.elp</code>, <code>.elpx</code>, <code>.docx</code>, <code>.md</code>, <code>.html</code>, <code>.tex</code> y <code>.zip</code> (página web o sitio entero, como el que exporta Google Takeout, o documento LaTeX con sus imágenes).',
+    'drop.help': 'Archivos compatibles: <code>.elp</code>, <code>.elpx</code>, <code>.docx</code>, <code>.md</code>, <code>.html</code>, <code>.tex</code>, <code>.pdf</code> y <code>.zip</code> (página web o sitio entero, como el que exporta Google Takeout, o documento LaTeX con sus imágenes).',
     'button.openFile': 'Abrir archivo',
     'file.none': 'Ningún archivo seleccionado.',
 
@@ -77,7 +77,7 @@ const dictionaries: Record<Locale, Record<string, string>> = {
     'status.selectFileFirst': 'Selecciona antes un archivo compatible.',
     'status.previewReady': 'Vista previa generada. Si te convence, pulsa Guardar archivo.',
     'status.previewFirst': 'Primero genera la vista previa con la configuración actual.',
-    'status.unsupported': 'Formato no compatible. Usa un archivo .elp, .elpx, .docx, .md, .html, .tex o .zip.',
+    'status.unsupported': 'Formato no compatible. Usa un archivo .elp, .elpx, .docx, .md, .html, .tex, .pdf o .zip.',
     'status.unrecognizedZip': 'El .zip no contiene un proyecto de eXeLearning, una página .html ni un documento .tex.',
     'status.latexDetected': 'Documento LaTeX detectado. Revisa la estructura de páginas y pulsa convertir.',
     'status.latexUnrecognized': 'Comandos de LaTeX sin conversión (se ha conservado su texto): {list}.',
@@ -206,7 +206,7 @@ const dictionaries: Record<Locale, Record<string, string>> = {
     'panel.conversion': 'Conversió',
 
     'drop.title': 'Deixa anar aquí un fitxer o selecciona’l',
-    'drop.help': 'Fitxers compatibles: <code>.elp</code>, <code>.elpx</code>, <code>.docx</code>, <code>.md</code>, <code>.html</code>, <code>.tex</code> i <code>.zip</code> (pàgina web o lloc sencer, com el que exporta Google Takeout, o document LaTeX amb les seves imatges).',
+    'drop.help': 'Fitxers compatibles: <code>.elp</code>, <code>.elpx</code>, <code>.docx</code>, <code>.md</code>, <code>.html</code>, <code>.tex</code>, <code>.pdf</code> i <code>.zip</code> (pàgina web o lloc sencer, com el que exporta Google Takeout, o document LaTeX amb les seves imatges).',
     'button.openFile': 'Obrir fitxer',
     'file.none': 'Cap fitxer seleccionat.',
 
@@ -264,7 +264,7 @@ const dictionaries: Record<Locale, Record<string, string>> = {
     'status.selectFileFirst': 'Selecciona abans un fitxer compatible.',
     'status.previewReady': 'Previsualització generada. Si et convenç, prem Desar fitxer.',
     'status.previewFirst': 'Primer genera la previsualització amb la configuració actual.',
-    'status.unsupported': 'Format no compatible. Fes servir un fitxer .elp, .elpx, .docx, .md, .html, .tex o .zip.',
+    'status.unsupported': 'Format no compatible. Fes servir un fitxer .elp, .elpx, .docx, .md, .html, .tex, .pdf o .zip.',
     'status.unrecognizedZip': 'El .zip no conté cap projecte d’eXeLearning, cap pàgina .html ni cap document .tex.',
     'status.latexDetected': 'Document LaTeX detectat. Revisa l’estructura de pàgines i prem convertir.',
     'status.latexUnrecognized': 'Ordres de LaTeX sense conversió (se n’ha conservat el text): {list}.',
@@ -393,7 +393,7 @@ const dictionaries: Record<Locale, Record<string, string>> = {
     'panel.conversion': 'Conversion',
 
     'drop.title': 'Drop a file here or choose one',
-    'drop.help': 'Supported files: <code>.elp</code>, <code>.elpx</code>, <code>.docx</code>, <code>.md</code>, <code>.html</code>, <code>.tex</code>, and <code>.zip</code> (web page or whole site, such as the one Google Takeout exports, or LaTeX document with its images).',
+    'drop.help': 'Supported files: <code>.elp</code>, <code>.elpx</code>, <code>.docx</code>, <code>.md</code>, <code>.html</code>, <code>.tex</code>, <code>.pdf</code>, and <code>.zip</code> (web page or whole site, such as the one Google Takeout exports, or LaTeX document with its images).',
     'button.openFile': 'Open file',
     'file.none': 'No file selected.',
 
@@ -451,7 +451,7 @@ const dictionaries: Record<Locale, Record<string, string>> = {
     'status.selectFileFirst': 'Select a compatible file first.',
     'status.previewReady': 'Preview generated. If it looks good, click Save file.',
     'status.previewFirst': 'Generate preview first with the current settings.',
-    'status.unsupported': 'Unsupported format. Use a .elp, .elpx, .docx, .md, .html, .tex, or .zip file.',
+    'status.unsupported': 'Unsupported format. Use a .elp, .elpx, .docx, .md, .html, .tex, .pdf, or .zip file.',
     'status.unrecognizedZip': 'The .zip holds no eXeLearning project, .html page or .tex document.',
     'status.latexDetected': 'LaTeX document detected. Review page structure and click convert.',
     'status.latexUnrecognized': 'LaTeX commands with no conversion (their text was kept): {list}.',
