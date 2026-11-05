@@ -9,6 +9,8 @@ Categorías usadas: **Añadido**, **Cambiado**, **Corregido**, **Eliminado**.
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-11-05
+
 ### Añadido
 - La versión de terminal y los instaladores también importan PDF, con el mismo
   conversor que la web: `execonvert informe.pdf informe.elpx`. Las opciones
