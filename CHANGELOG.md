@@ -9,7 +9,12 @@ Categorías usadas: **Añadido**, **Cambiado**, **Corregido**, **Eliminado**.
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-11-05
+
 ### Corregido
+- Al importar un PDF, las llamadas de nota al pie y los exponentes quedan
+  pegados a su palabra y a la puntuación que los sigue («química¹.»). Antes
+  salían separados por espacios. Viene del conversor de EdiMarkdown 3.5.4.
 - La infografía de formatos tenía palabras sin tilde en castellano y en
   catalán («Exportacion», «version», «unico»…).
 
