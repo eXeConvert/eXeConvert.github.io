@@ -102,3 +102,34 @@ English, Spanish and Catalan messages are the ones shipped with Inno Setup.
 
 - This file is provided as a practical attribution summary for reused third-party assets.
 - It does not replace the original licenses distributed by their respective authors.
+
+## PDF importer copied from EdiMarkdown (web only)
+
+- Source project: https://github.com/edimarkdown/edimarkdown.github.io (Juan José de Haro)
+- Project license: AGPL-3.0-only
+- Exact version and commit: `app/public/pdf/source.json`
+- Copied verbatim by `scripts/sync-pdf-import.mjs` (ADR 0007).
+
+Included in this repository:
+
+- `app/public/pdf/pdf-import.js`, `pdf-worker.js`, `pdf-import.py`, `markup-safety.js`
+  - The options and preview dialog, the conversion worker and its Python script.
+- `src/pdf-import-data.json`
+  - The dialog's `pdf_*` texts in five languages, taken from EdiMarkdown's `locales/`.
+- `app/public/pdf/vendor/pdf-runtime/`
+  - Unmodified upstream files, pinned by SHA-256 in `manifest.json`, with their
+    notices in `licenses/`:
+  - Pyodide 0.29.3 (`pyodide.js`, `pyodide.asm.js`, `pyodide.asm.wasm`,
+    `python_stdlib.zip`, `pyodide-lock.json`) · MPL-2.0 · https://github.com/pyodide/pyodide
+  - PyMuPDF 1.28.2 · AGPL-3.0 · https://github.com/pymupdf/PyMuPDF
+  - PyMuPDF4LLM 1.28.2 · AGPL-3.0 · https://github.com/pymupdf/pymupdf4llm
+  - NumPy 2.2.5 · BSD-3-Clause · https://numpy.org/
+  - Pillow 11.3.0 · MIT-CMU (HPND) · https://python-pillow.org/
+  - tabulate 0.9.0 · MIT · https://github.com/astanin/python-tabulate
+  - packaging 24.2 · Apache-2.0 or BSD-2-Clause · https://github.com/pypa/packaging
+
+Loaded from jsDelivr only when OCR is applied to a scanned PDF (not stored in
+this repository):
+
+- Tesseract.js 7.0.0 and tesseract.js-core 7.0.0 · Apache-2.0 · https://github.com/naptha/tesseract.js
+- `@tesseract.js-data` language files · MIT · https://github.com/naptha/tessdata

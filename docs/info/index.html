@@ -501,6 +501,14 @@
             <h2><code>.tex</code></h2>
             <p id="info-tex-input">Documento LaTeX, o <code>.zip</code> del proyecto, con las fórmulas intactas.</p>
           </article>
+
+          <article class="card">
+            <div class="format-icon pdf" aria-hidden="true">
+              <img src="./pdf.svg" alt="" />
+            </div>
+            <h2><code>.pdf</code></h2>
+            <p id="info-pdf-input">PDF del que se recupera el contenido, con OCR para las páginas escaneadas.</p>
+          </article>
         </section>
 
         <section class="center">
@@ -576,6 +584,7 @@
           mdInput: "Markdown que se importa como proyecto <code>.elpx</code>.",
           htmlInput: "Página web, o <code>.zip</code> con la página o el sitio entero, que se importa como proyecto <code>.elpx</code>.",
           texInput: "Documento LaTeX, o <code>.zip</code> del proyecto, con las fórmulas intactas.",
+          pdfInput: "PDF del que se recupera el contenido, con OCR para las páginas escaneadas.",
           centerLine1: "Todo en local, sin subir archivos.",
           centerLine2: "Convierte, guarda y sigue trabajando desde un unico formato central.",
           docxOutput: "Exportacion desde <code>.elpx</code> a Word.",
@@ -605,6 +614,7 @@
           mdInput: "Markdown que s'importa com a projecte <code>.elpx</code>.",
           htmlInput: "Pàgina web, o <code>.zip</code> amb la pàgina o el lloc sencer, que s'importa com a projecte <code>.elpx</code>.",
           texInput: "Document LaTeX, o <code>.zip</code> del projecte, amb les fórmules intactes.",
+          pdfInput: "PDF del qual es recupera el contingut, amb OCR per a les pàgines escanejades.",
           centerLine1: "Tot en local, sense pujar fitxers.",
           centerLine2: "Converteix, desa i continua treballant des d'un unic format central.",
           docxOutput: "Exportacio des de <code>.elpx</code> a Word.",
@@ -634,6 +644,7 @@
           mdInput: "Markdown imported as an <code>.elpx</code> project.",
           htmlInput: "Web page, or a <code>.zip</code> with the page or the whole site, imported as an <code>.elpx</code> project.",
           texInput: "LaTeX document, or the project <code>.zip</code>, with formulas intact.",
+          pdfInput: "PDF whose content is recovered, with OCR for scanned pages.",
           centerLine1: "Everything stays local, with no uploads.",
           centerLine2: "Convert, save, and keep working from a single central format.",
           docxOutput: "Export from <code>.elpx</code> to Word.",
@@ -690,6 +701,7 @@
         document.getElementById("info-md-input").innerHTML = copy.mdInput;
         document.getElementById("info-html-input").innerHTML = copy.htmlInput;
         document.getElementById("info-tex-input").innerHTML = copy.texInput;
+        document.getElementById("info-pdf-input").textContent = copy.pdfInput;
         document.getElementById("info-center-line-1").textContent = copy.centerLine1;
         document.getElementById("info-center-line-2").textContent = copy.centerLine2;
         document.getElementById("info-docx-output").innerHTML = copy.docxOutput;

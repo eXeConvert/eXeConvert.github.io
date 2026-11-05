@@ -9,6 +9,8 @@ Categorías usadas: **Añadido**, **Cambiado**, **Corregido**, **Eliminado**.
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-11-05
+
 ### Añadido
 - La web importa PDF: abre el conversor de EdiMarkdown, que deja elegir las
   páginas, quitar encabezados y pies repetidos, conservar las imágenes y
