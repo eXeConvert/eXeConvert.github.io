@@ -85,6 +85,9 @@ try {
   await writeFile(dataTarget, `${JSON.stringify({ source: record, locales }, null, 2)}\n`);
   const count = (await readdir(join(target, 'vendor/pdf-runtime'))).length;
   console.log(`Importador de PDF de EdiMarkdown ${pkg.version} (${commit.slice(0, 7)}): ${FILES.length} archivos, motor con ${count} piezas (${checked} comprobadas).`);
+  // Vite registra los archivos de app/public/ al arrancar: uno nuevo no lo
+  // sirve (devuelve index.html) hasta que se reinicia.
+  console.log('Si «npm run dev» estaba en marcha, reinícialo para que sirva los archivos nuevos.');
 } finally {
   if (temporary) await rm(temporary, { recursive: true, force: true });
 }

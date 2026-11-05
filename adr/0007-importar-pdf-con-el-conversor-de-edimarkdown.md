@@ -76,6 +76,9 @@ Markdown (`stripUnsafeMarkup`) a `markup-safety.js`, sin dependencias
   `npm run sync:pdf`, seguido de `npm run test:pdf` y de una prueba en
   Chromium y Firefox con un PDF con imágenes, tablas y páginas escaneadas.
   Los archivos de `app/public/pdf/` no se editan a mano.
+  Un servidor de desarrollo (`npm run dev`) que ya estuviera en marcha no
+  sirve los archivos nuevos hasta que se reinicia: devuelve `index.html` en su
+  lugar y el diálogo no carga.
 - Lo que EdiMarkdown no reconoce tampoco llega aquí: por ejemplo, una tabla
   sin líneas verticales sale como párrafos.
 - La web sirve unos 34 MB más, que el navegador solo descarga al abrir un
